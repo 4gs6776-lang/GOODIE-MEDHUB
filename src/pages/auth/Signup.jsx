@@ -39,16 +39,16 @@ export default function Signup(){
       if (!user) throw new Error('Account created — please check your email to confirm, then log in.')
 
       const subdomain = slugify(hospitalName) + '-' + Math.random().toString(36).slice(2, 6)
-      const { data: hospitalData, error: hospitalErr } = await supabase
+      const hospitalId = crypto.randomUUID()
+
+      const { error: hospitalErr } = await supabase
         .from('hospitals')
-        .insert({ name: hospitalName, subdomain })
-        .select()
-        .single()
+        .insert({ id: hospitalId, name: hospitalName, subdomain })
       if (hospitalErr) throw hospitalErr
 
       const { error: profileErr } = await supabase
         .from('profiles')
-        .insert({ id: user.id, hospital_id: hospitalData.id, full_name: fullName, role: 'admin' })
+        .insert({ id: user.id, hospital_id: hospitalId, full_name: fullName, role: 'admin' })
       if (profileErr) throw profileErr
 
       navigate('/dashboard')
