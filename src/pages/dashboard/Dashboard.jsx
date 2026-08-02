@@ -4,28 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
-  if (profile?.role === 'owner') {
-    window.location.href = '/owner'
-    return null
-  }
 
-  if (hospital && hospital.status !== 'active') {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <div className="card" style={{ maxWidth: 420, textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginBottom: 10 }}>
-            {hospital.status === 'pending' ? 'Account pending approval' : 'Account suspended'}
-          </div>
-          <div style={{ color: 'var(--muted)', fontSize: 13.5, marginBottom: 20 }}>
-            {hospital.status === 'pending'
-              ? "Your hospital's account is being reviewed. You'll be able to log in fully once it's approved."
-              : 'Please contact the platform administrator for help.'}
-          </div>
-          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
-        </div>
-      </div>
-    )
-  }
   const [patients, setPatients] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -131,6 +110,29 @@ export default function Dashboard(){
     showToast(`${pending.patient.full_name} restored`)
   }
 
+  if (profile?.role === 'owner') {
+    window.location.href = '/owner'
+    return null
+  }
+
+  if (hospital && hospital.status !== 'active') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div className="card" style={{ maxWidth: 420, textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginBottom: 10 }}>
+            {hospital.status === 'pending' ? 'Account pending approval' : 'Account suspended'}
+          </div>
+          <div style={{ color: 'var(--muted)', fontSize: 13.5, marginBottom: 20 }}>
+            {hospital.status === 'pending'
+              ? "Your hospital's account is being reviewed. You'll be able to log in fully once it's approved."
+              : 'Please contact the platform administrator for help.'}
+          </div>
+          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: '100vh', padding: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
@@ -188,3 +190,75 @@ export default function Dashboard(){
                     </span>
                   </td>
                   <td style={{ padding: 12 }}>
+                    <button
+                      onClick={() => handleDelete(p)}
+                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
+                      title="Delete"
+                    >✕</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>Register Patient</div>
+            <form onSubmit={handleAdd}>
+              <div className="field">
+                <label>Full Name</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
+              </div>
+              <div className="field">
+                <label>Age</label>
+                <input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 34" />
+              </div>
+              <div className="field">
+                <label>Status</label>
+                <select value={status} onChange={e => setStatus(e.target.value)}>
+                  <option value="stable">Stable</option>
+                  <option value="review">In Review</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Patient'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {pending ? (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--bg-elevated)', border: '1px solid var(--danger)', color: 'var(--ivory)',
+          padding: '12px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 60,
+          display: 'flex', alignItems: 'center', gap: 14, maxWidth: '90vw',
+        }}>
+          <span>{pending.patient.full_name} removed ({pending.secondsLeft}s)</span>
+          <button
+            onClick={handleUndo}
+            style={{
+              background: 'var(--teal)', color: '#00251F', border: 'none', borderRadius: 7,
+              padding: '6px 12px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            Undo
+          </button>
+        </div>
+      ) : toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
+          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
+        }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
