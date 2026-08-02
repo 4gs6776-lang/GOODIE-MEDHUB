@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabaseClient'
 
 export default function Login(){
@@ -47,12 +47,9 @@ export default function Login(){
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Your password" />
             </div>
             <button className="btn btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Logging in…' : 'Log In'}
+              {loading ? 'Logging in…' : 'Sign In'}
             </button>
           </form>
-        </div>
-        <div className="auth-switch">
-          New hospital? <Link to="/signup">Register here</Link>
         </div>
       </div>
     </div>
