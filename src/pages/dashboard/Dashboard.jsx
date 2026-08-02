@@ -4,6 +4,28 @@ import { supabase } from '../../lib/supabaseClient'
 
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
+  if (profile?.role === 'owner') {
+    window.location.href = '/owner'
+    return null
+  }
+
+  if (hospital && hospital.status !== 'active') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div className="card" style={{ maxWidth: 420, textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginBottom: 10 }}>
+            {hospital.status === 'pending' ? 'Account pending approval' : 'Account suspended'}
+          </div>
+          <div style={{ color: 'var(--muted)', fontSize: 13.5, marginBottom: 20 }}>
+            {hospital.status === 'pending'
+              ? "Your hospital's account is being reviewed. You'll be able to log in fully once it's approved."
+              : 'Please contact the platform administrator for help.'}
+          </div>
+          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
+        </div>
+      </div>
+    )
+  }
   const [patients, setPatients] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
