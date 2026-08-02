@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 
@@ -12,6 +12,10 @@ export default function Dashboard(){
   const [status, setStatus] = useState('stable')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
+
+  const [pending, setPending] = useState(null)
+  const pendingTimeoutRef = useRef(null)
+  const pendingIntervalRef = useRef(null)
 
   async function loadPatients(){
     setLoading(true)
@@ -60,15 +64,49 @@ export default function Dashboard(){
     }
   }
 
-  async function handleDelete(id, patientName){
+  function handleDelete(patient){
+    if (pending) {
+      commitPendingDelete(pending.patient.id)
+    }
+
+    setPatients(prev => prev.filter(p => p.id !== patient.id))
+
+    let secondsLeft = 5
+    setPending({ patient, secondsLeft })
+
+    pendingIntervalRef.current = setInterval(() => {
+      secondsLeft -= 1
+      setPending(prev => prev ? { ...prev, secondsLeft } : prev)
+      if (secondsLeft <= 0) {
+        clearInterval(pendingIntervalRef.current)
+      }
+    }, 1000)
+
+    pendingTimeoutRef.current = setTimeout(() => {
+      commitPendingDelete(patient.id)
+    }, 5000)
+  }
+
+  async function commitPendingDelete(patientId){
+    clearTimeout(pendingTimeoutRef.current)
+    clearInterval(pendingIntervalRef.current)
+    setPending(null)
     try {
-      const { error } = await supabase.from('patients').delete().eq('id', id)
+      const { error } = await supabase.from('patients').delete().eq('id', patientId)
       if (error) throw error
-      showToast(`${patientName} removed`)
-      loadPatients()
     } catch (err) {
       showToast(err.message || 'Could not delete patient')
+      loadPatients()
     }
+  }
+
+  function handleUndo(){
+    if (!pending) return
+    clearTimeout(pendingTimeoutRef.current)
+    clearInterval(pendingIntervalRef.current)
+    setPatients(prev => [pending.patient, ...prev])
+    setPending(null)
+    showToast(`${pending.patient.full_name} restored`)
   }
 
   return (
@@ -128,57 +166,3 @@ export default function Dashboard(){
                     </span>
                   </td>
                   <td style={{ padding: 12 }}>
-                    <button
-                      onClick={() => handleDelete(p.id, p.full_name)}
-                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                      title="Delete"
-                    >✕</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>Register Patient</div>
-            <form onSubmit={handleAdd}>
-              <div className="field">
-                <label>Full Name</label>
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
-              </div>
-              <div className="field">
-                <label>Age</label>
-                <input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 34" />
-              </div>
-              <div className="field">
-                <label>Status</label>
-                <select value={status} onChange={e => setStatus(e.target.value)}>
-                  <option value="stable">Stable</option>
-                  <option value="review">In Review</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Patient'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
-        }}>
-          {toast}
-        </div>
-      )}
-    </div>
-  )
-}
