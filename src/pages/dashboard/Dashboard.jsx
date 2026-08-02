@@ -27,34 +27,47 @@ export default function Dashboard(){
 
   function showToast(msg){
     setToast(msg)
-    setTimeout(() => setToast(null), 2200)
+    setTimeout(() => setToast(null), 3000)
   }
 
   async function handleAdd(e){
     e.preventDefault()
     if (!name || !age) return
+
+    if (!hospital || !profile) {
+      showToast('Still loading your account — wait a moment and try again')
+      return
+    }
+
     setSaving(true)
-    const { error } = await supabase.from('patients').insert({
-      hospital_id: hospital.id,
-      full_name: name,
-      age: parseInt(age, 10),
-      status,
-      created_by: profile.id,
-    })
-    setSaving(false)
-    if (!error) {
+    try {
+      const { error } = await supabase.from('patients').insert({
+        hospital_id: hospital.id,
+        full_name: name,
+        age: parseInt(age, 10),
+        status,
+        created_by: profile.id,
+      })
+      if (error) throw error
       setShowModal(false)
       setName(''); setAge(''); setStatus('stable')
       showToast(`${name} added`)
       loadPatients()
+    } catch (err) {
+      showToast(err.message || 'Could not save patient')
+    } finally {
+      setSaving(false)
     }
   }
 
   async function handleDelete(id, patientName){
-    const { error } = await supabase.from('patients').delete().eq('id', id)
-    if (!error) {
+    try {
+      const { error } = await supabase.from('patients').delete().eq('id', id)
+      if (error) throw error
       showToast(`${patientName} removed`)
       loadPatients()
+    } catch (err) {
+      showToast(err.message || 'Could not delete patient')
     }
   }
 
@@ -63,7 +76,7 @@ export default function Dashboard(){
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--gold)', fontWeight: 700, marginBottom: 4 }}>
-            {hospital ? hospital.name : '—'}
+            {hospital ? hospital.name : 'Loading hospital…'}
           </div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 500 }}>
             Welcome, {profile?.full_name || '…'}
@@ -161,7 +174,7 @@ export default function Dashboard(){
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60,
+          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
         }}>
           {toast}
         </div>
