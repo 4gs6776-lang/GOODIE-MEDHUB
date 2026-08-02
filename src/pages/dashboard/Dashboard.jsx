@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
+import Billing from './Billing'
 
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
