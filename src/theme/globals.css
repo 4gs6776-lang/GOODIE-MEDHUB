@@ -1,11 +1,11 @@
 :root{
   --bg:#00010D;
   --bg-elevated:#010A28;
- --bg-card:#00050F;
-  --line:rgba(34,211,238,0.14);
+  --bg-card:#00050F;
+  --line:rgba(142,240,153,0.14);
   --line-soft:rgba(255,255,255,0.06);
-  --teal:#22D3EE;
-  --teal-soft:rgba(34,211,238,0.12);
+  --teal:#8EF099;
+  --teal-soft:rgba(142,240,153,0.12);
   --gold:#C9A961;
   --violet:#8B7CF6;
   --blue:#4C8DFF;
