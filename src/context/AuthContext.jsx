@@ -29,6 +29,11 @@ export function AuthProvider({ children }){
     }
     setProfile(profileData)
 
+    if (!profileData.hospital_id) {
+      setHospital(null)
+      return
+    }
+
     const { data: hospitalData } = await supabase
       .from('hospitals')
       .select('*')
@@ -72,8 +77,10 @@ export function AuthProvider({ children }){
     }
   }
 
+  const isOwner = profile?.role === 'owner'
+
   return (
-    <AuthContext.Provider value={{ session, profile, hospital, loading, signOut, reload }}>
+    <AuthContext.Provider value={{ session, profile, hospital, loading, signOut, reload, isOwner }}>
       {children}
     </AuthContext.Provider>
   )
