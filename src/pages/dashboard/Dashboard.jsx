@@ -3,11 +3,12 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 import Staff from './Staff'
+import Appointments from './Appointments'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
   { key: 'patients', label: 'Patient Management', section: 'Main' },
-  { key: 'soon', label: 'Appointments', section: 'Main' },
+  { key: 'appointments', label: 'Appointments', section: 'Main' },
   { key: 'billing', label: 'Billing & Invoices', section: 'Main' },
   { key: 'soon', label: 'Pharmacy', section: 'Main' },
   { key: 'soon', label: 'Laboratory', section: 'Main' },
@@ -371,6 +372,8 @@ export default function Dashboard(){
           {tab === 'billing' && <Billing />}
 
           {tab === 'staff' && <Staff />}
+
+          {tab === 'appointments' && <Appointments />}
 
           {tab === 'soon' && (
             <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
