@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 
-const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff`
+const FN_CREATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff`
+const FN_UPDATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-staff-login`
 
 const ROLE_LABELS = { admin: 'Admin', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', staff: 'Staff' }
 
@@ -10,15 +11,21 @@ export default function Staff(){
   const { profile, hospital, session } = useAuth()
   const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
 
+  const [showAddModal, setShowAddModal] = useState(false)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState('nurse')
   const [creating, setCreating] = useState(false)
   const [formError, setFormError] = useState('')
+
+  const [editTarget, setEditTarget] = useState(null)
+  const [editEmail, setEditEmail] = useState('')
+  const [editPassword, setEditPassword] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editError, setEditError] = useState('')
 
   async function loadStaff(){
     setLoading(true)
@@ -48,10 +55,9 @@ export default function Staff(){
       setFormError('Password must be at least 6 characters.')
       return
     }
-
     setCreating(true)
     try {
-      const res = await fetch(FN_URL, {
+      const res = await fetch(FN_CREATE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({ fullName, email, password, role }),
@@ -59,7 +65,7 @@ export default function Staff(){
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Could not add staff member')
 
-      setShowModal(false)
+      setShowAddModal(false)
       setFullName(''); setEmail(''); setPassword(''); setRole('nurse')
       showToast(`${fullName} added`)
       loadStaff()
@@ -67,6 +73,43 @@ export default function Staff(){
       setFormError(err.message)
     } finally {
       setCreating(false)
+    }
+  }
+
+  function openEdit(member){
+    setEditTarget(member)
+    setEditEmail('')
+    setEditPassword('')
+    setEditError('')
+  }
+
+  async function handleEditSubmit(e){
+    e.preventDefault()
+    setEditError('')
+    if (!editEmail && !editPassword) {
+      setEditError('Enter a new email and/or new password.')
+      return
+    }
+    if (editPassword && editPassword.length < 6) {
+      setEditError('Password must be at least 6 characters.')
+      return
+    }
+    setEditing(true)
+    try {
+      const res = await fetch(FN_UPDATE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ staffId: editTarget.id, newEmail: editEmail || undefined, newPassword: editPassword || undefined }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Could not update login')
+
+      showToast(`${editTarget.full_name}'s login updated`)
+      setEditTarget(null)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setEditing(false)
     }
   }
 
@@ -92,7 +135,7 @@ export default function Staff(){
             <div className="dash-panel-sub">{staff.length} member{staff.length !== 1 ? 's' : ''} at {hospital?.name || 'your hospital'}</div>
           </div>
           {isAdmin && (
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Staff</button>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowAddModal(true)}>+ Add Staff</button>
           )}
         </div>
 
@@ -113,12 +156,22 @@ export default function Staff(){
                     <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{ROLE_LABELS[member.role] || member.role}</div>
                   </div>
                 </div>
-                {isAdmin && member.id !== profile?.id && (
-                  <button
-                    onClick={() => handleDelete(member)}
-                    style={{ background: 'var(--danger-soft)', border: '1px solid rgba(225,104,94,0.35)', color: 'var(--danger)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                    title="Remove"
-                  >✕</button>
+                {isAdmin && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => openEdit(member)}
+                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}
+                    >
+                      Edit Login
+                    </button>
+                    {member.id !== profile?.id && (
+                      <button
+                        onClick={() => handleDelete(member)}
+                        style={{ background: 'var(--danger-soft)', border: '1px solid rgba(225,104,94,0.35)', color: 'var(--danger)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
+                        title="Remove"
+                      >✕</button>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
@@ -126,7 +179,7 @@ export default function Staff(){
         )}
       </div>
 
-      {showModal && (
+      {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div className="card" style={{ width: '100%', maxWidth: 400 }}>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>Add Staff Member</div>
@@ -154,8 +207,33 @@ export default function Staff(){
                 </select>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowAddModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={creating}>{creating ? 'Creating…' : 'Add Staff'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 4 }}>Edit Login</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 18 }}>{editTarget.full_name}</div>
+            {editError && <div className="error-box">{editError}</div>}
+            <form onSubmit={handleEditSubmit}>
+              <div className="field">
+                <label>New Email (optional)</label>
+                <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="Leave blank to keep current email" />
+              </div>
+              <div className="field">
+                <label>New Password (optional)</label>
+                <input type="text" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="Leave blank to keep current password" />
+                <div className="field-hint">Useful if they forgot it — set a new one and share it with them.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setEditTarget(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={editing}>{editing ? 'Saving…' : 'Save Changes'}</button>
               </div>
             </form>
           </div>
