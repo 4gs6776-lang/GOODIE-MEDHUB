@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
+import Staff from './Staff'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
@@ -10,7 +11,7 @@ const NAV_ITEMS = [
   { key: 'billing', label: 'Billing & Invoices', section: 'Main' },
   { key: 'soon', label: 'Pharmacy', section: 'Main' },
   { key: 'soon', label: 'Laboratory', section: 'Main' },
-  { key: 'soon', label: 'Staff', section: 'Operations' },
+  { key: 'staff', label: 'Staff', section: 'Operations' },
   { key: 'soon', label: 'Reports', section: 'Operations' },
   { key: 'soon', label: 'Settings', section: 'Operations' },
 ]
@@ -368,6 +369,8 @@ export default function Dashboard(){
           )}
 
           {tab === 'billing' && <Billing />}
+
+          {tab === 'staff' && <Staff />}
 
           {tab === 'soon' && (
             <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
