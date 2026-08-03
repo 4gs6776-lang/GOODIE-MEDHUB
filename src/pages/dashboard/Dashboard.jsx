@@ -17,6 +17,8 @@ const NAV_ITEMS = [
   { key: 'soon', label: 'Settings', section: 'Operations' },
 ]
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
 
@@ -36,17 +38,63 @@ export default function Dashboard(){
   const pendingTimeoutRef = useRef(null)
   const pendingIntervalRef = useRef(null)
 
+  // Overview summary data (real, pulled from the other modules)
+  const [todayApptCount, setTodayApptCount] = useState(0)
+  const [upcomingApptCount, setUpcomingApptCount] = useState(0)
+  const [revenueCollected, setRevenueCollected] = useState(0)
+  const [revenueOutstanding, setRevenueOutstanding] = useState(0)
+  const [weeklyCounts, setWeeklyCounts] = useState([0, 0, 0, 0, 0, 0, 0])
+
   async function loadPatients(){
     setLoading(true)
     const { data, error } = await supabase
       .from('patients')
       .select('*')
       .order('created_at', { ascending: false })
-    if (!error) setPatients(data || [])
+    if (!error) {
+      setPatients(data || [])
+      computeWeeklyCounts(data || [])
+    }
     setLoading(false)
   }
 
-  useEffect(() => { loadPatients() }, [])
+  function computeWeeklyCounts(patientList){
+    const counts = [0, 0, 0, 0, 0, 0, 0]
+    const now = new Date()
+    const sevenDaysAgo = new Date(now)
+    sevenDaysAgo.setDate(now.getDate() - 6)
+    sevenDaysAgo.setHours(0, 0, 0, 0)
+
+    patientList.forEach(p => {
+      const created = new Date(p.created_at)
+      if (created >= sevenDaysAgo) {
+        counts[created.getDay()] += 1
+      }
+    })
+    setWeeklyCounts(counts)
+  }
+
+  async function loadOverviewSummary(){
+    const now = new Date()
+    const todayStr = now.toDateString()
+
+    const { data: apptData } = await supabase.from('appointments').select('appointment_time, status')
+    if (apptData) {
+      setTodayApptCount(apptData.filter(a => new Date(a.appointment_time).toDateString() === todayStr).length)
+      setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
+    }
+
+    const { data: invData } = await supabase.from('invoices').select('amount, status')
+    if (invData) {
+      setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum, i) => sum + Number(i.amount), 0))
+      setRevenueOutstanding(invData.filter(i => i.status === 'unpaid').reduce((sum, i) => sum + Number(i.amount), 0))
+    }
+  }
+
+  useEffect(() => {
+    loadPatients()
+    loadOverviewSummary()
+  }, [])
 
   function showToast(msg){
     setToast(msg)
@@ -136,6 +184,10 @@ export default function Dashboard(){
   }
 
   const inReviewCount = patients.filter(p => p.status === 'review').length
+  const maxWeekly = Math.max(...weeklyCounts, 1)
+  function formatMoney(n){
+    return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 0 })
+  }
   let currentSection = null
 
   return (
@@ -184,7 +236,9 @@ export default function Dashboard(){
           <div className="dash-burger" onClick={() => setDrawerOpen(true)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
-          <div className="dash-hospital-name">{tab === 'patients' ? 'Patient Management' : 'Dashboard'}</div>
+          <div className="dash-hospital-name">
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff' }[tab] || 'Dashboard'}
+          </div>
         </div>
 
         <div className="dash-content">
@@ -212,13 +266,13 @@ export default function Dashboard(){
                   </div>
                 </div>
                 <div className="dash-stat-card">
-                  <div className="dash-stat-icon" style={{ background: 'rgba(76,141,255,0.14)', color: 'var(--blue)' }}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 18h18"/></svg>
+                  <div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>
                   </div>
                   <div>
-                    <div className="dash-stat-label">Beds Occupied</div>
-                    <div className="dash-stat-value">18 / 24</div>
-                    <div className="dash-stat-delta">Sample data</div>
+                    <div className="dash-stat-label">Today's Appointments</div>
+                    <div className="dash-stat-value">{todayApptCount}</div>
+                    <div className="dash-stat-delta">{upcomingApptCount} upcoming</div>
                   </div>
                 </div>
                 <div className="dash-stat-card">
@@ -226,9 +280,11 @@ export default function Dashboard(){
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                   </div>
                   <div>
-                    <div className="dash-stat-label">Sync Status</div>
-                    <div className="dash-stat-value" style={{ fontSize: 16 }}>Online</div>
-                    <div className="dash-stat-delta">All records saved</div>
+                    <div className="dash-stat-label">Revenue Collected</div>
+                    <div className="dash-stat-value" style={{ fontSize: 17 }}>{formatMoney(revenueCollected)}</div>
+                    <div className="dash-stat-delta" style={{ color: revenueOutstanding > 0 ? 'var(--gold)' : 'var(--teal)' }}>
+                      {formatMoney(revenueOutstanding)} outstanding
+                    </div>
                   </div>
                 </div>
               </div>
@@ -237,17 +293,23 @@ export default function Dashboard(){
                 <div className="dash-panel">
                   <div className="dash-panel-head">
                     <div>
-                      <div className="dash-panel-title">Patient Overview</div>
-                      <div className="dash-panel-sub">Sample trend — connect appointments data later</div>
+                      <div className="dash-panel-title">Patients Registered — Last 7 Days</div>
+                      <div className="dash-panel-sub">Live data from your patient records</div>
                     </div>
                   </div>
-                  <svg viewBox="0 0 500 160" style={{ width: '100%', display: 'block' }}>
-                    <line x1="0" y1="20" x2="500" y2="20" stroke="rgba(255,255,255,0.05)"/>
-                    <line x1="0" y1="60" x2="500" y2="60" stroke="rgba(255,255,255,0.05)"/>
-                    <line x1="0" y1="100" x2="500" y2="100" stroke="rgba(255,255,255,0.05)"/>
-                    <path d="M0,100 L100,50 L200,90 L300,40 L400,80 L500,10" fill="none" stroke="var(--teal)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M0,100 L100,50 L200,90 L300,40 L400,80 L500,10 L500,150 L0,150 Z" fill="var(--teal)" opacity="0.08"/>
-                  </svg>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 100 }}>
+                    {weeklyCounts.map((count, i) => (
+                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{count > 0 ? count : ''}</div>
+                        <div style={{
+                          width: '100%', borderRadius: 4,
+                          height: `${Math.max((count / maxWeekly) * 70, count > 0 ? 8 : 2)}px`,
+                          background: count > 0 ? 'var(--teal)' : 'var(--line-soft)',
+                        }} />
+                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>{DAY_LABELS[i]}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="dash-panel">
@@ -287,13 +349,29 @@ export default function Dashboard(){
                 </div>
 
                 <div className="dash-panel">
-                  <div className="dash-panel-head"><div className="dash-panel-title" style={{ fontSize: 14.5 }}>Hospital Bed Overview</div></div>
-                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
-                    <div><div style={{ color: 'var(--muted)', marginBottom: 3 }}>Total</div><div className="dash-stat-value" style={{ fontSize: 16 }}>120</div></div>
-                    <div><div style={{ color: 'var(--muted)', marginBottom: 3 }}>Occupied</div><div className="dash-stat-value" style={{ fontSize: 16 }}>72</div></div>
-                    <div><div style={{ color: 'var(--muted)', marginBottom: 3 }}>Available</div><div className="dash-stat-value" style={{ fontSize: 16 }}>48</div></div>
+                  <div className="dash-panel-head"><div className="dash-panel-title" style={{ fontSize: 14.5 }}>Billing Summary</div></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}>
+                        <span style={{ color: 'var(--muted)' }}>Collected</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal)' }}>{formatMoney(revenueCollected)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                        <span style={{ color: 'var(--muted)' }}>Outstanding</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--gold)' }}>{formatMoney(revenueOutstanding)}</span>
+                      </div>
+                    </div>
+                    <div className="dash-bar-track">
+                      <div className="dash-bar-fill" style={{
+                        width: (revenueCollected + revenueOutstanding) > 0
+                          ? `${(revenueCollected / (revenueCollected + revenueOutstanding)) * 100}%`
+                          : '0%'
+                      }} />
+                    </div>
+                    <div className="dash-qa-item" style={{ marginTop: 2 }} onClick={() => setTab('billing')}>
+                      <div className="dash-qa-label" style={{ color: 'var(--teal)' }}>View all invoices →</div>
+                    </div>
                   </div>
-                  <div className="dash-bar-track"><div className="dash-bar-fill" style={{ width: '60%' }} /></div>
                 </div>
 
                 <div className="dash-panel">
@@ -305,11 +383,23 @@ export default function Dashboard(){
                       </div>
                       <div className="dash-qa-label">New Patient</div>
                     </div>
-                    <div className="dash-qa-item" onClick={() => setTab('patients')}>
-                      <div className="dash-qa-icon" style={{ background: 'rgba(76,141,255,0.14)', color: 'var(--blue)' }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.3 7-6.3s7 2.8 7 6.3"/></svg>
+                    <div className="dash-qa-item" onClick={() => setTab('appointments')}>
+                      <div className="dash-qa-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg>
                       </div>
-                      <div className="dash-qa-label">View Patients</div>
+                      <div className="dash-qa-label">New Appointment</div>
+                    </div>
+                    <div className="dash-qa-item" onClick={() => setTab('billing')}>
+                      <div className="dash-qa-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>
+                      </div>
+                      <div className="dash-qa-label">New Invoice</div>
+                    </div>
+                    <div className="dash-qa-item" onClick={() => setTab('staff')}>
+                      <div className="dash-qa-icon" style={{ background: 'rgba(76,141,255,0.14)', color: 'var(--blue)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="7" r="3.5"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>
+                      </div>
+                      <div className="dash-qa-label">Manage Staff</div>
                     </div>
                   </div>
                 </div>
