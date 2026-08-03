@@ -3,8 +3,23 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 
+const NAV_ITEMS = [
+  { key: 'overview', label: 'Dashboard', section: 'Main' },
+  { key: 'patients', label: 'Patient Management', section: 'Main' },
+  { key: 'soon', label: 'Appointments', section: 'Main' },
+  { key: 'billing', label: 'Billing & Invoices', section: 'Main' },
+  { key: 'soon', label: 'Pharmacy', section: 'Main' },
+  { key: 'soon', label: 'Laboratory', section: 'Main' },
+  { key: 'soon', label: 'Staff', section: 'Operations' },
+  { key: 'soon', label: 'Reports', section: 'Operations' },
+  { key: 'soon', label: 'Settings', section: 'Operations' },
+]
+
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
+
+  const [tab, setTab] = useState('overview')
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const [patients, setPatients] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,20 +54,14 @@ export default function Dashboard(){
   async function handleAdd(e){
     e.preventDefault()
     if (!name || !age) return
-
     if (!hospital || !profile) {
       showToast('Still loading your account — wait a moment and try again')
       return
     }
-
     setSaving(true)
     try {
       const { error } = await supabase.from('patients').insert({
-        hospital_id: hospital.id,
-        full_name: name,
-        age: parseInt(age, 10),
-        status,
-        created_by: profile.id,
+        hospital_id: hospital.id, full_name: name, age: parseInt(age, 10), status, created_by: profile.id,
       })
       if (error) throw error
       setShowModal(false)
@@ -67,26 +76,16 @@ export default function Dashboard(){
   }
 
   function handleDelete(patient){
-    if (pending) {
-      commitPendingDelete(pending.patient.id)
-    }
-
+    if (pending) commitPendingDelete(pending.patient.id)
     setPatients(prev => prev.filter(p => p.id !== patient.id))
-
     let secondsLeft = 5
     setPending({ patient, secondsLeft })
-
     pendingIntervalRef.current = setInterval(() => {
       secondsLeft -= 1
       setPending(prev => prev ? { ...prev, secondsLeft } : prev)
-      if (secondsLeft <= 0) {
-        clearInterval(pendingIntervalRef.current)
-      }
+      if (secondsLeft <= 0) clearInterval(pendingIntervalRef.current)
     }, 1000)
-
-    pendingTimeoutRef.current = setTimeout(() => {
-      commitPendingDelete(patient.id)
-    }, 5000)
+    pendingTimeoutRef.current = setTimeout(() => commitPendingDelete(patient.id), 5000)
   }
 
   async function commitPendingDelete(patientId){
@@ -134,75 +133,250 @@ export default function Dashboard(){
     )
   }
 
-  return (
-    <div style={{ minHeight: '100vh', padding: '32px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--gold)', fontWeight: 700, marginBottom: 4 }}>
-            {hospital ? hospital.name : 'Loading hospital…'}
-          </div>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 500 }}>
-            Welcome, {profile?.full_name || '…'}
-          </h1>
-        </div>
-        <button className="btn btn-ghost" style={{ width: 'auto' }} onClick={signOut}>Sign Out</button>
-      </div>
+  const inReviewCount = patients.filter(p => p.status === 'review').length
+  let currentSection = null
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+  return (
+    <div className="dash-shell">
+      <div className={`dash-overlay ${drawerOpen ? 'show' : ''}`} onClick={() => setDrawerOpen(false)} />
+
+      <aside className={`dash-sidebar ${drawerOpen ? 'open' : ''}`}>
+        <div className="dash-brand">
+          <div className="dash-brand-mark">G</div>
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18 }}>Patients</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-              Only {hospital?.name || 'your hospital'} can see this list — enforced by the database
+            <div className="dash-brand-name">{hospital?.name || 'Loading…'}</div>
+            <div className="dash-brand-sub">G-MedHub</div>
+          </div>
+        </div>
+
+        {NAV_ITEMS.map((item, i) => {
+          const showLabel = item.section !== currentSection
+          currentSection = item.section
+          return (
+            <div key={i}>
+              {showLabel && <div className="dash-nav-label">{item.section}</div>}
+              <div
+                className={`dash-nav-item ${tab === item.key && item.key !== 'soon' ? 'active' : ''}`}
+                onClick={() => { setTab(item.key); setDrawerOpen(false) }}
+              >
+                {item.label}
+              </div>
+            </div>
+          )
+        })}
+
+        <div className="dash-foot">
+          <div className="dash-foot-user">
+            <div className="dash-foot-avatar" />
+            <div>
+              <div className="dash-foot-name">{profile?.full_name}</div>
+              <div className="dash-foot-role">Admin</div>
             </div>
           </div>
-          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
-            + Add Patient
-          </button>
+          <button className="btn btn-ghost" style={{ marginTop: 12 }} onClick={signOut}>Sign Out</button>
+        </div>
+      </aside>
+
+      <main style={{ flex: 1, minWidth: 0 }}>
+        <div className="dash-topbar">
+          <div className="dash-burger" onClick={() => setDrawerOpen(true)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+          </div>
+          <div className="dash-hospital-name">{tab === 'patients' ? 'Patient Management' : 'Dashboard'}</div>
         </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : patients.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
-            No patients yet. Add your first one above.
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Name', 'Age', 'Status', ''].map(h => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {patients.map(p => (
-                <tr key={p.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                  <td style={{ padding: 12, fontWeight: 700 }}>{p.full_name}</td>
-                  <td style={{ padding: 12 }}>{p.age}</td>
-                  <td style={{ padding: 12 }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
-                      background: p.status === 'stable' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
-                      color: p.status === 'stable' ? 'var(--teal)' : 'var(--gold)',
-                    }}>
-                      {p.status === 'stable' ? 'Stable' : 'In Review'}
-                    </span>
-                  </td>
-                  <td style={{ padding: 12 }}>
-                    <button
-                      onClick={() => handleDelete(p)}
-                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                      title="Delete"
-                    >✕</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+        <div className="dash-content">
+          {tab === 'overview' && (
+            <>
+              <div className="dash-stats">
+                <div className="dash-stat-card">
+                  <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.3 7-6.3s7 2.8 7 6.3"/></svg>
+                  </div>
+                  <div>
+                    <div className="dash-stat-label">Total Patients</div>
+                    <div className="dash-stat-value">{patients.length}</div>
+                    <div className="dash-stat-delta">Live count</div>
+                  </div>
+                </div>
+                <div className="dash-stat-card">
+                  <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+                  </div>
+                  <div>
+                    <div className="dash-stat-label">In Review</div>
+                    <div className="dash-stat-value">{inReviewCount}</div>
+                    <div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>Needs attention</div>
+                  </div>
+                </div>
+                <div className="dash-stat-card">
+                  <div className="dash-stat-icon" style={{ background: 'rgba(76,141,255,0.14)', color: 'var(--blue)' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 18h18"/></svg>
+                  </div>
+                  <div>
+                    <div className="dash-stat-label">Beds Occupied</div>
+                    <div className="dash-stat-value">18 / 24</div>
+                    <div className="dash-stat-delta">Sample data</div>
+                  </div>
+                </div>
+                <div className="dash-stat-card">
+                  <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  </div>
+                  <div>
+                    <div className="dash-stat-label">Sync Status</div>
+                    <div className="dash-stat-value" style={{ fontSize: 16 }}>Online</div>
+                    <div className="dash-stat-delta">All records saved</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="dash-row dash-row-2">
+                <div className="dash-panel">
+                  <div className="dash-panel-head">
+                    <div>
+                      <div className="dash-panel-title">Patient Overview</div>
+                      <div className="dash-panel-sub">Sample trend — connect appointments data later</div>
+                    </div>
+                  </div>
+                  <svg viewBox="0 0 500 160" style={{ width: '100%', display: 'block' }}>
+                    <line x1="0" y1="20" x2="500" y2="20" stroke="rgba(255,255,255,0.05)"/>
+                    <line x1="0" y1="60" x2="500" y2="60" stroke="rgba(255,255,255,0.05)"/>
+                    <line x1="0" y1="100" x2="500" y2="100" stroke="rgba(255,255,255,0.05)"/>
+                    <path d="M0,100 L100,50 L200,90 L300,40 L400,80 L500,10" fill="none" stroke="var(--teal)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M0,100 L100,50 L200,90 L300,40 L400,80 L500,10 L500,150 L0,150 Z" fill="var(--teal)" opacity="0.08"/>
+                  </svg>
+                </div>
+
+                <div className="dash-panel">
+                  <div className="dash-panel-head"><div className="dash-panel-title">Patient Status</div></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+                    <div className="dash-donut-box">
+                      <div style={{
+                        width: '100%', height: '100%', borderRadius: '50%',
+                        background: patients.length === 0
+                          ? 'conic-gradient(var(--line-soft) 0% 100%)'
+                          : `conic-gradient(var(--teal) 0% ${100 - (inReviewCount / patients.length * 100)}%, var(--gold) ${100 - (inReviewCount / patients.length * 100)}% 100%)`
+                      }} />
+                      <div className="dash-donut-center" style={{ background: 'radial-gradient(circle, var(--bg-card) 60%, transparent 61%)' }}>
+                        <b>{patients.length}</b><span>Total</span>
+                      </div>
+                    </div>
+                    <ul className="dash-legend" style={{ flex: 1 }}>
+                      <li><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: 'var(--teal)' }} />Stable</span><span className="dash-legend-val">{patients.length - inReviewCount}</span></li>
+                      <li><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: 'var(--gold)' }} />In Review</span><span className="dash-legend-val">{inReviewCount}</span></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="dash-row dash-row-3">
+                <div className="dash-panel">
+                  <div className="dash-panel-head"><div className="dash-panel-title" style={{ fontSize: 14.5 }}>Recent Patients</div></div>
+                  {patients.slice(0, 4).map(p => (
+                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>
+                      <span>{p.full_name}</span>
+                      <span style={{ color: p.status === 'stable' ? 'var(--teal)' : 'var(--gold)', fontWeight: 700, fontSize: 11.5 }}>
+                        {p.status === 'stable' ? 'Stable' : 'In Review'}
+                      </span>
+                    </div>
+                  ))}
+                  {patients.length === 0 && <div style={{ color: 'var(--muted)', fontSize: 12.5, padding: '10px 0' }}>No patients yet</div>}
+                </div>
+
+                <div className="dash-panel">
+                  <div className="dash-panel-head"><div className="dash-panel-title" style={{ fontSize: 14.5 }}>Hospital Bed Overview</div></div>
+                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
+                    <div><div style={{ color: 'var(--muted)', marginBottom: 3 }}>Total</div><div className="dash-stat-value" style={{ fontSize: 16 }}>120</div></div>
+                    <div><div style={{ color: 'var(--muted)', marginBottom: 3 }}>Occupied</div><div className="dash-stat-value" style={{ fontSize: 16 }}>72</div></div>
+                    <div><div style={{ color: 'var(--muted)', marginBottom: 3 }}>Available</div><div className="dash-stat-value" style={{ fontSize: 16 }}>48</div></div>
+                  </div>
+                  <div className="dash-bar-track"><div className="dash-bar-fill" style={{ width: '60%' }} /></div>
+                </div>
+
+                <div className="dash-panel">
+                  <div className="dash-panel-head"><div className="dash-panel-title" style={{ fontSize: 14.5 }}>Quick Actions</div></div>
+                  <div className="dash-qa-grid">
+                    <div className="dash-qa-item" onClick={() => { setTab('patients'); setTimeout(() => setShowModal(true), 100) }}>
+                      <div className="dash-qa-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="7" r="3.5"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/><path d="M18 8v6M15 11h6"/></svg>
+                      </div>
+                      <div className="dash-qa-label">New Patient</div>
+                    </div>
+                    <div className="dash-qa-item" onClick={() => setTab('patients')}>
+                      <div className="dash-qa-icon" style={{ background: 'rgba(76,141,255,0.14)', color: 'var(--blue)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.3 7-6.3s7 2.8 7 6.3"/></svg>
+                      </div>
+                      <div className="dash-qa-label">View Patients</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === 'patients' && (
+            <div className="dash-panel">
+              <div className="dash-panel-head">
+                <div>
+                  <div className="dash-panel-title">All Patients</div>
+                  <div className="dash-panel-sub">Only {hospital?.name || 'your hospital'} can see this list</div>
+                </div>
+                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+              </div>
+
+              {loading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
+              ) : patients.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients yet. Add your first one above.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      {['Name', 'Age', 'Status', ''].map(h => (
+                        <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {patients.map(p => (
+                      <tr key={p.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                        <td style={{ padding: 12, fontWeight: 700 }}>{p.full_name}</td>
+                        <td style={{ padding: 12 }}>{p.age}</td>
+                        <td style={{ padding: 12 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                            background: p.status === 'stable' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
+                            color: p.status === 'stable' ? 'var(--teal)' : 'var(--gold)',
+                          }}>
+                            {p.status === 'stable' ? 'Stable' : 'In Review'}
+                          </span>
+                        </td>
+                        <td style={{ padding: 12 }}>
+                          <button
+                            onClick={() => handleDelete(p)}
+                            style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
+                            title="Delete"
+                          >✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {tab === 'billing' && <Billing />}
+
+          {tab === 'soon' && (
+            <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--ivory)', marginBottom: 8 }}>Module coming soon</div>
+              This section is being built next.
+            </div>
+          )}
+        </div>
+      </main>
 
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
@@ -243,13 +417,8 @@ export default function Dashboard(){
           <span>{pending.patient.full_name} removed ({pending.secondsLeft}s)</span>
           <button
             onClick={handleUndo}
-            style={{
-              background: 'var(--teal)', color: '#00251F', border: 'none', borderRadius: 7,
-              padding: '6px 12px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', flexShrink: 0,
-            }}
-          >
-            Undo
-          </button>
+            style={{ background: 'var(--teal)', color: '#00251F', border: 'none', borderRadius: 7, padding: '6px 12px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}
+          >Undo</button>
         </div>
       ) : toast && (
         <div style={{
