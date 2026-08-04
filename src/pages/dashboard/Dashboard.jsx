@@ -294,22 +294,45 @@ export default function Dashboard(){
                   <div className="dash-panel-head">
                     <div>
                       <div className="dash-panel-title">Patients Registered — Last 7 Days</div>
-                      <div className="dash-panel-sub">Live data from your patient records</div>
+                      <div className="dash-panel-sub">Cyan = rising, Red = falling — live data</div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 100 }}>
-                    {weeklyCounts.map((count, i) => (
-                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{count > 0 ? count : ''}</div>
-                        <div style={{
-                          width: '100%', borderRadius: 4,
-                          height: `${Math.max((count / maxWeekly) * 70, count > 0 ? 8 : 2)}px`,
-                          background: count > 0 ? 'var(--teal)' : 'var(--line-soft)',
-                        }} />
-                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>{DAY_LABELS[i]}</div>
-                      </div>
-                    ))}
-                  </div>
+                  {(() => {
+                    const GOOD = '#22D3EE'
+                    const BAD = '#E1685E'
+                    const w = 500, h = 140, padTop = 14, padBottom = 26
+                    const usableH = h - padTop - padBottom
+                    const stepX = w / (weeklyCounts.length - 1)
+                    const points = weeklyCounts.map((c, i) => ({
+                      x: i * stepX,
+                      y: padTop + (usableH - (c / maxWeekly) * usableH),
+                      count: c,
+                    }))
+                    const segments = []
+                    for (let i = 0; i < points.length - 1; i++) {
+                      const good = points[i + 1].count >= points[i].count
+                      segments.push({ x1: points[i].x, y1: points[i].y, x2: points[i + 1].x, y2: points[i + 1].y, color: good ? GOOD : BAD })
+                    }
+                    const areaPath = `M${points[0].x},${h - padBottom} ` + points.map(p => `L${p.x},${p.y}`).join(' ') + ` L${points[points.length - 1].x},${h - padBottom} Z`
+                    return (
+                      <>
+                        <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', display: 'block' }}>
+                          <line x1="0" y1={padTop} x2={w} y2={padTop} stroke="rgba(255,255,255,0.05)" />
+                          <line x1="0" y1={padTop + usableH / 2} x2={w} y2={padTop + usableH / 2} stroke="rgba(255,255,255,0.05)" />
+                          <path d={areaPath} fill="#22D3EE" opacity="0.06" />
+                          {segments.map((s, i) => (
+                            <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.color} strokeWidth="3" strokeLinecap="round" />
+                          ))}
+                          {points.map((p, i) => (
+                            <circle key={i} cx={p.x} cy={p.y} r="4" fill={i === 0 ? GOOD : segments[i - 1].color} stroke="var(--bg-card)" strokeWidth="2" />
+                          ))}
+                        </svg>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10.5, color: 'var(--muted)' }}>
+                          {DAY_LABELS.map((d, i) => <span key={i}>{d}</span>)}
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
 
                 <div className="dash-panel">
