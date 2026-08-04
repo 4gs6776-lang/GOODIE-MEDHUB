@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { supabase } from '../../lib/supabaseClient'
+import { useOfflineTable } from '../../lib/useOfflineTable'
 
 export default function Billing(){
   const { profile, hospital } = useAuth()
-  const [invoices, setInvoices] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { records: invoices, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('invoices', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -14,18 +13,6 @@ export default function Billing(){
   const [amount, setAmount] = useState('')
   const [status, setStatus] = useState('unpaid')
   const [saving, setSaving] = useState(false)
-
-  async function loadInvoices(){
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (!error) setInvoices(data || [])
-    setLoading(false)
-  }
-
-  useEffect(() => { loadInvoices() }, [])
 
   function showToast(msg){
     setToast(msg)
@@ -41,19 +28,16 @@ export default function Billing(){
     }
     setSaving(true)
     try {
-      const { error } = await supabase.from('invoices').insert({
-        hospital_id: hospital.id,
+      await addRecord({
         patient_name: patientName,
         description,
         amount: parseFloat(amount),
         status,
         created_by: profile.id,
       })
-      if (error) throw error
       setShowModal(false)
       setPatientName(''); setDescription(''); setAmount(''); setStatus('unpaid')
-      showToast('Invoice added')
-      loadInvoices()
+      showToast(isOnline ? 'Invoice added' : 'Invoice added — will sync when back online')
     } catch (err) {
       showToast(err.message || 'Could not save invoice')
     } finally {
@@ -63,20 +47,14 @@ export default function Billing(){
 
   async function toggleStatus(invoice){
     const newStatus = invoice.status === 'paid' ? 'unpaid' : 'paid'
-    const { error } = await supabase.from('invoices').update({ status: newStatus }).eq('id', invoice.id)
-    if (!error) {
-      showToast(`Marked ${newStatus}`)
-      loadInvoices()
-    }
+    await updateRecord(invoice.id, { status: newStatus })
+    showToast(isOnline ? `Marked ${newStatus}` : `Marked ${newStatus} — will sync when back online`)
   }
 
   async function handleDelete(invoice){
     if (!confirm(`Delete this invoice for ${invoice.patient_name}?`)) return
-    const { error } = await supabase.from('invoices').delete().eq('id', invoice.id)
-    if (!error) {
-      showToast('Invoice deleted')
-      loadInvoices()
-    }
+    await deleteRecord(invoice.id)
+    showToast('Invoice deleted')
   }
 
   const totalUnpaid = invoices.filter(i => i.status === 'unpaid').reduce((sum, i) => sum + Number(i.amount), 0)
@@ -115,7 +93,10 @@ export default function Billing(){
         <div className="dash-panel-head">
           <div>
             <div className="dash-panel-title">Invoices</div>
-            <div className="dash-panel-sub">Only {hospital?.name || 'your hospital'} can see this list</div>
+            <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
+              {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
+            </div>
           </div>
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Invoice</button>
         </div>
