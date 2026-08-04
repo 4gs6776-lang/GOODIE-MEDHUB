@@ -5,14 +5,16 @@ import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import Pharmacy from './Pharmacy'
+import Laboratory from './Laboratory'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
   { key: 'patients', label: 'Patient Management', section: 'Main' },
   { key: 'appointments', label: 'Appointments', section: 'Main' },
   { key: 'billing', label: 'Billing & Invoices', section: 'Main' },
-  { key: 'soon', label: 'Pharmacy', section: 'Main' },
-  { key: 'soon', label: 'Laboratory', section: 'Main' },
+  { key: 'pharmacy', label: 'Pharmacy', section: 'Main' },
+  { key: 'laboratory', label: 'Laboratory', section: 'Main' },
   { key: 'staff', label: 'Staff', section: 'Operations' },
   { key: 'soon', label: 'Reports', section: 'Operations' },
   { key: 'soon', label: 'Settings', section: 'Operations' },
@@ -215,7 +217,7 @@ export default function Dashboard(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
           <div className="dash-hospital-name">
-            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff' }[tab] || 'Dashboard'}
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory' }[tab] || 'Dashboard'}
           </div>
           <div style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
@@ -475,6 +477,10 @@ export default function Dashboard(){
           {tab === 'staff' && <Staff />}
 
           {tab === 'appointments' && <Appointments />}
+
+          {tab === 'pharmacy' && <Pharmacy />}
+
+          {tab === 'laboratory' && <Laboratory />}
 
           {tab === 'soon' && (
             <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
