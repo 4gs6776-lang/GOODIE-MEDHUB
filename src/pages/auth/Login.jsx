@@ -18,7 +18,11 @@ export default function Login(){
       if (signInErr) throw signInErr
       navigate('/dashboard')
     } catch (err) {
-      setError(err.message || 'Could not log in. Check your details and try again.')
+      if (!navigator.onLine) {
+        setError("You're offline. Please connect to the internet to log in — after that, the app will keep working without a connection.")
+      } else {
+        setError(err.message || 'Could not log in. Check your details and try again.')
+      }
     } finally {
       setLoading(false)
     }
