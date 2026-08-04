@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
+import { useOfflineTable } from '../../lib/useOfflineTable'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
@@ -25,8 +26,7 @@ export default function Dashboard(){
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  const [patients, setPatients] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [name, setName] = useState('')
   const [age, setAge] = useState('')
@@ -45,18 +45,7 @@ export default function Dashboard(){
   const [revenueOutstanding, setRevenueOutstanding] = useState(0)
   const [weeklyCounts, setWeeklyCounts] = useState([0, 0, 0, 0, 0, 0, 0])
 
-  async function loadPatients(){
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('patients')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (!error) {
-      setPatients(data || [])
-      computeWeeklyCounts(data || [])
-    }
-    setLoading(false)
-  }
+  useEffect(() => { computeWeeklyCounts(patients) }, [patients])
 
   function computeWeeklyCounts(patientList){
     const counts = [0, 0, 0, 0, 0, 0, 0]
@@ -92,7 +81,6 @@ export default function Dashboard(){
   }
 
   useEffect(() => {
-    loadPatients()
     loadOverviewSummary()
   }, [])
 
@@ -110,14 +98,10 @@ export default function Dashboard(){
     }
     setSaving(true)
     try {
-      const { error } = await supabase.from('patients').insert({
-        hospital_id: hospital.id, full_name: name, age: parseInt(age, 10), status, created_by: profile.id,
-      })
-      if (error) throw error
+      await addRecord({ full_name: name, age: parseInt(age, 10), status, created_by: profile.id })
       setShowModal(false)
       setName(''); setAge(''); setStatus('stable')
-      showToast(`${name} added`)
-      loadPatients()
+      showToast(isOnline ? `${name} added` : `${name} added — will sync when back online`)
     } catch (err) {
       showToast(err.message || 'Could not save patient')
     } finally {
@@ -126,8 +110,7 @@ export default function Dashboard(){
   }
 
   function handleDelete(patient){
-    if (pending) commitPendingDelete(pending.patient.id)
-    setPatients(prev => prev.filter(p => p.id !== patient.id))
+    if (pending) commitPendingDelete(pending.patient)
     let secondsLeft = 5
     setPending({ patient, secondsLeft })
     pendingIntervalRef.current = setInterval(() => {
@@ -135,30 +118,25 @@ export default function Dashboard(){
       setPending(prev => prev ? { ...prev, secondsLeft } : prev)
       if (secondsLeft <= 0) clearInterval(pendingIntervalRef.current)
     }, 1000)
-    pendingTimeoutRef.current = setTimeout(() => commitPendingDelete(patient.id), 5000)
+    pendingTimeoutRef.current = setTimeout(() => commitPendingDelete(patient), 5000)
   }
 
-  async function commitPendingDelete(patientId){
+  async function commitPendingDelete(patient){
     clearTimeout(pendingTimeoutRef.current)
     clearInterval(pendingIntervalRef.current)
     setPending(null)
-    try {
-      const { error } = await supabase.from('patients').delete().eq('id', patientId)
-      if (error) throw error
-    } catch (err) {
-      showToast(err.message || 'Could not delete patient')
-      loadPatients()
-    }
+    await deleteRecord(patient.id)
   }
 
   function handleUndo(){
     if (!pending) return
     clearTimeout(pendingTimeoutRef.current)
     clearInterval(pendingIntervalRef.current)
-    setPatients(prev => [pending.patient, ...prev])
     setPending(null)
     showToast(`${pending.patient.full_name} restored`)
   }
+
+  const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
 
   if (profile?.role === 'owner') {
     window.location.href = '/owner'
@@ -238,6 +216,16 @@ export default function Dashboard(){
           </div>
           <div className="dash-hospital-name">
             {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff' }[tab] || 'Dashboard'}
+          </div>
+          <div style={{
+            marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 20,
+            background: isOnline ? 'var(--teal-soft)' : 'var(--danger-soft)',
+            color: isOnline ? 'var(--teal)' : 'var(--danger)',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />
+            {isOnline ? 'Online' : 'Offline'}
+            {pendingCount > 0 && ` · ${pendingCount} syncing`}
           </div>
         </div>
 
@@ -442,7 +430,7 @@ export default function Dashboard(){
 
               {loading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-              ) : patients.length === 0 ? (
+              ) : displayedPatients.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients yet. Add your first one above.</div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -454,7 +442,7 @@ export default function Dashboard(){
                     </tr>
                   </thead>
                   <tbody>
-                    {patients.map(p => (
+                    {displayedPatients.map(p => (
                       <tr key={p.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
                         <td style={{ padding: 12, fontWeight: 700 }}>{p.full_name}</td>
                         <td style={{ padding: 12 }}>{p.age}</td>
