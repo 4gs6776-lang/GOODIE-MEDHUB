@@ -1,194 +1,213 @@
-import { useState } from 'react'
-import { useAuth } from '../../context/AuthContext'
-import { useOfflineTable } from '../../lib/useOfflineTable'
+import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useOfflineTable } from '../../lib/useOfflineTable';
 
-export default function Billing(){
-  const { profile, hospital } = useAuth()
-  const { records: invoices, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('invoices', hospital?.id)
-  const [showModal, setShowModal] = useState(false)
-  const [toast, setToast] = useState(null)
+export default function Billing() {
+  const { hospital } = useAuth();
 
-  const [patientName, setPatientName] = useState('')
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [status, setStatus] = useState('unpaid')
-  const [saving, setSaving] = useState(false)
+  const { data: patients } = useOfflineTable('patients', hospital?.id);
+  const { data: invoices, insertRow: addInvoice, updateRow: updateInvoice } = useOfflineTable('invoices', hospital?.id);
 
-  function showToast(msg){
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
+  const [selectedPatientId, setSelectedPatientId] = useState('');
+  const [description, setDescription] = useState('Doctor Consultation Fee');
+  const [amount, setAmount] = useState(hospital?.default_consultation_fee || 5000);
+  const [activeInvoiceForPrint, setActiveInvoiceForPrint] = useState(null);
 
-  async function handleAdd(e){
-    e.preventDefault()
-    if (!patientName || !amount) return
-    if (!hospital || !profile) {
-      showToast('Still loading your account — try again in a moment')
-      return
-    }
-    setSaving(true)
-    try {
-      await addRecord({
-        patient_name: patientName,
-        description,
-        amount: parseFloat(amount),
-        status,
-        created_by: profile.id,
-      })
-      setShowModal(false)
-      setPatientName(''); setDescription(''); setAmount(''); setStatus('unpaid')
-      showToast(isOnline ? 'Invoice added' : 'Invoice added — will sync when back online')
-    } catch (err) {
-      showToast(err.message || 'Could not save invoice')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const handleCreateInvoice = async (e) => {
+    e.preventDefault();
+    if (!selectedPatientId || !amount) return;
 
-  async function toggleStatus(invoice){
-    const newStatus = invoice.status === 'paid' ? 'unpaid' : 'paid'
-    await updateRecord(invoice.id, { status: newStatus })
-    showToast(isOnline ? `Marked ${newStatus}` : `Marked ${newStatus} — will sync when back online`)
-  }
+    const patient = patients.find(p => p.id === selectedPatientId);
 
-  async function handleDelete(invoice){
-    if (!confirm(`Delete this invoice for ${invoice.patient_name}?`)) return
-    await deleteRecord(invoice.id)
-    showToast('Invoice deleted')
-  }
+    await addInvoice({
+      hospital_id: hospital?.id,
+      patient_id: selectedPatientId,
+      patient_name: patient ? patient.full_name : 'Walk-in Patient',
+      description,
+      amount: Number(amount),
+      status: 'unpaid'
+    });
 
-  const totalUnpaid = invoices.filter(i => i.status === 'unpaid').reduce((sum, i) => sum + Number(i.amount), 0)
-  const totalPaid = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + Number(i.amount), 0)
+    setSelectedPatientId('');
+    setDescription('Doctor Consultation Fee');
+    setAmount(hospital?.default_consultation_fee || 5000);
+  };
 
-  function formatMoney(n){
-    return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2 })
-  }
+  const handlePrint = (inv) => {
+    setActiveInvoiceForPrint(inv);
+    setTimeout(() => {
+      window.print();
+    }, 300);
+  };
 
   return (
-    <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
-        <div className="dash-stat-card">
-          <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div>
+        <h1 style={{ fontSize: '22px', fontFamily: 'var(--font-display)' }}>Billing & Custom Invoice Printing</h1>
+        <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Issue payment requests, collect fees, and print official branded receipts</p>
+      </div>
+
+      <div className="dash-row dash-row-2">
+        {/* ISSUE NEW INVOICE */}
+        <div className="dash-panel">
+          <div className="dash-panel-head">
+            <div className="dash-panel-title">Issue New Invoice</div>
           </div>
-          <div>
-            <div className="dash-stat-label">Outstanding</div>
-            <div className="dash-stat-value">{formatMoney(totalUnpaid)}</div>
-            <div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>{invoices.filter(i => i.status === 'unpaid').length} unpaid invoice(s)</div>
-          </div>
+
+          <form onSubmit={handleCreateInvoice}>
+            <div className="field">
+              <label>Select Patient *</label>
+              <select 
+                value={selectedPatientId} 
+                onChange={e => setSelectedPatientId(e.target.value)} 
+                required
+              >
+                <option value="">-- Choose Patient --</option>
+                {patients && patients.map(p => (
+                  <option key={p.id || p.temp_id} value={p.id}>
+                    {p.full_name} ({p.hospital_number || 'No ID'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Billing Description *</label>
+              <input 
+                type="text" 
+                required 
+                placeholder="e.g. Consultation + Lab Test" 
+                value={description} 
+                onChange={e => setDescription(e.target.value)} 
+              />
+            </div>
+
+            <div className="field">
+              <label>Amount (₦) *</label>
+              <input 
+                type="number" 
+                required 
+                value={amount} 
+                onChange={e => setAmount(e.target.value)} 
+              />
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>
+              Generate Bill
+            </button>
+          </form>
         </div>
-        <div className="dash-stat-card">
-          <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+
+        {/* RECENT INVOICES LIST */}
+        <div className="dash-panel">
+          <div className="dash-panel-head">
+            <div className="dash-panel-title">Invoices Directory ({invoices ? invoices.length : 0})</div>
           </div>
-          <div>
-            <div className="dash-stat-label">Collected</div>
-            <div className="dash-stat-value">{formatMoney(totalPaid)}</div>
-            <div className="dash-stat-delta">{invoices.filter(i => i.status === 'paid').length} paid invoice(s)</div>
-          </div>
+
+          <ul className="dash-legend">
+            {invoices && invoices.map((inv) => (
+              <li key={inv.id || inv.temp_id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '8px', padding: '12px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <strong>{inv.patient_name}</strong>
+                  <span style={{ 
+                    fontSize: '10px', 
+                    padding: '2px 8px', 
+                    borderRadius: '10px', 
+                    background: inv.status === 'paid' ? 'var(--teal-soft)' : 'var(--danger-soft)',
+                    color: inv.status === 'paid' ? 'var(--teal)' : 'var(--danger)' 
+                  }}>
+                    {inv.status ? inv.status.toUpperCase() : 'UNPAID'}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                  {inv.description} — <strong style={{ color: 'var(--ivory)' }}>₦{Number(inv.amount).toLocaleString()}</strong>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end', marginTop: '4px' }}>
+                  {inv.status !== 'paid' && (
+                    <button 
+                      className="btn btn-ghost" 
+                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                      onClick={() => updateInvoice(inv.id, { status: 'paid' })}
+                    >
+                      Mark Paid
+                    </button>
+                  )}
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ padding: '4px 8px', fontSize: '11px' }}
+                    onClick={() => handlePrint(inv)}
+                  >
+                    🖨️ Print Receipt
+                  </button>
+                </div>
+              </li>
+            ))}
+            {(!invoices || invoices.length === 0) && (
+              <li style={{ color: 'var(--muted)', fontSize: '13px' }}>No invoices issued yet.</li>
+            )}
+          </ul>
         </div>
       </div>
 
-      <div className="dash-panel">
-        <div className="dash-panel-head">
-          <div>
-            <div className="dash-panel-title">Invoices</div>
-            <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-              {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
-            </div>
-          </div>
-          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Invoice</button>
-        </div>
+      {/* HIDDEN PRINT-ONLY RECEIPT DOM ELEMENT */}
+      {activeInvoiceForPrint && (
+        <div id="print-receipt-section" style={{ display: 'none' }}>
+          <style>{`
+            @media print {
+              body * { visibility: hidden; }
+              #print-receipt-section, #print-receipt-section * { visibility: visible; }
+              #print-receipt-section { 
+                position: absolute; 
+                left: 0; 
+                top: 0; 
+                width: 100%; 
+                display: block !important; 
+                padding: 20px;
+                background: #fff;
+                color: #000;
+                font-family: Arial, sans-serif;
+              }
+            }
+          `}</style>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : invoices.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No invoices yet. Add your first one above.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ borderBottom: '2px solid #000', paddingBottom: '10px', marginBottom: '15px' }}>
+            <h2 style={{ margin: 0 }}>{hospital?.name || 'HOSPITAL NAME'}</h2>
+            <p style={{ margin: '4px 0', fontSize: '12px' }}>{hospital?.address || ''}</p>
+            <p style={{ margin: 0, fontSize: '12px' }}>Tel: {hospital?.phone || 'N/A'}</p>
+          </div>
+
+          <h3 style={{ textTransform: 'uppercase', fontSize: '14px', marginBottom: '15px' }}>
+            {hospital?.invoice_header || 'OFFICIAL RECEIPT'}
+          </h3>
+
+          <p><strong>Patient:</strong> {activeInvoiceForPrint.patient_name}</p>
+          <p><strong>Date:</strong> {new Date().toLocaleDateString()}</p>
+          <p><strong>Status:</strong> {activeInvoiceForPrint.status?.toUpperCase()}</p>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', margin: '20px 0' }}>
             <thead>
-              <tr>
-                {['Patient', 'Description', 'Amount', 'Status', ''].map(h => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                ))}
+              <tr style={{ borderBottom: '1px solid #000' }}>
+                <th style={{ textAlign: 'left' }}>Description</th>
+                <th style={{ textAlign: 'right' }}>Amount</th>
               </tr>
             </thead>
             <tbody>
-              {invoices.map(inv => (
-                <tr key={inv.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                  <td style={{ padding: 12, fontWeight: 700 }}>{inv.patient_name}</td>
-                  <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{inv.description || '—'}</td>
-                  <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 13 }}>{formatMoney(inv.amount)}</td>
-                  <td style={{ padding: 12 }}>
-                    <span
-                      onClick={() => toggleStatus(inv)}
-                      style={{
-                        fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
-                        background: inv.status === 'paid' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
-                        color: inv.status === 'paid' ? 'var(--teal)' : 'var(--gold)',
-                      }}
-                      title="Tap to toggle"
-                    >
-                      {inv.status === 'paid' ? 'Paid' : 'Unpaid'}
-                    </span>
-                  </td>
-                  <td style={{ padding: 12 }}>
-                    <button
-                      onClick={() => handleDelete(inv)}
-                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                      title="Delete"
-                    >✕</button>
-                  </td>
-                </tr>
-              ))}
+              <tr>
+                <td>{activeInvoiceForPrint.description}</td>
+                <td style={{ textAlign: 'right' }}>₦{Number(activeInvoiceForPrint.amount).toLocaleString()}</td>
+              </tr>
             </tbody>
           </table>
-        )}
-      </div>
 
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>New Invoice</div>
-            <form onSubmit={handleAdd}>
-              <div className="field">
-                <label>Patient Name</label>
-                <input value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
-              </div>
-              <div className="field">
-                <label>Description (optional)</label>
-                <input value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Consultation + Lab tests" />
-              </div>
-              <div className="field">
-                <label>Amount (₦)</label>
-                <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g. 15000" />
-              </div>
-              <div className="field">
-                <label>Status</label>
-                <select value={status} onChange={e => setStatus(e.target.value)}>
-                  <option value="unpaid">Unpaid</option>
-                  <option value="paid">Paid</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Invoice'}</button>
-              </div>
-            </form>
-          </div>
+          <h3 style={{ textAlign: 'right' }}>Total: ₦{Number(activeInvoiceForPrint.amount).toLocaleString()}</h3>
+
+          <p style={{ textAlign: 'center', marginTop: '30px', fontSize: '12px', borderTop: '1px solid #ccc', paddingTop: '10px' }}>
+            {hospital?.invoice_footer || 'Thank you!'}
+          </p>
         </div>
       )}
-
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
-        }}>
-          {toast}
-        </div>
-      )}
-    </>
-  )
+    </div>
+  );
 }
