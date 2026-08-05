@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useOfflineTable } from '../../lib/useOfflineTable';
 import Reception from './Reception';
 import Nursing from './Nursing';
+import DoctorWorkbench from './DoctorWorkbench';
 import Appointments from './Appointments';
 import Billing from './Billing';
 import Staff from './Staff';
@@ -14,12 +15,13 @@ const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: '📊' },
   { id: 'reception', label: 'Reception (Registration)', icon: '📝' },
   { id: 'nursing', label: 'Nurses Station (Vitals)', icon: '🩺' },
+  { id: 'doctor', label: "Doctor's Workbench", icon: '👨‍⚕️' },
   { id: 'appointments', label: 'Appointments', icon: '📅' },
   { id: 'ipd', label: 'Wards & IPD', icon: '🛏️' },
   { id: 'pharmacy', label: 'Pharmacy', icon: '💊' },
   { id: 'laboratory', label: 'Laboratory', icon: '🔬' },
   { id: 'billing', label: 'Billing', icon: '💳' },
-  { id: 'staff', label: 'Staff Management', icon: '👨‍⚕️' },
+  { id: 'staff', label: 'Staff Management', icon: '👥' },
 ];
 
 export default function Dashboard() {
@@ -27,14 +29,14 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Offline-aware telemetry
+  // Offline-aware telemetry hooks
   const { data: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id);
   const { data: appointments } = useOfflineTable('appointments', hospital?.id);
   const { data: invoices } = useOfflineTable('invoices', hospital?.id);
   const { data: vitalsQueue } = useOfflineTable('patient_vitals', hospital?.id);
 
   const totalPatientsCount = patients ? patients.length : 0;
-  const waitingCount = vitalsQueue ? vitalsQueue.filter(q => q.status === 'waiting').length : 0;
+  const waitingCount = vitalsQueue ? vitalsQueue.filter(q => q.status === 'waiting' || q.status === 'in_consultation').length : 0;
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayAppointmentsCount = appointments 
@@ -122,9 +124,9 @@ export default function Dashboard() {
                 </div>
 
                 <div className="dash-stat-card">
-                  <div className="dash-stat-label">Waiting Room Queue</div>
+                  <div className="dash-stat-label">Active Doctor Queue</div>
                   <div className="dash-stat-value">{waitingCount}</div>
-                  <span style={{ color: 'var(--gold)', fontSize: '11px', fontWeight: '700' }}>Triaged by Nurses</span>
+                  <span style={{ color: 'var(--gold)', fontSize: '11px', fontWeight: '700' }}>Triaged & Waiting</span>
                 </div>
 
                 <div className="dash-stat-card">
@@ -142,6 +144,7 @@ export default function Dashboard() {
 
           {activeTab === 'reception' && <Reception />}
           {activeTab === 'nursing' && <Nursing />}
+          {activeTab === 'doctor' && <DoctorWorkbench />}
           {activeTab === 'appointments' && <Appointments />}
           {activeTab === 'ipd' && <IPD />}
           {activeTab === 'pharmacy' && <Pharmacy />}
