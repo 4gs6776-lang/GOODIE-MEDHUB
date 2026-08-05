@@ -10,7 +10,6 @@ import Appointments from './Appointments';
 import Billing from './Billing';
 import Pharmacy from './Pharmacy';
 import Laboratory from './Laboratory';
-import HospitalSettings from './HospitalSettings';
 
 export default function Dashboard() {
   const { profile, hospital, signOut } = useAuth();
