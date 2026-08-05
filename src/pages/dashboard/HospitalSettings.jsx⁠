@@ -4,6 +4,7 @@ export default function HospitalSettings() {
   return (
     <div>
       <h2>Hospital Settings</h2>
+      <p>Settings module.</p>
     </div>
   );
 }
