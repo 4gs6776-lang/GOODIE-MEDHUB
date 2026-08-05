@@ -10,6 +10,7 @@ import Staff from './Staff';
 import Pharmacy from './Pharmacy';
 import Laboratory from './Laboratory';
 import IPD from './IPD';
+import HospitalSettings from './HospitalSettings';
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: '📊' },
@@ -20,8 +21,9 @@ const NAV_ITEMS = [
   { id: 'ipd', label: 'Wards & IPD', icon: '🛏️' },
   { id: 'pharmacy', label: 'Pharmacy', icon: '💊' },
   { id: 'laboratory', label: 'Laboratory', icon: '🔬' },
-  { id: 'billing', label: 'Billing', icon: '💳' },
+  { id: 'billing', label: 'Billing & Receipts', icon: '💳' },
   { id: 'staff', label: 'Staff Management', icon: '👥' },
+  { id: 'settings', label: 'Hospital Settings', icon: '⚙️' },
 ];
 
 export default function Dashboard() {
@@ -151,6 +153,7 @@ export default function Dashboard() {
           {activeTab === 'laboratory' && <Laboratory />}
           {activeTab === 'billing' && <Billing />}
           {activeTab === 'staff' && <Staff />}
+          {activeTab === 'settings' && <HospitalSettings />}
         </main>
       </div>
     </div>
