@@ -1,193 +1,239 @@
-import { useState } from 'react'
-import { useAuth } from '../../context/AuthContext'
-import { useOfflineTable } from '../../lib/useOfflineTable'
+import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useOfflineTable } from '../../lib/useOfflineTable';
 
-export default function Laboratory(){
-  const { profile, hospital } = useAuth()
-  const { records: tests, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
-  const [showModal, setShowModal] = useState(false)
-  const [toast, setToast] = useState(null)
+export default function Laboratory() {
+  const { hospital, profile } = useAuth();
 
-  const [patientName, setPatientName] = useState('')
-  const [testName, setTestName] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
+  const { data: labOrders, insertRow: createLabOrder, updateRow: updateLabOrder } = useOfflineTable('lab_orders', hospital?.id);
+  const { data: patients } = useOfflineTable('patients', hospital?.id);
+  const { insertRow: addInvoice } = useOfflineTable('invoices', hospital?.id);
 
-  function showToast(msg){
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
+  const [selectedPatientId, setSelectedPatientId] = useState('');
+  const [newOrder, setNewOrder] = useState({
+    test_type: 'Full Blood Count (FBC)',
+    sample_type: 'Blood',
+    test_cost: '5000'
+  });
 
-  async function handleAdd(e){
-    e.preventDefault()
-    setFormError('')
-    if (!patientName || !testName) {
-      setFormError('Patient name and test name are required.')
-      return
-    }
-    if (!hospital || !profile) {
-      setFormError('Still loading your account — try again in a moment.')
-      return
-    }
-    setSaving(true)
-    try {
-      await addRecord({
-        patient_name: patientName,
-        test_name: testName,
-        status: 'pending',
-        result: null,
-        requested_at: new Date().toISOString(),
-        created_by: profile.id,
-      })
-      setShowModal(false)
-      setPatientName(''); setTestName('')
-      showToast(isOnline ? 'Test requested' : 'Test requested — will sync when back online')
-    } catch (err) {
-      setFormError(err.message || 'Could not save test request')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const [resultInput, setResultInput] = useState({});
 
-  async function handleComplete(test){
-    const result = prompt(`Enter result for ${test.test_name} (${test.patient_name}):`, test.result || '')
-    if (result === null) return
-    await updateRecord(test.id, { status: 'completed', result })
-    showToast(isOnline ? 'Marked completed' : 'Marked completed — will sync when back online')
-  }
+  const pendingOrders = labOrders ? labOrders.filter(o => o.status !== 'completed') : [];
+  const completedOrders = labOrders ? labOrders.filter(o => o.status === 'completed') : [];
 
-  async function handleReopen(test){
-    await updateRecord(test.id, { status: 'pending' })
-    showToast(isOnline ? 'Marked pending' : 'Marked pending — will sync when back online')
-  }
+  const handleCreateOrder = async (e) => {
+    e.preventDefault();
+    if (!selectedPatientId) return;
 
-  async function handleDelete(test){
-    if (!confirm(`Delete this test request for ${test.patient_name}?`)) return
-    await deleteRecord(test.id)
-    showToast('Test deleted')
-  }
+    const selectedPatient = patients?.find(p => p.id === selectedPatientId);
 
-  const sorted = [...tests].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
-  const pendingCountStat = tests.filter(t => t.status === 'pending').length
-  const completedCount = tests.filter(t => t.status === 'completed').length
+    await createLabOrder({
+      hospital_id: hospital?.id,
+      patient_id: selectedPatientId,
+      patient_name: selectedPatient ? `${selectedPatient.first_name} ${selectedPatient.last_name}` : 'Unknown Patient',
+      test_type: newOrder.test_type,
+      sample_type: newOrder.sample_type,
+      test_cost: Number(newOrder.test_cost) || 0,
+      doctor_name: profile?.full_name || 'Lab Direct Order',
+      status: 'pending'
+    });
+
+    // Auto-generate invoice item for checkout
+    await addInvoice({
+      hospital_id: hospital?.id,
+      patient_id: selectedPatientId,
+      patient_name: selectedPatient ? `${selectedPatient.first_name} ${selectedPatient.last_name}` : 'Unknown Patient',
+      description: `Lab Test: ${newOrder.test_type}`,
+      amount: Number(newOrder.test_cost) || 0,
+      status: 'unpaid'
+    });
+
+    setSelectedPatientId('');
+  };
+
+  const handleUpdateStatus = async (orderId, newStatus) => {
+    await updateLabOrder(orderId, { status: newStatus });
+  };
+
+  const handleSaveResult = async (order) => {
+    const summary = resultInput[order.id]?.summary;
+    const notes = resultInput[order.id]?.notes;
+
+    if (!summary) return alert('Please enter result values before marking completed.');
+
+    await updateLabOrder(order.id, {
+      results_summary: summary,
+      lab_notes: notes || '',
+      status: 'completed',
+      completed_at: new Date().toISOString()
+    });
+  };
 
   return (
-    <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
-        <div className="dash-stat-card">
-          <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div>
+        <h1 style={{ fontSize: '22px', fontFamily: 'var(--font-display)' }}>Laboratory & Diagnostic Workbench</h1>
+        <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Collect samples, run tests, record diagnostic findings, and auto-bill patients</p>
+      </div>
+
+      <div className="dash-row dash-row-2">
+        {/* NEW LAB ORDER FORM */}
+        <div className="dash-panel">
+          <div className="dash-panel-head">
+            <div className="dash-panel-title">Request Direct Lab Test</div>
           </div>
-          <div>
-            <div className="dash-stat-label">Pending</div>
-            <div className="dash-stat-value">{pendingCountStat}</div>
-            <div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>awaiting results</div>
-          </div>
+
+          <form onSubmit={handleCreateOrder}>
+            <div className="field">
+              <label>Select Patient *</label>
+              <select required value={selectedPatientId} onChange={e => setSelectedPatientId(e.target.value)}>
+                <option value="">-- Choose Patient --</option>
+                {patients && patients.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.first_name} {p.last_name} ({p.hospital_number || 'No ID'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Test Panel / Investigation *</label>
+              <select value={newOrder.test_type} onChange={e => setNewOrder({ ...newOrder, test_type: e.target.value })}>
+                <option value="Full Blood Count (FBC)">Full Blood Count (FBC)</option>
+                <option value="Malaria Parasite (MP / RDT)">Malaria Parasite (MP / RDT)</option>
+                <option value="Urinalysis">Urinalysis</option>
+                <option value="Widal Test (Typhoid)">Widal Test (Typhoid)</option>
+                <option value="Fasting Blood Sugar (FBS)">Fasting Blood Sugar (FBS)</option>
+                <option value="Liver Function Test (LFT)">Liver Function Test (LFT)</option>
+                <option value="Kidney Function Test (E/U/Cr)">Kidney Function Test (E/U/Cr)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="field">
+                <label>Sample Type</label>
+                <select value={newOrder.sample_type} onChange={e => setNewOrder({ ...newOrder, sample_type: e.target.value })}>
+                  <option value="Blood">Blood</option>
+                  <option value="Urine">Urine</option>
+                  <option value="Stool">Stool</option>
+                  <option value="Swab">Swab</option>
+                  <option value="Sputum">Sputum</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label>Test Price (₦)</label>
+                <input 
+                  type="number" 
+                  value={newOrder.test_cost} 
+                  onChange={e => setNewOrder({ ...newOrder, test_cost: e.target.value })} 
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="btn btn-ghost" style={{ width: '100%', marginTop: '8px' }}>
+              + Order Test & Bill Patient
+            </button>
+          </form>
         </div>
-        <div className="dash-stat-card">
-          <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg>
+
+        {/* PENDING LAB QUEUE */}
+        <div className="dash-panel">
+          <div className="dash-panel-head">
+            <div className="dash-panel-title">Pending Investigations Queue ({pendingOrders.length})</div>
           </div>
-          <div>
-            <div className="dash-stat-label">Completed</div>
-            <div className="dash-stat-value">{completedCount}</div>
-            <div className="dash-stat-delta">results ready</div>
-          </div>
+
+          <ul className="dash-legend">
+            {pendingOrders.map(order => (
+              <li key={order.id || order.temp_id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '10px', padding: '12px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <strong>{order.patient_name}</strong>
+                  <span style={{ 
+                    fontSize: '11px', 
+                    fontWeight: '700', 
+                    color: order.status === 'sample_collected' ? 'var(--teal)' : 'var(--gold)' 
+                  }}>
+                    {order.status === 'sample_collected' ? 'SAMPLE COLLECTED' : 'AWAITING SAMPLE'}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '13px', color: 'var(--teal)', fontWeight: 'bold' }}>
+                  🧪 {order.test_type} — <span style={{ color: 'var(--ivory)', fontWeight: 'normal' }}>Sample: {order.sample_type}</span>
+                </div>
+
+                {order.status === 'pending' && (
+                  <button 
+                    className="btn btn-ghost" 
+                    style={{ padding: '6px 12px', fontSize: '12px', width: '100%' }}
+                    onClick={() => handleUpdateStatus(order.id, 'sample_collected')}
+                  >
+                    ✓ Confirm Sample Collected
+                  </button>
+                )}
+
+                {order.status === 'sample_collected' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '4px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Result Summary (e.g. MP Positive (+2), Hb 12.5 g/dL)"
+                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                      onChange={e => setResultInput({
+                        ...resultInput,
+                        [order.id]: { ...resultInput[order.id], summary: e.target.value }
+                      })}
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Lab Notes / Observations (Optional)"
+                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                      onChange={e => setResultInput({
+                        ...resultInput,
+                        [order.id]: { ...resultInput[order.id], notes: e.target.value }
+                      })}
+                    />
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                      onClick={() => handleSaveResult(order)}
+                    >
+                      Publish Lab Result
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+            {pendingOrders.length === 0 && (
+              <li style={{ color: 'var(--muted)', fontSize: '13px' }}>No lab orders waiting.</li>
+            )}
+          </ul>
         </div>
       </div>
 
+      {/* COMPLETED RESULTS LOG */}
       <div className="dash-panel">
         <div className="dash-panel-head">
-          <div>
-            <div className="dash-panel-title">Lab Requests</div>
-            <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-              {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
-            </div>
-          </div>
-          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Request</button>
+          <div className="dash-panel-title">Completed Test Results Log</div>
         </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : sorted.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No lab requests yet. Add your first one above.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Patient', 'Test', 'Status', 'Result', ''].map(h => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(test => (
-                <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                  <td style={{ padding: 12, fontWeight: 700 }}>{test.patient_name}</td>
-                  <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{test.test_name}</td>
-                  <td style={{ padding: 12 }}>
-                    <span
-                      onClick={() => test.status === 'pending' ? handleComplete(test) : handleReopen(test)}
-                      style={{
-                        fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
-                        background: test.status === 'completed' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
-                        color: test.status === 'completed' ? 'var(--teal)' : 'var(--gold)',
-                      }}
-                      title="Tap to change"
-                    >
-                      {test.status === 'completed' ? 'Completed' : 'Pending'}
-                    </span>
-                  </td>
-                  <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {test.result || '—'}
-                  </td>
-                  <td style={{ padding: 12 }}>
-                    <button
-                      onClick={() => handleDelete(test)}
-                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                      title="Delete"
-                    >✕</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <ul className="dash-legend">
+          {completedOrders.map(order => (
+            <li key={order.id || order.temp_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong>{order.patient_name}</strong> — <span style={{ color: 'var(--teal)' }}>{order.test_type}</span>
+                <div style={{ fontSize: '12px', color: 'var(--ivory)', marginTop: '2px' }}>
+                  <strong>Result:</strong> {order.results_summary} {order.lab_notes ? `(${order.lab_notes})` : ''}
+                </div>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'right' }}>
+                Completed {order.completed_at ? new Date(order.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'}
+              </div>
+            </li>
+          ))}
+          {completedOrders.length === 0 && (
+            <li style={{ color: 'var(--muted)', fontSize: '13px' }}>No completed results recorded yet.</li>
+          )}
+        </ul>
       </div>
-
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>New Lab Request</div>
-            {formError && <div className="error-box">{formError}</div>}
-            <form onSubmit={handleAdd}>
-              <div className="field">
-                <label>Patient Name</label>
-                <input value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
-              </div>
-              <div className="field">
-                <label>Test Name</label>
-                <input value={testName} onChange={e => setTestName(e.target.value)} placeholder="e.g. Full Blood Count" />
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Request'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
-        }}>
-          {toast}
-        </div>
-      )}
-    </>
-  )
+    </div>
+  );
 }
