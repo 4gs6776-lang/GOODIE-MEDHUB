@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useOfflineTable } from '../../lib/useOfflineTable';
 import Reception from './Reception';
+import Nursing from './Nursing';
 import Appointments from './Appointments';
 import Billing from './Billing';
 import Staff from './Staff';
@@ -11,8 +12,8 @@ import IPD from './IPD';
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: '📊' },
-  { id: 'reception', label: 'Reception & Triage', icon: '🏥' },
-  { id: 'patients', label: 'Patients Directory', icon: '👥' },
+  { id: 'reception', label: 'Reception (Registration)', icon: '📝' },
+  { id: 'nursing', label: 'Nurses Station (Vitals)', icon: '🩺' },
   { id: 'appointments', label: 'Appointments', icon: '📅' },
   { id: 'ipd', label: 'Wards & IPD', icon: '🛏️' },
   { id: 'pharmacy', label: 'Pharmacy', icon: '💊' },
@@ -26,14 +27,14 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Offline-aware hooks
+  // Offline-aware telemetry
   const { data: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id);
   const { data: appointments } = useOfflineTable('appointments', hospital?.id);
   const { data: invoices } = useOfflineTable('invoices', hospital?.id);
-  const { data: queue } = useOfflineTable('patient_queue', hospital?.id);
+  const { data: vitalsQueue } = useOfflineTable('patient_vitals', hospital?.id);
 
   const totalPatientsCount = patients ? patients.length : 0;
-  const waitingCount = queue ? queue.filter(q => q.status === 'waiting').length : 0;
+  const waitingCount = vitalsQueue ? vitalsQueue.filter(q => q.status === 'waiting').length : 0;
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayAppointmentsCount = appointments 
@@ -123,7 +124,7 @@ export default function Dashboard() {
                 <div className="dash-stat-card">
                   <div className="dash-stat-label">Waiting Room Queue</div>
                   <div className="dash-stat-value">{waitingCount}</div>
-                  <span style={{ color: 'var(--gold)', fontSize: '11px', fontWeight: '700' }}>In Triage</span>
+                  <span style={{ color: 'var(--gold)', fontSize: '11px', fontWeight: '700' }}>Triaged by Nurses</span>
                 </div>
 
                 <div className="dash-stat-card">
@@ -140,25 +141,7 @@ export default function Dashboard() {
           )}
 
           {activeTab === 'reception' && <Reception />}
-          {activeTab === 'patients' && (
-            <div className="dash-panel">
-              <div className="dash-panel-head">
-                <div className="dash-panel-title">Patient Directory</div>
-              </div>
-              <ul className="dash-legend">
-                {patients && patients.map((p) => (
-                  <li key={p.id || p.temp_id}>
-                    <div className="dash-legend-name">
-                      <span className="dash-legend-dot" style={{ background: 'var(--teal)' }} />
-                      <strong>{p.full_name}</strong> &nbsp;— {p.phone || 'No Phone'}
-                    </div>
-                    <div className="dash-legend-val">{p.gender}, {p.age} yrs</div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
+          {activeTab === 'nursing' && <Nursing />}
           {activeTab === 'appointments' && <Appointments />}
           {activeTab === 'ipd' && <IPD />}
           {activeTab === 'pharmacy' && <Pharmacy />}
