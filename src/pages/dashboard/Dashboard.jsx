@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   { id: 'doctor', label: "Doctor's Workbench", icon: '👨‍⚕️' },
   { id: 'appointments', label: 'Appointments', icon: '📅' },
   { id: 'ipd', label: 'Wards & IPD', icon: '🛏️' },
-  { id: 'pharmacy', label: 'Pharmacy', icon: '💊' },
+  { id: 'pharmacy', label: 'Pharmacy & Inventory', icon: '💊' },
   { id: 'laboratory', label: 'Laboratory', icon: '🔬' },
   { id: 'billing', label: 'Billing & Receipts', icon: '💳' },
   { id: 'staff', label: 'Staff Management', icon: '👥' },
