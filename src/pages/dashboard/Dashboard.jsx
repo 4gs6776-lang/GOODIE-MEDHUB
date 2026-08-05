@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useOfflineTable } from '../../lib/useOfflineTable';
+
+// Department Sub-Components
 import Reception from './Reception';
 import Nursing from './Nursing';
 import DoctorWorkbench from './DoctorWorkbench';
@@ -31,7 +33,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Offline-aware telemetry hooks
+  // Offline-aware data hooks
   const { data: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id);
   const { data: appointments } = useOfflineTable('appointments', hospital?.id);
   const { data: invoices } = useOfflineTable('invoices', hospital?.id);
@@ -53,11 +55,13 @@ export default function Dashboard() {
 
   return (
     <div className="dash-shell">
+      {/* Mobile sidebar overlay */}
       <div 
         className={`dash-overlay ${sidebarOpen ? 'show' : ''}`} 
         onClick={() => setSidebarOpen(false)} 
       />
 
+      {/* Sidebar Navigation */}
       <aside className={`dash-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="dash-brand">
           <div className="dash-brand-mark">
@@ -103,6 +107,7 @@ export default function Dashboard() {
         </div>
       </aside>
 
+      {/* Main Workspace */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <header className="dash-topbar">
           <div className="dash-burger" onClick={() => setSidebarOpen(!sidebarOpen)}>
