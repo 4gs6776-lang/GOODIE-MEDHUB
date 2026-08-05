@@ -10,7 +10,6 @@ import Appointments from './Appointments';
 import Billing from './Billing';
 import Pharmacy from './Pharmacy';
 import Laboratory from './Laboratory';
-import HospitalSettings from './HospitalSettings'; // <--- Hospital Settings Import
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: '📊' },
@@ -21,7 +20,6 @@ const NAV_ITEMS = [
   { id: 'pharmacy', label: 'Pharmacy', icon: '💊' },
   { id: 'laboratory', label: 'Laboratory', icon: '🔬' },
   { id: 'billing', label: 'Billing', icon: '💳' },
-  { id: 'settings', label: 'Hospital Settings', icon: '⚙️' }, // <--- Sidebar Nav Item
 ];
 
 export default function Dashboard() {
@@ -71,7 +69,6 @@ export default function Dashboard() {
         {activeTab === 'pharmacy' && <Pharmacy />}
         {activeTab === 'laboratory' && <Laboratory />}
         {activeTab === 'billing' && <Billing />}
-        {activeTab === 'settings' && <HospitalSettings />} {/* <--- Rendered Component */}
       </main>
     </div>
   );
