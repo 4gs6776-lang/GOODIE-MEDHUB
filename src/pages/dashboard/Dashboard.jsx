@@ -7,11 +7,13 @@ import Appointments from './Appointments'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import Pharmacy from './Pharmacy'
 import Laboratory from './Laboratory'
+import IPD from './IPD'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
   { key: 'patients', label: 'Patient Management', section: 'Main' },
   { key: 'appointments', label: 'Appointments', section: 'Main' },
+  { key: 'ipd', label: 'IPD Management', section: 'Main' },
   { key: 'billing', label: 'Billing & Invoices', section: 'Main' },
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main' },
   { key: 'laboratory', label: 'Laboratory', section: 'Main' },
@@ -217,7 +219,7 @@ export default function Dashboard(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
           <div className="dash-hospital-name">
-            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory' }[tab] || 'Dashboard'}
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', ipd: 'IPD Management' }[tab] || 'Dashboard'}
           </div>
           <div style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
@@ -481,6 +483,8 @@ export default function Dashboard(){
           {tab === 'pharmacy' && <Pharmacy />}
 
           {tab === 'laboratory' && <Laboratory />}
+
+          {tab === 'ipd' && <IPD />}
 
           {tab === 'soon' && (
             <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
