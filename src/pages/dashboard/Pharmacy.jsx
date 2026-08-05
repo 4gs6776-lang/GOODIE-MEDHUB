@@ -5,12 +5,10 @@ import { useOfflineTable } from '../../lib/useOfflineTable';
 export default function Pharmacy() {
   const { hospital } = useAuth();
 
-  // Load Prescriptions from Doctor Workbench and Inventory
   const { data: prescriptions, updateRow: updatePrescription } = useOfflineTable('prescriptions', hospital?.id);
   const { data: inventory, insertRow: addDrug, updateRow: updateDrug } = useOfflineTable('pharmacy_inventory', hospital?.id);
   const { insertRow: addInvoice } = useOfflineTable('invoices', hospital?.id);
 
-  // New Drug Form State
   const [newDrug, setNewDrug] = useState({
     drug_name: '',
     category: 'Analgesics',
@@ -42,22 +40,18 @@ export default function Pharmacy() {
   const handleDispense = async (prescription) => {
     const qtyToDispense = Number(dispenseQty[prescription.id]) || 1;
 
-    // 1. Find drug in inventory to match stock and price
     const matchedDrug = inventory?.find(i => 
       i.drug_name.toLowerCase().includes(prescription.medication_name.toLowerCase()) ||
       prescription.medication_name.toLowerCase().includes(i.drug_name.toLowerCase())
     );
 
-    // 2. Mark prescription dispensed
     await updatePrescription(prescription.id, { status: 'dispensed' });
 
-    // 3. Deduct stock if drug found in inventory
     if (matchedDrug) {
       const updatedStock = Math.max(0, Number(matchedDrug.quantity) - qtyToDispense);
       await updateDrug(matchedDrug.id, { quantity: updatedStock });
     }
 
-    // 4. Auto-bill patient in Billing module
     const itemPrice = matchedDrug ? Number(matchedDrug.unit_price) * qtyToDispense : 1000;
     await addInvoice({
       hospital_id: hospital?.id,
