@@ -10,148 +10,40 @@ import Appointments from './Appointments';
 import Billing from './Billing';
 import Pharmacy from './Pharmacy';
 import Laboratory from './Laboratory';
-
-const NAV_ITEMS = [
-  { id: 'overview', label: 'Overview', icon: '📊' },
-  { id: 'reception', label: 'Reception (Registration)', icon: '📝' },
-  { id: 'nursing', label: 'Nurses Station (Vitals)', icon: '🩺' },
-  { id: 'doctor', label: "Doctor's Workbench", icon: '👨‍⚕️' },
-  { id: 'appointments', label: 'Appointments', icon: '📅' },
-  { id: 'pharmacy', label: 'Pharmacy & Inventory', icon: '💊' },
-  { id: 'laboratory', label: 'Laboratory', icon: '🔬' },
-  { id: 'billing', label: 'Billing & Receipts', icon: '💳' },
-];
+import HospitalSettings from './HospitalSettings';
 
 export default function Dashboard() {
   const { profile, hospital, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Offline-aware data hooks
-  const { data: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id);
-  const { data: appointments } = useOfflineTable('appointments', hospital?.id);
+  const { data: patients } = useOfflineTable('patients', hospital?.id);
   const { data: invoices } = useOfflineTable('invoices', hospital?.id);
-  const { data: vitalsQueue } = useOfflineTable('patient_vitals', hospital?.id);
-
-  const totalPatientsCount = patients ? patients.length : 0;
-  const waitingCount = vitalsQueue ? vitalsQueue.filter(q => q.status === 'waiting' || q.status === 'in_consultation').length : 0;
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayAppointmentsCount = appointments 
-    ? appointments.filter(a => a.appointment_time && a.appointment_time.startsWith(todayStr)).length 
-    : 0;
 
   const todayRevenue = invoices 
-    ? invoices
-        .filter(i => i.status === 'paid')
-        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+    ? invoices.filter(i => i.status === 'paid').reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
     : 0;
 
   return (
     <div className="dash-shell">
-      {/* Mobile overlay */}
-      <div 
-        className={`dash-overlay ${sidebarOpen ? 'show' : ''}`} 
-        onClick={() => setSidebarOpen(false)} 
-      />
-
-      {/* Navigation Sidebar */}
-      <aside className={`dash-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="dash-brand">
-          <div className="dash-brand-mark">
-            {hospital?.name ? hospital.name.charAt(0).toUpperCase() : 'G'}
-          </div>
+      {/* Sidebar & Header Content */}
+      <main className="dash-content">
+        {activeTab === 'overview' && (
           <div>
-            <div className="dash-brand-name">{hospital?.name || 'G-MedHub'}</div>
-            <div className="dash-brand-sub">{hospital?.subscription_tier || 'Tier 1'} Tenant</div>
+            <h1>Hospital Overview</h1>
+            <p>Patients Registered: {patients ? patients.length : 0}</p>
+            <p>Revenue Collected: ₦{todayRevenue.toLocaleString()}</p>
           </div>
-        </div>
+        )}
 
-        <nav style={{ marginTop: '16px' }}>
-          {NAV_ITEMS.map((item) => (
-            <div
-              key={item.id}
-              className={`dash-nav-item ${activeTab === item.id ? 'active' : ''}`}
-              onClick={() => {
-                setActiveTab(item.id);
-                setSidebarOpen(false);
-              }}
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-            </div>
-          ))}
-        </nav>
-
-        <div className="dash-foot">
-          <div className="dash-foot-user">
-            <div className="dash-foot-avatar" />
-            <div>
-              <div className="dash-foot-name">{profile?.full_name || 'Staff User'}</div>
-              <div className="dash-foot-role">{profile?.role || 'User'}</div>
-            </div>
-          </div>
-          <button 
-            className="btn btn-ghost" 
-            onClick={signOut} 
-            style={{ marginTop: '12px', padding: '8px 12px', fontSize: '12px' }}
-          >
-            Sign Out
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Workspace */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <header className="dash-topbar">
-          <div className="dash-burger" onClick={() => setSidebarOpen(!sidebarOpen)}>
-            ☰
-          </div>
-          <div className="dash-hospital-name">{hospital?.name || 'Hospital Dashboard'}</div>
-        </header>
-
-        <main className="dash-content">
-          {activeTab === 'overview' && (
-            <div>
-              <div style={{ marginBottom: '20px' }}>
-                <h1 style={{ fontSize: '22px', fontFamily: 'var(--font-display)' }}>Hospital Command Center</h1>
-                <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Real-time local and synchronized hospital telemetry</p>
-              </div>
-
-              <div className="dash-stats">
-                <div className="dash-stat-card">
-                  <div className="dash-stat-label">Total Registered Patients</div>
-                  <div className="dash-stat-value">{loadingPatients ? '...' : totalPatientsCount}</div>
-                </div>
-
-                <div className="dash-stat-card">
-                  <div className="dash-stat-label">Active Doctor Queue</div>
-                  <div className="dash-stat-value">{waitingCount}</div>
-                  <span style={{ color: 'var(--gold)', fontSize: '11px', fontWeight: '700' }}>Triaged & Waiting</span>
-                </div>
-
-                <div className="dash-stat-card">
-                  <div className="dash-stat-label">Today's Appointments</div>
-                  <div className="dash-stat-value">{todayAppointmentsCount}</div>
-                </div>
-
-                <div className="dash-stat-card">
-                  <div className="dash-stat-label">Total Revenue Collected</div>
-                  <div className="dash-stat-value">₦ {todayRevenue.toLocaleString()}</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'reception' && <Reception />}
-          {activeTab === 'nursing' && <Nursing />}
-          {activeTab === 'doctor' && <DoctorWorkbench />}
-          {activeTab === 'appointments' && <Appointments />}
-          {activeTab === 'pharmacy' && <Pharmacy />}
-          {activeTab === 'laboratory' && <Laboratory />}
-          {activeTab === 'billing' && <Billing />}
-        </main>
-      </div>
+        {activeTab === 'reception' && <Reception />}
+        {activeTab === 'nursing' && <Nursing />}
+        {activeTab === 'doctor' && <DoctorWorkbench />}
+        {activeTab === 'appointments' && <Appointments />}
+        {activeTab === 'pharmacy' && <Pharmacy />}
+        {activeTab === 'laboratory' && <Laboratory />}
+        {activeTab === 'billing' && <Billing />}
+        {activeTab === 'settings' && <HospitalSettings />}
+      </main>
     </div>
   );
 }
