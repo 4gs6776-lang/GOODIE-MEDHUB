@@ -1,0 +1,10 @@
+import React from 'react';
+
+export default function HospitalSettings() {
+  return (
+    <div style={{ padding: '20px' }}>
+      <h1 style={{ fontSize: '22px', fontFamily: 'var(--font-display)' }}>Hospital Settings</h1>
+      <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Manage hospital configuration and preferences.</p>
+    </div>
+  );
+}
