@@ -1,0 +1,41 @@
+import React from 'react';
+
+export default function Overview({ 
+  patientsCount, 
+  waitingCount, 
+  todayAppointmentsCount, 
+  todayRevenue, 
+  loading 
+}) {
+  return (
+    <div>
+      <div style={{ marginBottom: '20px' }}>
+        <h1 style={{ fontSize: '22px', fontFamily: 'var(--font-display)' }}>Hospital Command Center</h1>
+        <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Real-time local and synchronized hospital telemetry</p>
+      </div>
+
+      <div className="dash-stats">
+        <div className="dash-stat-card">
+          <div className="dash-stat-label">Total Registered Patients</div>
+          <div className="dash-stat-value">{loading ? '...' : patientsCount}</div>
+        </div>
+
+        <div className="dash-stat-card">
+          <div className="dash-stat-label">Active Doctor Queue</div>
+          <div className="dash-stat-value">{waitingCount}</div>
+          <span style={{ color: 'var(--gold)', fontSize: '11px', fontWeight: '700' }}>Triaged & Waiting</span>
+        </div>
+
+        <div className="dash-stat-card">
+          <div className="dash-stat-label">Today's Appointments</div>
+          <div className="dash-stat-value">{todayAppointmentsCount}</div>
+        </div>
+
+        <div className="dash-stat-card">
+          <div className="dash-stat-label">Total Revenue Collected</div>
+          <div className="dash-stat-value">₦ {todayRevenue.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
