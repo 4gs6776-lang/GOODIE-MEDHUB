@@ -229,8 +229,8 @@ export default function Dashboard(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
           <div className="dash-hospital-name">
-            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
-          </div>
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
+       </div>
           <div style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
             fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 20,
@@ -503,6 +503,8 @@ export default function Dashboard(){
           {tab === 'ipd' && <IPD />}
           
           {tab === 'reception' && <Reception />}
+          
+          {tab === 'reports' && <Reports />}
 
           {tab === 'soon' && (
             <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
