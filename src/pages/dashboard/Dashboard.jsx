@@ -8,6 +8,7 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import Pharmacy from './Pharmacy'
 import Laboratory from './Laboratory'
 import Radiology from './Radiology'
+import Insurance from './Insurance'
 import IPD from './IPD'
 import Reception from './Reception'
 
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main' },
   { key: 'laboratory', label: 'Laboratory', section: 'Main' },
   { key: 'radiology', label: 'Radiology', section: 'Main' },
+  { key: 'insurance', label: 'Insurance / HMO', section: 'Main' },
   { key: 'staff', label: 'Staff', section: 'Operations' },
   { key: 'soon', label: 'Reports', section: 'Operations' },
   { key: 'soon', label: 'Settings', section: 'Operations' },
@@ -223,7 +225,7 @@ export default function Dashboard(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
           <div className="dash-hospital-name">
-            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}'}
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
           </div>
           <div style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
@@ -489,6 +491,8 @@ export default function Dashboard(){
           {tab === 'laboratory' && <Laboratory />}
 
           {tab === 'radiology' && <Radiology />}
+
+          {tab === 'insurance' && <Insurance />}
 
           {tab === 'ipd' && <IPD />}
           
