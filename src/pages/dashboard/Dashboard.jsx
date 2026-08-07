@@ -12,6 +12,8 @@ import Insurance from './Insurance'
 import Inventory from './Inventory'
 import IPD from './IPD'
 import Reception from './Reception'
+import Reports from './Reports'
+
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
@@ -26,7 +28,7 @@ const NAV_ITEMS = [
   { key: 'insurance', label: 'Insurance / HMO', section: 'Main' },
   { key: 'inventory', label: 'Inventory', section: 'Operations' },
   { key: 'staff', label: 'Staff', section: 'Operations' },
-  { key: 'soon', label: 'Reports', section: 'Operations' },
+  { key: 'reports', label: 'Reports', section: 'Operations' },
   { key: 'soon', label: 'Settings', section: 'Operations' },
 ]
 
