@@ -10,10 +10,10 @@ import Laboratory from './Laboratory'
 import Radiology from './Radiology'
 import Insurance from './Insurance'
 import Inventory from './Inventory'
+import Reports from './Reports'
+import Notifications from './Notifications'
 import IPD from './IPD'
 import Reception from './Reception'
-import Reports from './Reports'
-
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { key: 'inventory', label: 'Inventory', section: 'Operations' },
   { key: 'staff', label: 'Staff', section: 'Operations' },
   { key: 'reports', label: 'Reports', section: 'Operations' },
+  { key: 'notifications', label: 'Reminders', section: 'Operations' },
   { key: 'soon', label: 'Settings', section: 'Operations' },
 ]
 
@@ -229,8 +230,8 @@ export default function Dashboard(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
           <div className="dash-hospital-name">
-            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
-       </div>
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics', notifications: 'Reminders & Alerts', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
+          </div>
           <div style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
             fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 20,
@@ -500,11 +501,13 @@ export default function Dashboard(){
 
           {tab === 'inventory' && <Inventory />}
 
+          {tab === 'reports' && <Reports />}
+
+          {tab === 'notifications' && <Notifications />}
+
           {tab === 'ipd' && <IPD />}
           
           {tab === 'reception' && <Reception />}
-          
-          {tab === 'reports' && <Reports />}
 
           {tab === 'soon' && (
             <div className="dash-panel" style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>
