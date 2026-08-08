@@ -15,6 +15,7 @@ import Notifications from './Notifications'
 import Settings from './Settings'
 import IPD from './IPD'
 import Reception from './Reception'
+import DoctorWorkbench from './DoctorWorkbench'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { key: 'staff', label: 'Staff', section: 'Operations' },
   { key: 'reports', label: 'Reports', section: 'Operations' },
   { key: 'notifications', label: 'Reminders', section: 'Operations' },
+  { key: 'doctor', label: 'Doctor Workbench', section: 'Main' },
   { key: 'settings', label: 'Settings', section: 'Operations' },
 ]
 
@@ -509,6 +511,8 @@ export default function Dashboard(){
           {tab === 'ipd' && <IPD />}
           
           {tab === 'reception' && <Reception />}
+       
+             {tab === 'doctor' && <DoctorWorkbench />}
 
           {tab === 'settings' && <Settings />}
         </div>
