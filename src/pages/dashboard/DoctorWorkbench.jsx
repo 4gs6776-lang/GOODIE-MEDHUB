@@ -6,10 +6,10 @@ export default function DoctorWorkbench() {
   const { user, hospital } = useAuth();
 
   // Offline-first tables
-  const { data: patients } = useOfflineTable('patients', hospital?.id);
-  const { data: vitals, update: updateVitals } = useOfflineTable('patient_vitals', hospital?.id);
-  const { data: labOrders, insert: insertLabOrder } = useOfflineTable('lab_orders', hospital?.id);
-  const { data: prescriptions, insert: insertPrescription } = useOfflineTable('prescriptions', hospital?.id);
+  const { records: patients } = useOfflineTable('patients', hospital?.id);
+  const { records: vitals, updateRecord: updateVitals } = useOfflineTable('patient_vitals', hospital?.id);
+  const { records: labOrders, addRecord: addLabOrder } = useOfflineTable('lab_orders', hospital?.id);
+  const { records: prescriptions, addRecord: addPrescription } = useOfflineTable('prescriptions', hospital?.id);
 
   const [activePatientId, setActivePatientId] = useState(null);
 
@@ -80,14 +80,12 @@ export default function DoctorWorkbench() {
     e.preventDefault();
     if (!activeEntry || !labTestName.trim()) return;
 
-    insertLabOrder({
+    addLabOrder({
       patient_id: activeEntry.id,
-      hospital_id: hospital?.id,
       test_name: labTestName.trim(),
       priority: labPriority,
       status: 'requested',
       requested_by: user?.id,
-      requested_at: new Date().toISOString(),
     });
 
     setLabTestName('');
@@ -98,14 +96,12 @@ export default function DoctorWorkbench() {
     e.preventDefault();
     if (!activeEntry || !drugName.trim() || !dosage.trim() || !frequency.trim()) return;
 
-    insertPrescription({
+    addPrescription({
       patient_id: activeEntry.id,
-      hospital_id: hospital?.id,
       drug_name: drugName.trim(),
       dosage: dosage.trim(),
       frequency: frequency.trim(),
       prescribed_by: user?.id,
-      prescribed_at: new Date().toISOString(),
     });
 
     setDrugName('');
