@@ -90,83 +90,20 @@ export function useOfflineTable(table, hospitalId){
   }, [table, hospitalId, sKey, qKey, refreshPendingCount])
 
 useEffect(() => {
-  if (!hospitalId) return
-
   refresh()
   flushQueue()
 
-  function handleOnline(){
-    setIsOnline(true)
-    flushQueue().then(refresh)
-  }
-
-  function handleOffline(){
-    setIsOnline(false)
-  }
+  function handleOnline(){ setIsOnline(true); flushQueue().then(refresh) }
+  function handleOffline(){ setIsOnline(false) }
 
   window.addEventListener('online', handleOnline)
   window.addEventListener('offline', handleOffline)
 
-  // Listen for changes made by other users/devices
-  const channel = supabase
-    .channel(`gmedhub_${table}_${hospitalId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: table,
-        filter: `hospital_id=eq.${hospitalId}`,
-      },
-      (payload) => {
-        setRecords(current => {
-          let next = [...current]
-
-          // New record from another device
-          if (payload.eventType === 'INSERT') {
-            const exists = next.some(
-              record => record.id === payload.new.id
-            )
-
-            if (!exists) {
-              next = [payload.new, ...next]
-            }
-          }
-
-          // Updated record from another device
-          if (payload.eventType === 'UPDATE') {
-            next = next.map(record =>
-              record.id === payload.new.id
-                ? { ...record, ...payload.new }
-                : record
-            )
-          }
-
-          // Deleted record from another device
-          if (payload.eventType === 'DELETE') {
-            next = next.filter(
-              record => record.id !== payload.old.id
-            )
-          }
-
-          if (sKey) {
-            writeLocal(sKey, next)
-          }
-
-          return next
-        })
-      }
-    )
-    .subscribe()
-
   return () => {
     window.removeEventListener('online', handleOnline)
     window.removeEventListener('offline', handleOffline)
-
-    supabase.removeChannel(channel)
   }
-
-}, [hospitalId, table]) // eslint-disable-line react-hooks/exhaustive-deps
+}, [hospitalId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addRecord = useCallback(async (fields) => {
     if (!hospitalId || !sKey || !qKey) return
