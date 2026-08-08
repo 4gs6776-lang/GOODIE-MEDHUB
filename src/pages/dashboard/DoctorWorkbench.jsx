@@ -1,230 +1,335 @@
-import React, { useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import { useOfflineTable } from '../../lib/useOfflineTable';
+import React, { useMemo, useState } from 'react';
+import { useAuth } from '../../hooks/useAuth';
+import { useOfflineTable } from '../../hooks/useOfflineTable';
 
 export default function DoctorWorkbench() {
-  const { hospital, profile } = useAuth();
+  const { user, hospital } = useAuth();
 
-  // Load patient queue (from Nursing), lab orders, and prescriptions
-  const { data: queue, updateRow: updateQueue } = useOfflineTable('patient_vitals', hospital?.id);
-  const { insertRow: addConsultation } = useOfflineTable('consultations', hospital?.id);
-  const { insertRow: addPrescription } = useOfflineTable('prescriptions', hospital?.id);
-  const { insertRow: addLabOrder } = useOfflineTable('lab_tests', hospital?.id);
+  // Offline-first tables
+  const { data: patients } = useOfflineTable('patients', hospital?.id);
+  const { data: vitals, update: updateVitals } = useOfflineTable('patient_vitals', hospital?.id);
+  const { data: labOrders, insert: insertLabOrder } = useOfflineTable('lab_orders', hospital?.id);
+  const { data: prescriptions, insert: insertPrescription } = useOfflineTable('prescriptions', hospital?.id);
 
-  const [activePatient, setActivePatient] = useState(null);
+  const [activePatientId, setActivePatientId] = useState(null);
 
-  // Clinical Notes state
-  const [chiefComplaint, setChiefComplaint] = useState('');
+  // EMR note fields
+  const [chiefComplaints, setChiefComplaints] = useState('');
+  const [clinicalObservations, setClinicalObservations] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
-  const [clinicalNotes, setClinicalNotes] = useState('');
+  const [treatmentPlan, setTreatmentPlan] = useState('');
 
-  // Orders state
-  const [medication, setMedication] = useState('');
-  const [dosage, setDosage] = useState('');
+  // Lab order quick-add
   const [labTestName, setLabTestName] = useState('');
+  const [labPriority, setLabPriority] = useState('routine');
 
-  const waitingPatients = queue ? queue.filter(q => q.status === 'waiting' || q.status === 'in_consultation') : [];
+  // Prescription quick-add
+  const [drugName, setDrugName] = useState('');
+  const [dosage, setDosage] = useState('');
+  const [frequency, setFrequency] = useState('');
 
-  const handleSelectPatient = (patient) => {
-    setActivePatient(patient);
-    updateQueue(patient.id, { status: 'in_consultation' });
-  };
+  // Patients waiting for consultation: have a vitals record logged, not yet completed
+  const queue = useMemo(() => {
+    if (!patients || !vitals) return [];
+    return vitals
+      .filter((v) => v.status !== 'completed')
+      .map((v) => {
+        const patient = patients.find((p) => p.id === v.patient_id);
+        return patient ? { ...patient, vitals: v } : null;
+      })
+      .filter(Boolean);
+  }, [patients, vitals]);
 
-  const handleSaveConsultation = async (e) => {
+  const activeEntry = useMemo(
+    () => queue.find((q) => q.id === activePatientId) || null,
+    [queue, activePatientId]
+  );
+
+  const activePatientLabOrders = useMemo(() => {
+    if (!labOrders || !activePatientId) return [];
+    return labOrders.filter((l) => l.patient_id === activePatientId);
+  }, [labOrders, activePatientId]);
+
+  const activePatientPrescriptions = useMemo(() => {
+    if (!prescriptions || !activePatientId) return [];
+    return prescriptions.filter((p) => p.patient_id === activePatientId);
+  }, [prescriptions, activePatientId]);
+
+  function resetWorkbench() {
+    setActivePatientId(null);
+    setChiefComplaints('');
+    setClinicalObservations('');
+    setDiagnosis('');
+    setTreatmentPlan('');
+    setLabTestName('');
+    setLabPriority('routine');
+    setDrugName('');
+    setDosage('');
+    setFrequency('');
+  }
+
+  function handleSelectPatient(patientId) {
+    setActivePatientId(patientId);
+    setChiefComplaints('');
+    setClinicalObservations('');
+    setDiagnosis('');
+    setTreatmentPlan('');
+  }
+
+  function handleAddLabOrder(e) {
     e.preventDefault();
-    if (!activePatient) return;
+    if (!activeEntry || !labTestName.trim()) return;
 
-    const doctorName = profile?.full_name || 'Dr. On Duty';
-
-    // 1. Save Consultation Notes
-    await addConsultation({
+    insertLabOrder({
+      patient_id: activeEntry.id,
       hospital_id: hospital?.id,
-      patient_id: activePatient.patient_id,
-      patient_name: activePatient.patient_name,
-      doctor_name: doctorName,
-      chief_complaint: chiefComplaint,
-      diagnosis,
-      clinical_notes: clinicalNotes
+      test_name: labTestName.trim(),
+      priority: labPriority,
+      status: 'requested',
+      requested_by: user?.id,
+      requested_at: new Date().toISOString(),
     });
 
-    // 2. Add Prescription if filled
-    if (medication) {
-      await addPrescription({
-        hospital_id: hospital?.id,
-        patient_id: activePatient.patient_id,
-        patient_name: activePatient.patient_name,
-        doctor_name: doctorName,
-        medication_name: medication,
-        dosage,
-        status: 'pending'
-      });
-    }
-
-    // 3. Add Lab Request if filled
-    if (labTestName) {
-      await addLabOrder({
-        hospital_id: hospital?.id,
-        patient_id: activePatient.patient_id,
-        patient_name: activePatient.patient_name,
-        test_name: labTestName,
-        status: 'pending'
-      });
-    }
-
-    // Mark patient queue complete
-    await updateQueue(activePatient.id, { status: 'completed' });
-
-    // Reset Form
-    setActivePatient(null);
-    setChiefComplaint('');
-    setDiagnosis('');
-    setClinicalNotes('');
-    setMedication('');
-    setDosage('');
     setLabTestName('');
-  };
+    setLabPriority('routine');
+  }
+
+  function handleAddPrescription(e) {
+    e.preventDefault();
+    if (!activeEntry || !drugName.trim() || !dosage.trim() || !frequency.trim()) return;
+
+    insertPrescription({
+      patient_id: activeEntry.id,
+      hospital_id: hospital?.id,
+      drug_name: drugName.trim(),
+      dosage: dosage.trim(),
+      frequency: frequency.trim(),
+      prescribed_by: user?.id,
+      prescribed_at: new Date().toISOString(),
+    });
+
+    setDrugName('');
+    setDosage('');
+    setFrequency('');
+  }
+
+  function handleCompleteConsultation() {
+    if (!activeEntry) return;
+
+    updateVitals(activeEntry.vitals.id, {
+      status: 'completed',
+      chief_complaints: chiefComplaints,
+      clinical_observations: clinicalObservations,
+      diagnosis,
+      treatment_plan: treatmentPlan,
+      consulted_by: user?.id,
+      consulted_at: new Date().toISOString(),
+    });
+
+    resetWorkbench();
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div>
-        <h1 style={{ fontSize: '22px', fontFamily: 'var(--font-display)' }}>Doctor's Consultation Workbench</h1>
-        <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Examine patients, review nurse vitals, write clinical notes, and send orders</p>
-      </div>
+    <div className="dash-row">
+      {/* Active Queue Panel */}
+      <div className="dash-panel">
+        <div className="dash-panel-head">
+          <div className="dash-panel-title">Consultation Queue</div>
+          <div className="dash-legend">{queue.length} waiting</div>
+        </div>
 
-      <div className="dash-row dash-row-2">
-        {/* PATIENT WAITING QUEUE */}
-        <div className="dash-panel">
-          <div className="dash-panel-head">
-            <div className="dash-panel-title">Waiting Patients Queue ({waitingPatients.length})</div>
-          </div>
-
-          <ul className="dash-legend">
-            {waitingPatients.map((item) => (
-              <li 
-                key={item.id || item.temp_id} 
-                onClick={() => handleSelectPatient(item)}
-                style={{ 
-                  flexDirection: 'column', 
-                  alignItems: 'flex-start', 
-                  gap: '6px', 
-                  cursor: 'pointer',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  background: activePatient?.id === item.id ? 'rgba(0, 180, 160, 0.15)' : 'transparent',
-                  border: activePatient?.id === item.id ? '1px solid var(--teal)' : 'none'
-                }}
+        {queue.length === 0 ? (
+          <p style={{ color: 'var(--muted)' }}>No patients currently waiting for consultation.</p>
+        ) : (
+          <ul className="dash-list">
+            {queue.map((entry) => (
+              <li
+                key={entry.id}
+                className={`dash-list-item${entry.id === activePatientId ? ' active' : ''}`}
+                onClick={() => handleSelectPatient(entry.id)}
+                style={{ cursor: 'pointer' }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                  <strong>{item.patient_name}</strong>
-                  <span style={{ 
-                    fontSize: '10px', 
-                    padding: '2px 8px', 
-                    borderRadius: '10px', 
-                    background: item.urgency === 'Emergency' ? 'var(--danger-soft)' : 'var(--teal-soft)',
-                    color: item.urgency === 'Emergency' ? 'var(--danger)' : 'var(--teal)' 
-                  }}>
-                    {item.urgency}
-                  </span>
-                </div>
-
-                <div style={{ fontSize: '11px', color: 'var(--ivory)', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '4px', width: '100%' }}>
-                  BP: <strong>{item.blood_pressure || 'N/A'}</strong> | Temp: <strong>{item.temperature ? `${item.temperature}°C` : 'N/A'}</strong> | Pulse: <strong>{item.pulse_rate || 'N/A'}</strong>
+                <div style={{ fontFamily: 'var(--font-display)' }}>{entry.full_name}</div>
+                <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>
+                  {entry.vitals?.bp ? `BP ${entry.vitals.bp}` : ''}
+                  {entry.vitals?.pulse ? ` · Pulse ${entry.vitals.pulse}` : ''}
                 </div>
               </li>
             ))}
-            {waitingPatients.length === 0 && (
-              <li style={{ color: 'var(--muted)', fontSize: '13px' }}>No patients currently waiting in queue.</li>
-            )}
           </ul>
-        </div>
+        )}
+      </div>
 
-        {/* CONSULTATION DESK */}
-        <div className="dash-panel">
-          <div className="dash-panel-head">
-            <div className="dash-panel-title">
-              {activePatient ? `Consulting: ${activePatient.patient_name}` : 'Select a patient from the queue'}
-            </div>
+      {/* Active Consultation Panel */}
+      <div className="dash-panel">
+        <div className="dash-panel-head">
+          <div className="dash-panel-title">
+            {activeEntry ? `Consultation: ${activeEntry.full_name}` : 'Consultation File'}
           </div>
-
-          {activePatient ? (
-            <form onSubmit={handleSaveConsultation}>
-              <div className="field">
-                <label>Chief Complaint / Symptoms *</label>
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="e.g. Fever, persistent cough for 3 days" 
-                  value={chiefComplaint} 
-                  onChange={e => setChiefComplaint(e.target.value)} 
-                />
-              </div>
-
-              <div className="field">
-                <label>Diagnosis *</label>
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="e.g. Acute Malaria / URTI" 
-                  value={diagnosis} 
-                  onChange={e => setDiagnosis(e.target.value)} 
-                />
-              </div>
-
-              <div className="field">
-                <label>Clinical Notes / Examination</label>
-                <textarea 
-                  rows="3" 
-                  placeholder="Detailed clinical evaluation..." 
-                  value={clinicalNotes} 
-                  onChange={e => setClinicalNotes(e.target.value)} 
-                />
-              </div>
-
-              <div style={{ marginTop: '14px', marginBottom: '8px', fontSize: '12px', fontWeight: '700', color: 'var(--teal)' }}>
-                ELECTRONIC ORDERS (DIRECT TO DEPARTMENTS)
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="field">
-                  <label>Prescribe Medicine (Pharmacy)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. Coartem 80/480mg" 
-                    value={medication} 
-                    onChange={e => setMedication(e.target.value)} 
-                  />
-                </div>
-                <div className="field">
-                  <label>Dosage</label>
-                  <input 
-                    type="text" 
-                    placeholder="1 tabbd x 3 days" 
-                    value={dosage} 
-                    onChange={e => setDosage(e.target.value)} 
-                  />
-                </div>
-              </div>
-
-              <div className="field">
-                <label>Order Lab Test (Laboratory)</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Full Blood Count, MP Test" 
-                  value={labTestName} 
-                  onChange={e => setLabTestName(e.target.value)} 
-                />
-              </div>
-
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '12px', width: '100%' }}>
-                Save Consultation & Route Orders
-              </button>
-            </form>
-          ) : (
-            <div style={{ color: 'var(--muted)', fontSize: '13px', textAlign: 'center', padding: '40px 0' }}>
-              👈 Click on any waiting patient in the left queue to open their clinical record file.
-            </div>
-          )}
         </div>
+
+        {!activeEntry ? (
+          <p style={{ color: 'var(--muted)' }}>Select a patient from the queue to begin.</p>
+        ) : (
+          <>
+            {/* Vitals summary */}
+            <div className="dash-legend" style={{ marginBottom: '1em' }}>Recorded Vitals</div>
+            <div className="dash-row">
+              <div className="field">
+                <label>Blood Pressure</label>
+                <div>{activeEntry.vitals?.bp || '—'}</div>
+              </div>
+              <div className="field">
+                <label>Pulse</label>
+                <div>{activeEntry.vitals?.pulse || '—'}</div>
+              </div>
+              <div className="field">
+                <label>Temperature</label>
+                <div>{activeEntry.vitals?.temperature || '—'}</div>
+              </div>
+              <div className="field">
+                <label>SpO2</label>
+                <div>{activeEntry.vitals?.spo2 || '—'}</div>
+              </div>
+              <div className="field">
+                <label>Weight</label>
+                <div>{activeEntry.vitals?.weight || '—'}</div>
+              </div>
+            </div>
+
+            {/* Clinical EMR Notes */}
+            <div className="dash-legend" style={{ marginTop: '1.5em', marginBottom: '1em' }}>
+              Clinical Notes
+            </div>
+            <div className="field">
+              <label>Chief Complaints</label>
+              <textarea
+                value={chiefComplaints}
+                onChange={(e) => setChiefComplaints(e.target.value)}
+                rows={2}
+              />
+            </div>
+            <div className="field">
+              <label>Clinical Observations &amp; History</label>
+              <textarea
+                value={clinicalObservations}
+                onChange={(e) => setClinicalObservations(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="field">
+              <label>Diagnosis (ICD-10 / Description)</label>
+              <input
+                type="text"
+                value={diagnosis}
+                onChange={(e) => setDiagnosis(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Treatment Plan</label>
+              <textarea
+                value={treatmentPlan}
+                onChange={(e) => setTreatmentPlan(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            {/* Lab Orders */}
+            <div className="dash-panel-head" style={{ marginTop: '1.5em' }}>
+              <div className="dash-panel-title">Lab Orders</div>
+            </div>
+            <form onSubmit={handleAddLabOrder} className="dash-row">
+              <div className="field">
+                <label>Test Name</label>
+                <input
+                  type="text"
+                  value={labTestName}
+                  onChange={(e) => setLabTestName(e.target.value)}
+                  placeholder="e.g. Full Blood Count"
+                />
+              </div>
+              <div className="field">
+                <label>Priority</label>
+                <select value={labPriority} onChange={(e) => setLabPriority(e.target.value)}>
+                  <option value="routine">Routine</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="stat">STAT</option>
+                </select>
+              </div>
+              <button type="submit" className="btn">Add Lab Order</button>
+            </form>
+
+            {activePatientLabOrders.length > 0 && (
+              <ul className="dash-list">
+                {activePatientLabOrders.map((order) => (
+                  <li key={order.id} className="dash-list-item">
+                    <div>{order.test_name}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>
+                      {order.priority} · {order.status}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* Prescriptions */}
+            <div className="dash-panel-head" style={{ marginTop: '1.5em' }}>
+              <div className="dash-panel-title">Prescriptions</div>
+            </div>
+            <form onSubmit={handleAddPrescription} className="dash-row">
+              <div className="field">
+                <label>Drug Name</label>
+                <input
+                  type="text"
+                  value={drugName}
+                  onChange={(e) => setDrugName(e.target.value)}
+                  placeholder="e.g. Amoxicillin"
+                />
+              </div>
+              <div className="field">
+                <label>Dosage</label>
+                <input
+                  type="text"
+                  value={dosage}
+                  onChange={(e) => setDosage(e.target.value)}
+                  placeholder="e.g. 500mg"
+                />
+              </div>
+              <div className="field">
+                <label>Frequency</label>
+                <input
+                  type="text"
+                  value={frequency}
+                  onChange={(e) => setFrequency(e.target.value)}
+                  placeholder="e.g. 3x daily"
+                />
+              </div>
+              <button type="submit" className="btn">Add Prescription</button>
+            </form>
+
+            {activePatientPrescriptions.length > 0 && (
+              <ul className="dash-list">
+                {activePatientPrescriptions.map((rx) => (
+                  <li key={rx.id} className="dash-list-item">
+                    <div>{rx.drug_name} — {rx.dosage}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>{rx.frequency}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* Completion */}
+            <div style={{ marginTop: '2em' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleCompleteConsultation}
+              >
+                Complete Consultation
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
