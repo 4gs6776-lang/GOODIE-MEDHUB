@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { useOfflineTable } from '../../hooks/useOfflineTable';
+import { useOfflineTable } from '../../lib/useOfflineTable';
 
 export default function DoctorWorkbench() {
   const { user, hospital } = useAuth();
