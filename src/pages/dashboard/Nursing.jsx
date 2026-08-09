@@ -85,6 +85,11 @@ export default function Nursing(){
     .filter(p => p.status === 'active')
     .sort((a, b) => new Date(b.prescribed_at || b.created_at) - new Date(a.prescribed_at || a.created_at))
 
+  const [selectedPatientName, setSelectedPatientName] = useState('')
+  const patientOrders = selectedPatientName
+    ? activeOrders.filter(p => p.patient_name === selectedPatientName)
+    : []
+
   async function handleMarkAdministered(rx){
     await updatePrescription(rx.id, { status: 'dispensed' })
     showToast(`Marked ${rx.drug_name} as administered for ${rx.patient_name}`)
@@ -201,7 +206,13 @@ export default function Nursing(){
                 return (
                   <li key={item.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                      <strong>{item.patient_name}</strong>
+                      <strong
+                        onClick={() => setSelectedPatientName(item.patient_name)}
+                        style={{ cursor: 'pointer', color: selectedPatientName === item.patient_name ? 'var(--teal)' : undefined }}
+                        title="Click to view this patient's doctor's orders"
+                      >
+                        {item.patient_name}
+                      </strong>
                       <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: uc.bg, color: uc.color, fontWeight: 700 }}>
                         {item.urgency}
                       </span>
@@ -227,15 +238,24 @@ export default function Nursing(){
         <div className="dash-panel-head">
           <div>
             <div className="dash-panel-title">Doctor's Orders</div>
-            <div className="dash-panel-sub">Prescriptions awaiting administration</div>
+            <div className="dash-panel-sub">
+              {selectedPatientName ? `Prescriptions for ${selectedPatientName}` : "Click a patient's name above to view their orders"}
+            </div>
           </div>
+          {selectedPatientName && (
+            <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setSelectedPatientName('')}>
+              Clear
+            </button>
+          )}
         </div>
 
-        {activeOrders.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No pending doctor's orders.</div>
+        {!selectedPatientName ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Select a patient to see their doctor's orders.</div>
+        ) : patientOrders.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No pending doctor's orders for {selectedPatientName}.</div>
         ) : (
           <ul className="dash-legend">
-            {activeOrders.map(rx => (
+            {patientOrders.map(rx => (
               <li key={rx.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                   <strong>{rx.patient_name}</strong>
