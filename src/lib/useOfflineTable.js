@@ -22,15 +22,107 @@ function writeLocal(key, value){
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full or unavailable — ignore */ }
 }
 
+// --- Shared sync-error status, readable/writable without a mounted hook ---
+// Keyed by table name. Lets a global "sync stuck" badge work even for
+// tables whose hook isn't currently mounted anywhere on screen.
+const SYNC_STATUS_KEY = 'gmedhub_sync_status'
+const SYNC_STATUS_EVENT = 'gmedhub-sync-status-changed'
+
+function readSyncStatus(){
+  try { return JSON.parse(localStorage.getItem(SYNC_STATUS_KEY)) || {} } catch { return {} }
+}
+function writeSyncStatus(status){
+  try { localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(status)) } catch { /* ignore */ }
+  window.dispatchEvent(new Event(SYNC_STATUS_EVENT))
+}
+function setTableSyncError(table, message, queueLength){
+  const status = readSyncStatus()
+  status[table] = { table, message, queueLength, at: new Date().toISOString() }
+  writeSyncStatus(status)
+}
+function clearTableSyncError(table){
+  const status = readSyncStatus()
+  if (status[table]) {
+    delete status[table]
+    writeSyncStatus(status)
+  }
+}
+// Exported so the topbar (or any component) can show a global badge without
+// needing that table's useOfflineTable hook mounted.
+export function getAllSyncErrors(){
+  return readSyncStatus()
+}
+export function subscribeSyncErrors(callback){
+  function handler(){ callback(readSyncStatus()) }
+  window.addEventListener(SYNC_STATUS_EVENT, handler)
+  return () => window.removeEventListener(SYNC_STATUS_EVENT, handler)
+}
+
+// Attempt one sync operation against Supabase and report success/error.
+async function performOp(table, op){
+  if (op.type === 'insert') {
+    const { error } = await supabase.from(table).insert(op.payload)
+    return { ok: !error, error }
+  }
+  if (op.type === 'delete') {
+    const { error } = await supabase.from(table).delete().eq('id', op.id)
+    return { ok: !error, error }
+  }
+  if (op.type === 'update') {
+    const { error } = await supabase.from(table).update(op.payload).eq('id', op.id)
+    return { ok: !error, error }
+  }
+  return { ok: true, error: null }
+}
+
+// Standalone (non-hook) queue flush for a given table/hospital. Used both by
+// the hook internally and by the global sync-status badge, which may need to
+// retry/skip a table that isn't currently mounted as a hook anywhere.
+export async function flushTableQueue(table, hospitalId){
+  if (!table || !hospitalId || !navigator.onLine) return
+  const qKey = queueKey(table, hospitalId)
+  let queue = readLocal(qKey, [])
+  clearTableSyncError(table)
+  while (queue.length > 0) {
+    const op = queue[0]
+    const { ok, error } = await performOp(table, op)
+    if (!ok) {
+      setTableSyncError(table, error?.message || 'Unknown sync error', queue.length)
+      break
+    }
+    queue = queue.slice(1)
+    writeLocal(qKey, queue)
+  }
+}
+
+// Discards just the item currently stuck at the front of a table's queue —
+// the local record itself is untouched, only that one sync attempt is
+// abandoned so everything behind it can proceed.
+export async function skipStuckSyncItem(table, hospitalId){
+  const qKey = queueKey(table, hospitalId)
+  const queue = readLocal(qKey, [])
+  if (queue.length === 0) return null
+  const skipped = queue[0]
+  writeLocal(qKey, queue.slice(1))
+  clearTableSyncError(table)
+  await flushTableQueue(table, hospitalId)
+  return skipped
+}
+
 export function useOfflineTable(table, hospitalId){
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [pendingCount, setPendingCount] = useState(0)
+  const [lastError, setLastError] = useState(() => readSyncStatus()[table] || null)
   const syncingRef = useRef(false)
 
   const sKey = hospitalId ? storageKey(table, hospitalId) : null
   const qKey = hospitalId ? queueKey(table, hospitalId) : null
+
+  useEffect(() => {
+    return subscribeSyncErrors(status => setLastError(status[table] || null))
+  }, [table])
 
   const refreshPendingCount = useCallback(() => {
     if (!qKey) return
@@ -40,32 +132,15 @@ export function useOfflineTable(table, hospitalId){
 
   // Push local queue of changes up to Supabase, one at a time, in order.
   const flushQueue = useCallback(async () => {
-    if (!qKey || !sKey || syncingRef.current || !navigator.onLine) return
+    if (!qKey || !sKey || syncingRef.current || !navigator.onLine || !hospitalId) return
     syncingRef.current = true
     try {
-      let queue = readLocal(qKey, [])
-      while (queue.length > 0) {
-        const op = queue[0]
-        let ok = false
-        if (op.type === 'insert') {
-          const { error } = await supabase.from(table).insert(op.payload)
-          ok = !error
-        } else if (op.type === 'delete') {
-          const { error } = await supabase.from(table).delete().eq('id', op.id)
-          ok = !error
-        } else if (op.type === 'update') {
-          const { error } = await supabase.from(table).update(op.payload).eq('id', op.id)
-          ok = !error
-        }
-        if (!ok) break // stop here, retry later — keeps order intact
-        queue = queue.slice(1)
-        writeLocal(qKey, queue)
-      }
+      await flushTableQueue(table, hospitalId)
     } finally {
       syncingRef.current = false
       refreshPendingCount()
     }
-  }, [table, qKey, sKey, refreshPendingCount])
+  }, [table, hospitalId, qKey, sKey, refreshPendingCount])
 
   // Pull fresh data from Supabase and merge with any not-yet-synced local records.
   const refresh = useCallback(async () => {
@@ -107,6 +182,23 @@ export function useOfflineTable(table, hospitalId){
     setLoading(false)
     refreshPendingCount()
   }, [table, hospitalId, sKey, qKey, refreshPendingCount])
+
+  // Manually re-attempt the queue (same as flushQueue, but also refreshes
+  // records afterward so a fix takes effect on screen immediately).
+  const retrySync = useCallback(async () => {
+    await flushQueue()
+    await refresh()
+  }, [flushQueue, refresh])
+
+  // Permanently discard just the one item stuck at the front of the queue,
+  // then retry everything behind it.
+  const skipStuckItem = useCallback(async () => {
+    if (!hospitalId) return null
+    const skipped = await skipStuckSyncItem(table, hospitalId)
+    refreshPendingCount()
+    await refresh()
+    return skipped
+  }, [table, hospitalId, refresh, refreshPendingCount])
 
   useEffect(() => {
     refresh()
@@ -175,5 +267,5 @@ export function useOfflineTable(table, hospitalId){
     if (navigator.onLine) flushQueue()
   }, [sKey, qKey, flushQueue, refreshPendingCount])
 
-  return { records, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord, refresh }
+  return { records, loading, isOnline, pendingCount, lastError, addRecord, deleteRecord, updateRecord, refresh, retrySync, skipStuckItem }
 }
