@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 :root{
   --bg:#070F14;
   --bg-elevated:#081118;
@@ -19,10 +20,9 @@
   --danger-soft:rgba(240,79,95,0.12);
   --success:#18D99B;
   --radius:12px;
-  --font-display:'Inter', sans-serif;
-  --font-body:'Inter', sans-serif;
-  --font-mono:'JetBrains Mono', monospace;
-}
+ --font-display:'Plus Jakarta Sans', sans-serif;
+--font-body:'Plus Jakarta Sans', sans-serif;
+--font-mono:'JetBrains Mono', monospace;
 
 *{ margin:0; padding:0; box-sizing:border-box; }
 
