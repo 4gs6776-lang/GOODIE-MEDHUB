@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import PatientProfile from '../../components/PatientProfile'
 
 const URGENCY_LEVELS = ['Routine', 'Urgent', 'Emergency']
 
@@ -12,6 +13,7 @@ export default function Nursing(){
   const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
 
   const [toast, setToast] = useState(null)
+  const [profilePatientId, setProfilePatientId] = useState(null)
   const [selectedPatientId, setSelectedPatientId] = useState('')
   const [assignedDoctor, setAssignedDoctor] = useState('')
   const [urgency, setUrgency] = useState('Routine')
@@ -268,11 +270,18 @@ export default function Nursing(){
             <div className="dash-panel-title">Patient Lookup</div>
             <div className="dash-panel-sub">Search any patient to view their details and doctor's orders</div>
           </div>
-          {selectedLookupPatient && (
-            <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setSelectedLookupPatientId('')}>
-              Clear
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            {selectedLookupPatient && (
+              <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setProfilePatientId(selectedLookupPatient.id)}>
+                View Full Profile
+              </button>
+            )}
+            {selectedLookupPatient && (
+              <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setSelectedLookupPatientId('')}>
+                Clear
+              </button>
+            )}
+          </div>
         </div>
 
         {!selectedLookupPatient && (
@@ -391,6 +400,10 @@ export default function Nursing(){
         }}>
           {toast}
         </div>
+      )}
+
+      {profilePatientId && (
+        <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
       )}
     </>
   )
