@@ -78,9 +78,28 @@ export function useOfflineTable(table, hospitalId){
       const { data, error } = await supabase.from(table).select('*').eq('hospital_id', hospitalId).order('created_at', { ascending: false })
       if (!error && data) {
         const queue = readLocal(qKey, [])
-        const stillPendingInserts = queue.filter(op => op.type === 'insert').map(op => op.payload)
+
+        // Re-apply any local changes that haven't been confirmed on the
+        // server yet, so a fresh fetch can never silently overwrite an
+        // optimistic edit or deletion that's still mid-sync.
+        const pendingDeletes = new Set(queue.filter(op => op.type === 'delete').map(op => op.id))
+        const pendingUpdatesById = {}
+        for (const op of queue) {
+          if (op.type === 'update') {
+            pendingUpdatesById[op.id] = { ...(pendingUpdatesById[op.id] || {}), ...op.payload }
+          }
+        }
+        const pendingInserts = queue.filter(op => op.type === 'insert').map(op => op.payload)
         const serverIds = new Set(data.map(r => r.id))
-        const merged = [...stillPendingInserts.filter(p => !serverIds.has(p.id)), ...data]
+
+        const withPendingEdits = data
+          .filter(r => !pendingDeletes.has(r.id))
+          .map(r => pendingUpdatesById[r.id] ? { ...r, ...pendingUpdatesById[r.id] } : r)
+
+        const merged = [
+          ...pendingInserts.filter(p => !serverIds.has(p.id) && !pendingDeletes.has(p.id)),
+          ...withPendingEdits,
+        ]
         writeLocal(sKey, merged)
         setRecords(merged)
       }
@@ -89,21 +108,19 @@ export function useOfflineTable(table, hospitalId){
     refreshPendingCount()
   }, [table, hospitalId, sKey, qKey, refreshPendingCount])
 
-useEffect(() => {
-  refresh()
-  flushQueue()
+  useEffect(() => {
+    refresh()
+    flushQueue()
 
-  function handleOnline(){ setIsOnline(true); flushQueue().then(refresh) }
-  function handleOffline(){ setIsOnline(false) }
-
-  window.addEventListener('online', handleOnline)
-  window.addEventListener('offline', handleOffline)
-
-  return () => {
-    window.removeEventListener('online', handleOnline)
-    window.removeEventListener('offline', handleOffline)
-  }
-}, [hospitalId]) // eslint-disable-line react-hooks/exhaustive-deps
+    function handleOnline(){ setIsOnline(true); flushQueue().then(refresh) }
+    function handleOffline(){ setIsOnline(false) }
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [hospitalId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addRecord = useCallback(async (fields) => {
     if (!hospitalId || !sKey || !qKey) return
