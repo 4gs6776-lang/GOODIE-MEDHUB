@@ -54,9 +54,9 @@
 .auth-brand{ display:flex; align-items:center; gap:11px; margin-bottom:28px; justify-content:center; }
 .auth-brand-mark{
   width:40px; height:40px; border-radius:11px;
-  background:linear-gradient(150deg,var(--teal),#4fae5c);
+  background:linear-gradient(150deg,var(--teal),var(--blue));
   display:flex; align-items:center; justify-content:center;
-  font-family:var(--font-display); font-weight:600; font-size:19px; color:#00250D;
+  font-family:var(--font-display); font-weight:700; font-size:19px; color:var(--bg);
 }
 .auth-brand-name{ font-family:var(--font-display); font-size:19px; font-weight:500; }
 .auth-title{ font-family:var(--font-display); font-size:22px; font-weight:500; margin-bottom:6px; text-align:center; }
