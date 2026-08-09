@@ -113,11 +113,12 @@ export default function Staff(){
     }
   }
 
-  async function handleDelete(member){
-    if (!confirm(`Remove ${member.full_name} from your hospital?`)) return
-    const { error } = await supabase.from('profiles').delete().eq('id', member.id)
+  async function handleToggleActive(member){
+    const goingActive = member.active === false
+    if (!goingActive && !confirm(`Deactivate ${member.full_name}? They'll immediately lose access to log in, but their name stays on any records they've created.`)) return
+    const { error } = await supabase.from('profiles').update({ active: goingActive }).eq('id', member.id)
     if (!error) {
-      showToast(`${member.full_name} removed`)
+      showToast(`${member.full_name} ${goingActive ? 'reactivated' : 'deactivated'}`)
       loadStaff()
     } else {
       showToast(error.message)
@@ -146,14 +147,17 @@ export default function Staff(){
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {staff.map(member => (
-              <div key={member.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div key={member.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, opacity: member.active === false ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(150deg,var(--blue),#2a5cc9)', flexShrink: 0 }} />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>
                       {member.full_name} {member.id === profile?.id && <span style={{ color: 'var(--muted)', fontWeight: 500 }}>(you)</span>}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{ROLE_LABELS[member.role] || member.role}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {ROLE_LABELS[member.role] || member.role}
+                      {member.active === false && <span style={{ color: 'var(--danger)', fontWeight: 700 }}> · Deactivated</span>}
+                    </div>
                   </div>
                 </div>
                 {isAdmin && (
@@ -166,10 +170,16 @@ export default function Staff(){
                     </button>
                     {member.id !== profile?.id && (
                       <button
-                        onClick={() => handleDelete(member)}
-                        style={{ background: 'var(--danger-soft)', border: '1px solid rgba(225,104,94,0.35)', color: 'var(--danger)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                        title="Remove"
-                      >✕</button>
+                        onClick={() => handleToggleActive(member)}
+                        style={{
+                          background: member.active === false ? 'var(--teal-soft)' : 'var(--danger-soft)',
+                          border: member.active === false ? '1px solid var(--teal)' : '1px solid rgba(225,104,94,0.35)',
+                          color: member.active === false ? 'var(--teal)' : 'var(--danger)',
+                          borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 700,
+                        }}
+                      >
+                        {member.active === false ? 'Reactivate' : 'Deactivate'}
+                      </button>
                     )}
                   </div>
                 )}
