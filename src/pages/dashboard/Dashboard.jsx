@@ -13,9 +13,10 @@ import Inventory from './Inventory'
 import Reports from './Reports'
 import Notifications from './Notifications'
 import Settings from './Settings'
+import DoctorWorkbench from './DoctorWorkbench'
+import Nursing from './Nursing'
 import IPD from './IPD'
 import Reception from './Reception'
-import DoctorWorkbench from './DoctorWorkbench'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main' },
@@ -26,13 +27,14 @@ const NAV_ITEMS = [
   { key: 'billing', label: 'Billing & Invoices', section: 'Main' },
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main' },
   { key: 'laboratory', label: 'Laboratory', section: 'Main' },
+  { key: 'nursing', label: 'Nursing / Triage', section: 'Main' },
+  { key: 'doctor', label: 'Doctor Workbench', section: 'Main' },
   { key: 'radiology', label: 'Radiology', section: 'Main' },
   { key: 'insurance', label: 'Insurance / HMO', section: 'Main' },
   { key: 'inventory', label: 'Inventory', section: 'Operations' },
   { key: 'staff', label: 'Staff', section: 'Operations' },
   { key: 'reports', label: 'Reports', section: 'Operations' },
   { key: 'notifications', label: 'Reminders', section: 'Operations' },
-  { key: 'doctor', label: 'Doctor Workbench', section: 'Main' },
   { key: 'settings', label: 'Settings', section: 'Operations' },
 ]
 
@@ -233,7 +235,7 @@ export default function Dashboard(){
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </div>
           <div className="dash-hospital-name">
-            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', doctor: 'Doctor Workbench', pharmacy: 'Pharmacy', laboratory: 'Laboratory', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics', notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
+            {{ overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments', billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory', nursing: 'Nursing / Triage', doctor: 'Doctor Workbench', radiology: 'Radiology', insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics', notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management', reception: 'Reception' }[tab] || 'Dashboard'}
           </div>
           <div style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8,
@@ -498,6 +500,10 @@ export default function Dashboard(){
 
           {tab === 'laboratory' && <Laboratory />}
 
+          {tab === 'nursing' && <Nursing />}
+
+          {tab === 'doctor' && <DoctorWorkbench />}
+
           {tab === 'radiology' && <Radiology />}
 
           {tab === 'insurance' && <Insurance />}
@@ -511,8 +517,6 @@ export default function Dashboard(){
           {tab === 'ipd' && <IPD />}
           
           {tab === 'reception' && <Reception />}
-       
-             {tab === 'doctor' && <DoctorWorkbench />}
 
           {tab === 'settings' && <Settings />}
         </div>
