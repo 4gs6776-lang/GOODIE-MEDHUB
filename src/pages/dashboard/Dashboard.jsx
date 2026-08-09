@@ -47,6 +47,8 @@ export default function Dashboard(){
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
+  const { records: prescriptions } = useOfflineTable('prescriptions', hospital?.id)
+  const [selectedOrdersPatient, setSelectedOrdersPatient] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [name, setName] = useState('')
   const [age, setAge] = useState('')
@@ -462,30 +464,64 @@ export default function Dashboard(){
                     </tr>
                   </thead>
                   <tbody>
-                    {displayedPatients.map(p => (
-                      <tr key={p.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                        <td style={{ padding: 12, fontWeight: 700 }}>{p.full_name}</td>
-                        <td style={{ padding: 12 }}>{p.age}</td>
-                        <td style={{ padding: 12 }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
-                            background: p.status === 'stable' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
-                            color: p.status === 'stable' ? 'var(--teal)' : 'var(--gold)',
-                          }}>
-                            {p.status === 'stable' ? 'Stable' : 'In Review'}
-                          </span>
-                        </td>
-                        <td style={{ padding: 12 }}>
-                          <button
-                            onClick={() => handleDelete(p)}
-                            style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                            title="Delete"
-                          >✕</button>
-                        </td>
-                      </tr>
-                    ))}
+                    {displayedPatients.map(p => {
+                      const isSelected = selectedOrdersPatient === p.full_name
+                      return (
+                        <tr key={p.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                          <td
+                            onClick={() => setSelectedOrdersPatient(isSelected ? '' : p.full_name)}
+                            style={{ padding: 12, fontWeight: 700, cursor: 'pointer', color: isSelected ? 'var(--teal)' : undefined }}
+                            title="Click to view this patient's doctor's orders"
+                          >
+                            {p.full_name}
+                          </td>
+                          <td style={{ padding: 12 }}>{p.age}</td>
+                          <td style={{ padding: 12 }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                              background: p.status === 'stable' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
+                              color: p.status === 'stable' ? 'var(--teal)' : 'var(--gold)',
+                            }}>
+                              {p.status === 'stable' ? 'Stable' : 'In Review'}
+                            </span>
+                          </td>
+                          <td style={{ padding: 12 }}>
+                            <button
+                              onClick={() => handleDelete(p)}
+                              style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
+                              title="Delete"
+                            >✕</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
+              )}
+
+              {selectedOrdersPatient && (
+                <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid var(--line-soft)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div className="dash-panel-title" style={{ fontSize: 14.5 }}>Doctor's Orders — {selectedOrdersPatient}</div>
+                    <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setSelectedOrdersPatient('')}>Clear</button>
+                  </div>
+                  {(() => {
+                    const orders = prescriptions.filter(rx => rx.patient_name === selectedOrdersPatient && rx.status === 'active')
+                    if (orders.length === 0) {
+                      return <div style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No active doctor's orders for {selectedOrdersPatient}.</div>
+                    }
+                    return (
+                      <ul className="dash-legend">
+                        {orders.map(rx => (
+                          <li key={rx.id}>
+                            <span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: 'var(--teal)' }} />{rx.drug_name} — {rx.dosage}</span>
+                            <span className="dash-legend-val">{rx.frequency || '—'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  })()}
+                </div>
               )}
             </div>
           )}
