@@ -26,8 +26,13 @@ export default function Nursing(){
   const doctors = staff ? staff.filter(s => s.role === 'doctor' || s.role === 'admin') : []
 
   // Checked-in patients are surfaced first, but any patient can be triaged.
-  const readyForTriage = patients.filter(p => p.queue_status === 'waiting')
-  const otherPatients = patients.filter(p => p.queue_status !== 'waiting')
+  const [triagePatientSearch, setTriagePatientSearch] = useState('')
+  const readyForTriage = patients
+    .filter(p => p.queue_status === 'waiting')
+    .filter(p => !triagePatientSearch.trim() || p.full_name.toLowerCase().includes(triagePatientSearch.trim().toLowerCase()))
+  const otherPatients = patients
+    .filter(p => p.queue_status !== 'waiting')
+    .filter(p => !triagePatientSearch.trim() || p.full_name.toLowerCase().includes(triagePatientSearch.trim().toLowerCase()))
 
   function showToast(msg){
     setToast(msg)
@@ -140,6 +145,14 @@ export default function Nursing(){
           )}
 
           <form onSubmit={handleQueueWithVitals}>
+            <div className="field">
+              <label>Search Patients</label>
+              <input
+                value={triagePatientSearch}
+                onChange={e => setTriagePatientSearch(e.target.value)}
+                placeholder="Type a name to filter the list below…"
+              />
+            </div>
             <div className="field">
               <label>Select Patient</label>
               <select value={selectedPatientId} onChange={e => setSelectedPatientId(e.target.value)}>
