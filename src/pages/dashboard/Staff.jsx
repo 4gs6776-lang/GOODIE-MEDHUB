@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabaseClient'
 const FN_CREATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff`
 const FN_UPDATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-staff-login`
 
-const ROLE_LABELS = { admin: 'Admin', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', staff: 'Staff' }
+const ROLE_LABELS = { admin: 'Admin', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
 
 export default function Staff(){
   const { profile, hospital, session } = useAuth()
@@ -203,7 +203,10 @@ export default function Staff(){
                 <select value={role} onChange={e => setRole(e.target.value)}>
                   <option value="doctor">Doctor</option>
                   <option value="nurse">Nurse</option>
-                  <option value="front_desk">Front Desk</option>
+                  <option value="front_desk">Front Desk / Reception</option>
+                  <option value="pharmacist">Pharmacist</option>
+                  <option value="lab">Laboratory</option>
+                  <option value="billing">Billing</option>
                 </select>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
