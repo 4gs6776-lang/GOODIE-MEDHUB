@@ -309,6 +309,20 @@ export default function Dashboard(){
     return null
   }
 
+  if(profile && profile.active === false){
+    return (
+      <div className="dash-account-state">
+        <div className="card">
+          <div className="dash-state-title">Account deactivated</div>
+          <div className="dash-state-text">
+            Your access has been deactivated by an administrator at {hospital?.name || 'your hospital'}. Contact them if you believe this is a mistake.
+          </div>
+          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
+        </div>
+      </div>
+    )
+  }
+
   if(hospital && hospital.status !== 'active'){
     return (
       <div className="dash-account-state">
