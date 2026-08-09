@@ -52,6 +52,7 @@ export default function Dashboard(){
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
   const [profilePatientId, setProfilePatientId] = useState(null)
+  const [patientSearchQuery, setPatientSearchQuery] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [name, setName] = useState('')
   const [age, setAge] = useState('')
@@ -188,7 +189,8 @@ export default function Dashboard(){
     showToast(`${pending.patient.full_name} restored`)
   }
 
-  const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
+  const displayedPatients = (pending ? patients.filter(p => p.id !== pending.patient.id) : patients)
+    .filter(p => !patientSearchQuery.trim() || p.full_name.toLowerCase().includes(patientSearchQuery.trim().toLowerCase()))
 
   if (profile?.role === 'owner') {
     window.location.href = '/owner'
@@ -521,10 +523,20 @@ export default function Dashboard(){
                 <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
               </div>
 
+              <div className="field" style={{ marginTop: 4 }}>
+                <input
+                  value={patientSearchQuery}
+                  onChange={e => setPatientSearchQuery(e.target.value)}
+                  placeholder="Search patients by name…"
+                />
+              </div>
+
               {loading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
               ) : displayedPatients.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients yet. Add your first one above.</div>
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+                  {patientSearchQuery.trim() ? `No patients match "${patientSearchQuery}".` : 'No patients yet. Add your first one above.'}
+                </div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
