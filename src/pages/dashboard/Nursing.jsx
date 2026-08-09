@@ -23,8 +23,9 @@ export default function Nursing(){
 
   const doctors = staff ? staff.filter(s => s.role === 'doctor' || s.role === 'admin') : []
 
-  // Only patients checked in at Reception and still waiting are ready for triage.
+  // Checked-in patients are surfaced first, but any patient can be triaged.
   const readyForTriage = patients.filter(p => p.queue_status === 'waiting')
+  const otherPatients = patients.filter(p => p.queue_status !== 'waiting')
 
   function showToast(msg){
     setToast(msg)
@@ -85,10 +86,28 @@ export default function Nursing(){
     .filter(p => p.status === 'active')
     .sort((a, b) => new Date(b.prescribed_at || b.created_at) - new Date(a.prescribed_at || a.created_at))
 
-  const [selectedPatientName, setSelectedPatientName] = useState('')
-  const patientOrders = selectedPatientName
-    ? activeOrders.filter(p => p.patient_name === selectedPatientName)
+  // Patient lookup — search any patient (not just those currently in the
+  // queue), see their details, doctor's orders, and latest consultation.
+  const [patientSearch, setPatientSearch] = useState('')
+  const [selectedLookupPatientId, setSelectedLookupPatientId] = useState('')
+
+  const lookupResults = patientSearch.trim()
+    ? patients.filter(p => p.full_name.toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 20)
     : []
+  const selectedLookupPatient = patients.find(p => p.id === selectedLookupPatientId) || null
+  const lookupOrders = selectedLookupPatient
+    ? activeOrders.filter(rx => rx.patient_name === selectedLookupPatient.full_name)
+    : []
+  const lookupLatestConsultation = selectedLookupPatient
+    ? vitalsQueue
+        .filter(v => v.patient_id === selectedLookupPatient.id && v.status === 'completed')
+        .sort((a, b) => new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at))[0]
+    : null
+
+  function selectLookupPatient(id){
+    setSelectedLookupPatientId(id)
+    setPatientSearch('')
+  }
 
   async function handleMarkAdministered(rx){
     await updatePrescription(rx.id, { status: 'dispensed' })
@@ -120,12 +139,21 @@ export default function Nursing(){
 
           <form onSubmit={handleQueueWithVitals}>
             <div className="field">
-              <label>Select Checked-In Patient</label>
+              <label>Select Patient</label>
               <select value={selectedPatientId} onChange={e => setSelectedPatientId(e.target.value)}>
                 <option value="">-- Choose Patient --</option>
-                {readyForTriage.map(p => (
-                  <option key={p.id} value={p.id}>{p.full_name}</option>
-                ))}
+                {readyForTriage.length > 0 && (
+                  <optgroup label="Checked-In (Waiting)">
+                    {readyForTriage.map(p => (
+                      <option key={p.id} value={p.id}>{p.full_name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="All Patients">
+                  {otherPatients.map(p => (
+                    <option key={p.id} value={p.id}>{p.full_name}</option>
+                  ))}
+                </optgroup>
               </select>
             </div>
 
@@ -207,9 +235,9 @@ export default function Nursing(){
                   <li key={item.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                       <strong
-                        onClick={() => setSelectedPatientName(item.patient_name)}
-                        style={{ cursor: 'pointer', color: selectedPatientName === item.patient_name ? 'var(--teal)' : undefined }}
-                        title="Click to view this patient's doctor's orders"
+                        onClick={() => item.patient_id && selectLookupPatient(item.patient_id)}
+                        style={{ cursor: item.patient_id ? 'pointer' : 'default', color: selectedLookupPatientId === item.patient_id ? 'var(--teal)' : undefined }}
+                        title="Click to view this patient's details and doctor's orders"
                       >
                         {item.patient_name}
                       </strong>
@@ -237,42 +265,121 @@ export default function Nursing(){
       <div className="dash-panel" style={{ marginTop: 20 }}>
         <div className="dash-panel-head">
           <div>
-            <div className="dash-panel-title">Doctor's Orders</div>
-            <div className="dash-panel-sub">
-              {selectedPatientName ? `Prescriptions for ${selectedPatientName}` : "Click a patient's name above to view their orders"}
-            </div>
+            <div className="dash-panel-title">Patient Lookup</div>
+            <div className="dash-panel-sub">Search any patient to view their details and doctor's orders</div>
           </div>
-          {selectedPatientName && (
-            <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setSelectedPatientName('')}>
+          {selectedLookupPatient && (
+            <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setSelectedLookupPatientId('')}>
               Clear
             </button>
           )}
         </div>
 
-        {!selectedPatientName ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Select a patient to see their doctor's orders.</div>
-        ) : patientOrders.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No pending doctor's orders for {selectedPatientName}.</div>
-        ) : (
-          <ul className="dash-legend">
-            {patientOrders.map(rx => (
-              <li key={rx.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                  <strong>{rx.patient_name}</strong>
-                  <button
-                    onClick={() => handleMarkAdministered(rx)}
-                    className="btn btn-ghost"
-                    style={{ padding: '4px 10px', fontSize: 11 }}
-                  >
-                    Mark Administered
-                  </button>
+        {!selectedLookupPatient && (
+          <div className="field" style={{ marginBottom: 0 }}>
+            <input
+              value={patientSearch}
+              onChange={e => setPatientSearch(e.target.value)}
+              placeholder="Search patients by name…"
+            />
+          </div>
+        )}
+
+        {patientSearch.trim() && !selectedLookupPatient && (
+          lookupResults.length === 0 ? (
+            <div style={{ padding: '16px 0', color: 'var(--muted)', fontSize: 13 }}>No patients match "{patientSearch}".</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+              {lookupResults.map(p => (
+                <div
+                  key={p.id}
+                  onClick={() => selectLookupPatient(p.id)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer',
+                    padding: '9px 12px', borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{p.full_name}</span>
+                  <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.age ? `${p.age} yrs` : ''}{p.queue_status ? ` · ${p.queue_status.replace('_', ' ')}` : ''}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  <strong style={{ color: 'var(--ivory)' }}>{rx.drug_name}</strong> — {rx.dosage}{rx.frequency ? ` · ${rx.frequency}` : ''}
+              ))}
+            </div>
+          )
+        )}
+
+        {selectedLookupPatient && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Name</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedLookupPatient.full_name}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Age / Gender</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedLookupPatient.age || '—'}{selectedLookupPatient.gender ? ` · ${selectedLookupPatient.gender}` : ''}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Phone</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedLookupPatient.phone || '—'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Blood Group / Genotype</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedLookupPatient.blood_group || '—'}{selectedLookupPatient.genotype ? ` · ${selectedLookupPatient.genotype}` : ''}</div>
+              </div>
+              {selectedLookupPatient.emergency_contact_name && (
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Emergency Contact</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedLookupPatient.emergency_contact_name}{selectedLookupPatient.emergency_contact_phone ? ` — ${selectedLookupPatient.emergency_contact_phone}` : ''}</div>
                 </div>
-              </li>
-            ))}
-          </ul>
+              )}
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Queue Status</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{selectedLookupPatient.queue_status ? selectedLookupPatient.queue_status.replace('_', ' ') : 'Not in queue'}</div>
+              </div>
+            </div>
+
+            {lookupLatestConsultation && (
+              <div style={{ marginBottom: 18, padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Latest Consultation</div>
+                {lookupLatestConsultation.diagnoses?.length > 0 && (
+                  <div style={{ fontSize: 12.5, marginBottom: 4 }}>
+                    <strong>Diagnosis:</strong> {lookupLatestConsultation.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')}
+                  </div>
+                )}
+                {lookupLatestConsultation.treatment_plan && (
+                  <div style={{ fontSize: 12.5 }}><strong>Treatment Plan:</strong> {lookupLatestConsultation.treatment_plan}</div>
+                )}
+              </div>
+            )}
+
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+              Doctor's Orders
+            </div>
+            {lookupOrders.length === 0 ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>No active doctor's orders for {selectedLookupPatient.full_name}.</div>
+            ) : (
+              <ul className="dash-legend">
+                {lookupOrders.map(rx => (
+                  <li key={rx.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                      <strong style={{ color: 'var(--ivory)' }}>{rx.drug_name}</strong>
+                      <button
+                        onClick={() => handleMarkAdministered(rx)}
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 10px', fontSize: 11 }}
+                      >
+                        Mark Administered
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {rx.dosage}{rx.route ? ` · ${rx.route}` : ''}{rx.frequency ? ` · ${rx.frequency}` : ''}{rx.duration ? ` · ${rx.duration}` : ''}
+                    </div>
+                    {rx.instructions && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic' }}>{rx.instructions}</div>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
 
