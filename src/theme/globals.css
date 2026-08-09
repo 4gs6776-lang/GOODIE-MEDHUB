@@ -1,22 +1,26 @@
 :root{
-  --bg:#00010D;
-  --bg-elevated:#010A28;
-  --bg-card:#00050F;
-  --line:rgba(142,240,153,0.14);
-  --line-soft:rgba(255,255,255,0.06);
-  --teal:#8EF099;
-  --teal-soft:rgba(142,240,153,0.12);
-  --gold:#C9A961;
-  --violet:#8B7CF6;
-  --blue:#4C8DFF;
-  --coral:#E1685E;
-  --ivory:#EDEFF7;
-  --muted:#7C86B8;
-  --danger:#E1685E;
-  --danger-soft:rgba(225,104,94,0.12);
-  --radius:16px;
-  --font-display:'Fraunces', serif;
-  --font-body:'Manrope', sans-serif;
+  --bg:#070F14;
+  --bg-elevated:#081118;
+  --bg-card:#0C151D;
+  --bg-card-hover:#101D26;
+  --line:#17252F;
+  --line-soft:#1B2B35;
+  --teal:#00C7C7;
+  --teal-bright:#00E0D0;
+  --teal-soft:rgba(0,199,199,0.12);
+  --teal-border:rgba(0,199,199,0.25);
+  --gold:#E8B82E;
+  --violet:#7657E8;
+  --blue:#3B82F6;
+  --ivory:#F1F6FA;
+  --muted:#9AAAB7;
+  --muted-dim:#667784;
+  --danger:#F04F5F;
+  --danger-soft:rgba(240,79,95,0.12);
+  --success:#18D99B;
+  --radius:12px;
+  --font-display:'Inter', sans-serif;
+  --font-body:'Inter', sans-serif;
   --font-mono:'JetBrains Mono', monospace;
 }
 
