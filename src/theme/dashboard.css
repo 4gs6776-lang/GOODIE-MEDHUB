@@ -9,9 +9,9 @@
 .dash-brand{ display:flex; align-items:center; gap:10px; padding:0 6px 22px; }
 .dash-brand-mark{
   width:36px; height:36px; border-radius:10px;
-  background:linear-gradient(150deg,var(--teal),#0a7a67);
+  background:linear-gradient(150deg,var(--teal),var(--blue));
   display:flex; align-items:center; justify-content:center;
-  font-family:var(--font-display); font-weight:600; font-size:17px; color:#00251F; flex-shrink:0;
+  font-family:var(--font-display); font-weight:700; font-size:17px; color:var(--bg); flex-shrink:0;
 }
 .dash-brand-name{ font-family:var(--font-display); font-size:15.5px; font-weight:500; line-height:1.2; }
 .dash-brand-sub{ font-size:9.5px; letter-spacing:1.4px; color:var(--muted); text-transform:uppercase; margin-top:2px; }
