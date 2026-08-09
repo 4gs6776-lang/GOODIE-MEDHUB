@@ -4,7 +4,9 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
-  const { records: tests, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
+  const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
+  const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder } = useOfflineTable('lab_orders', hospital?.id)
+  const loading = loadingTests || loadingOrders
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -52,24 +54,42 @@ export default function Laboratory(){
   async function handleComplete(test){
     const result = prompt(`Enter result for ${test.test_name} (${test.patient_name}):`, test.result || '')
     if (result === null) return
-    await updateRecord(test.id, { status: 'completed', result })
+    if (test.origin === 'doctor') {
+      await updateOrder(test.id, { status: 'completed', result })
+    } else {
+      await updateRecord(test.id, { status: 'completed', result })
+    }
     showToast(isOnline ? 'Marked completed' : 'Marked completed — will sync when back online')
   }
 
   async function handleReopen(test){
-    await updateRecord(test.id, { status: 'pending' })
+    if (test.origin === 'doctor') {
+      await updateOrder(test.id, { status: 'requested' })
+    } else {
+      await updateRecord(test.id, { status: 'pending' })
+    }
     showToast(isOnline ? 'Marked pending' : 'Marked pending — will sync when back online')
   }
 
   async function handleDelete(test){
     if (!confirm(`Delete this test request for ${test.patient_name}?`)) return
-    await deleteRecord(test.id)
+    if (test.origin === 'doctor') {
+      await deleteOrder(test.id)
+    } else {
+      await deleteRecord(test.id)
+    }
     showToast('Test deleted')
   }
 
-  const sorted = [...tests].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
-  const pendingCountStat = tests.filter(t => t.status === 'pending').length
-  const completedCount = tests.filter(t => t.status === 'completed').length
+  // Combine the lab's own requests with doctor-placed orders into one list.
+  const combined = [
+    ...tests.map(t => ({ ...t, origin: 'lab', isPending: t.status === 'pending' })),
+    ...orders.map(o => ({ ...o, origin: 'doctor', isPending: o.status !== 'completed' })),
+  ]
+
+  const sorted = [...combined].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
+  const pendingCountStat = combined.filter(t => t.isPending).length
+  const completedCount = combined.filter(t => !t.isPending).length
 
   return (
     <>
@@ -124,19 +144,26 @@ export default function Laboratory(){
             <tbody>
               {sorted.map(test => (
                 <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                  <td style={{ padding: 12, fontWeight: 700 }}>{test.patient_name}</td>
+                  <td style={{ padding: 12, fontWeight: 700 }}>
+                    {test.patient_name}
+                    {test.origin === 'doctor' && (
+                      <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)', verticalAlign: 'middle' }}>
+                        DOCTOR ORDER
+                      </span>
+                    )}
+                  </td>
                   <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{test.test_name}</td>
                   <td style={{ padding: 12 }}>
                     <span
-                      onClick={() => test.status === 'pending' ? handleComplete(test) : handleReopen(test)}
+                      onClick={() => test.isPending ? handleComplete(test) : handleReopen(test)}
                       style={{
                         fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
-                        background: test.status === 'completed' ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
-                        color: test.status === 'completed' ? 'var(--teal)' : 'var(--gold)',
+                        background: !test.isPending ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
+                        color: !test.isPending ? 'var(--teal)' : 'var(--gold)',
                       }}
                       title="Tap to change"
                     >
-                      {test.status === 'completed' ? 'Completed' : 'Pending'}
+                      {!test.isPending ? 'Completed' : 'Pending'}
                     </span>
                   </td>
                   <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
