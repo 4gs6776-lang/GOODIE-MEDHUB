@@ -9,6 +9,7 @@ export default function Nursing(){
   const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { records: vitalsQueue, loading, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: staff } = useOfflineTable('profiles', hospital?.id)
+  const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [selectedPatientId, setSelectedPatientId] = useState('')
@@ -79,6 +80,15 @@ export default function Nursing(){
       const order = { Emergency: 0, Urgent: 1, Routine: 2 }
       return (order[a.urgency] ?? 3) - (order[b.urgency] ?? 3)
     })
+
+  const activeOrders = prescriptions
+    .filter(p => p.status === 'active')
+    .sort((a, b) => new Date(b.prescribed_at || b.created_at) - new Date(a.prescribed_at || a.created_at))
+
+  async function handleMarkAdministered(rx){
+    await updatePrescription(rx.id, { status: 'dispensed' })
+    showToast(`Marked ${rx.drug_name} as administered for ${rx.patient_name}`)
+  }
 
   return (
     <>
@@ -211,6 +221,39 @@ export default function Nursing(){
             </ul>
           )}
         </div>
+      </div>
+
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head">
+          <div>
+            <div className="dash-panel-title">Doctor's Orders</div>
+            <div className="dash-panel-sub">Prescriptions awaiting administration</div>
+          </div>
+        </div>
+
+        {activeOrders.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No pending doctor's orders.</div>
+        ) : (
+          <ul className="dash-legend">
+            {activeOrders.map(rx => (
+              <li key={rx.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <strong>{rx.patient_name}</strong>
+                  <button
+                    onClick={() => handleMarkAdministered(rx)}
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 10px', fontSize: 11 }}
+                  >
+                    Mark Administered
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  <strong style={{ color: 'var(--ivory)' }}>{rx.drug_name}</strong> — {rx.dosage}{rx.frequency ? ` · ${rx.frequency}` : ''}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {toast && (
