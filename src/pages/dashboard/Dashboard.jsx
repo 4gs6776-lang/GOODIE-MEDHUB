@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
-import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useOfflineTable, getAllSyncErrors, subscribeSyncErrors, flushTableQueue, skipStuckSyncItem } from '../../lib/useOfflineTable'
 import Pharmacy from './Pharmacy'
 import Laboratory from './Laboratory'
 import Radiology from './Radiology'
@@ -45,6 +45,9 @@ export default function Dashboard(){
 
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [syncErrors, setSyncErrors] = useState(() => getAllSyncErrors())
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false)
+  const [syncActionBusy, setSyncActionBusy] = useState(false)
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
   const { records: prescriptions } = useOfflineTable('prescriptions', hospital?.id)
@@ -68,6 +71,33 @@ export default function Dashboard(){
   const [weeklyCounts, setWeeklyCounts] = useState([0, 0, 0, 0, 0, 0, 0])
 
   useEffect(() => { computeWeeklyCounts(patients) }, [patients])
+
+  useEffect(() => subscribeSyncErrors(setSyncErrors), [])
+
+  const stuckTables = Object.values(syncErrors)
+
+  async function handleRetrySync(table){
+    if (!hospital?.id) return
+    setSyncActionBusy(true)
+    try {
+      await flushTableQueue(table, hospital.id)
+      setSyncErrors(getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
+
+  async function handleSkipStuck(table){
+    if (!hospital?.id) return
+    if (!confirm(`Skip the stuck item for "${table}"? The local record stays — only this one sync attempt is abandoned so the rest of the queue can proceed.`)) return
+    setSyncActionBusy(true)
+    try {
+      await skipStuckSyncItem(table, hospital.id)
+      setSyncErrors(getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
 
   function computeWeeklyCounts(patientList){
     const counts = [0, 0, 0, 0, 0, 0, 0]
@@ -249,7 +279,48 @@ export default function Dashboard(){
             {isOnline ? 'Online' : 'Offline'}
             {pendingCount > 0 && ` · ${pendingCount} syncing`}
           </div>
+
+          {stuckTables.length > 0 && (
+            <div
+              onClick={() => setSyncPanelOpen(o => !o)}
+              style={{
+                marginLeft: 10, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                fontSize: 11.5, fontWeight: 700, padding: '6px 12px', borderRadius: 20,
+                background: 'var(--danger-soft)', color: 'var(--danger)', border: '1px solid var(--danger)',
+              }}
+            >
+              ⚠ Sync stuck{stuckTables.length > 1 ? ` (${stuckTables.length})` : ''}
+            </div>
+          )}
         </div>
+
+        {syncPanelOpen && stuckTables.length > 0 && (
+          <div style={{
+            margin: '0 24px', marginTop: -1, padding: 16, borderRadius: 12,
+            background: 'var(--bg-elevated)', border: '1px solid var(--danger)',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--danger)' }}>
+              Some records can't reach the server
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {stuckTables.map(err => (
+                <div key={err.table} style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--line-soft)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{err.table}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{err.queueLength} item{err.queueLength === 1 ? '' : 's'} waiting to sync</div>
+                  <div style={{ fontSize: 12, color: 'var(--danger)', marginTop: 6, fontFamily: 'monospace', wordBreak: 'break-word' }}>{err.message}</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button className="btn btn-ghost" style={{ width: 'auto', padding: '5px 12px', fontSize: 11.5 }} disabled={syncActionBusy} onClick={() => handleRetrySync(err.table)}>
+                      Retry
+                    </button>
+                    <button className="btn btn-ghost" style={{ width: 'auto', padding: '5px 12px', fontSize: 11.5, color: 'var(--danger)', borderColor: 'var(--danger)' }} disabled={syncActionBusy} onClick={() => handleSkipStuck(err.table)}>
+                      Skip this item
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="dash-content">
           {tab === 'overview' && (
