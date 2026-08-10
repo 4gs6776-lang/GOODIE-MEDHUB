@@ -15,6 +15,7 @@ import Notifications from './Notifications'
 import Settings from './Settings'
 import DoctorWorkbench from './DoctorWorkbench'
 import Nursing from './Nursing'
+import DutyRoster from './DutyRoster'
 import IPD from './IPD'
 import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { key: 'insurance', label: 'Insurance / HMO', section: 'Operations', icon: 'insurance' },
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
+  { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'settings', label: 'Settings', section: 'Operations', icon: 'settings' },
 ]
 
@@ -686,6 +688,7 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'ipd' && <IPD />}
+          {tab === 'roster' && <DutyRoster />}
           {tab === 'reception' && <Reception />}
           {tab === 'settings' && <Settings />}
         </div>
