@@ -185,6 +185,7 @@ export default function DoctorWorkbench(){
     await addAdmissionRequest({
       patient_id: activePatient.id,
       doctor_id: profile.id,
+      doctor_name: profile.full_name || null,
       status: 'pending',
       ...payload,
     })
