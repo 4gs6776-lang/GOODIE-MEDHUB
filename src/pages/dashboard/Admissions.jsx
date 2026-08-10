@@ -16,6 +16,7 @@ export default function Admissions(){
   const { hospital, profile } = useAuth()
   const canEdit = EDITOR_ROLES.includes(profile?.role)
   const canToggleBilling = canEdit || profile?.role === 'billing'
+  const canTogglePharmacy = canEdit || profile?.role === 'pharmacist'
 
   const { records: admissionRequests, loading: loadingRequests, updateRecord: updateRequest } = useOfflineTable('admission_requests', hospital?.id)
   const { records: admissions, loading: loadingAdmissions, addRecord: addAdmission, updateRecord: updateAdmission } = useOfflineTable('admissions', hospital?.id)
@@ -230,10 +231,11 @@ export default function Admissions(){
         <div className="dash-panel-head">
           <div>
             <div className="dash-panel-title">Admissions</div>
-            <div className="dash-panel-sub">
+          <div className="dash-panel-sub">
               Requests, bed assignment, and active admissions
-              {!canEdit && !canToggleBilling && <span style={{ marginLeft: 8, opacity: .7 }}>· View only</span>}
+              {!canEdit && !canToggleBilling && !canTogglePharmacy && <span style={{ marginLeft: 8, opacity: .7 }}>· View only</span>}
               {!canEdit && canToggleBilling && <span style={{ marginLeft: 8, opacity: .7 }}>· Billing clearance only</span>}
+              {!canEdit && canTogglePharmacy && <span style={{ marginLeft: 8, opacity: .7 }}>· Pharmacy clearance only</span>}
             </div>
           </div>
         </div>
