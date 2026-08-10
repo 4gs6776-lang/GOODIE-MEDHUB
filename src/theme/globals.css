@@ -68,3 +68,5 @@ input,
 select{
   font-family:var(--font-body);
 }
+/* Shared HMS search input */
+.hms-search-input::placeholder{color:var(--muted)}
