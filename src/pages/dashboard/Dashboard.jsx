@@ -379,11 +379,11 @@ export default function Dashboard(){
 
         <div className="dash-emergency">
           <div className="dash-emergency-head">
-            <span>Emergency Line</span>
+            <span>Master Goodnews</span>
             <Icon name="phone" size={15}/>
           </div>
           <strong>+2348148364233</strong>
-          <small>24/7 Available</small>
+          <small>The Builder</small>
         </div>
 
         <div className="dash-foot">
