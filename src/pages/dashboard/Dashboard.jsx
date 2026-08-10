@@ -64,7 +64,7 @@ const PAGE_TITLES = {
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // Every role can always reach these, regardless of department.
-const COMMON_ACCESS = ['overview', 'notifications', 'settings']
+const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
 
 // Which modules each department can see. Admin/owner always see everything
 // and aren't listed here — handled separately via FULL_ACCESS_ROLES.
