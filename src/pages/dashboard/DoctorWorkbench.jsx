@@ -17,8 +17,7 @@ export default function DoctorWorkbench(){
   const { records: pharmacyItems } = useOfflineTable('pharmacy_items', hospital?.id)
   const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
   const { records: admissionRequests, addRecord: addAdmissionRequest } = useOfflineTable('admission_requests', hospital?.id)
-const [showAdmissionModal, setShowAdmissionModal] = useState(false)
-
+  const [showAdmissionModal, setShowAdmissionModal] = useState(false)
 
   const loading = loadingPatients || loadingVitals || loadingLabOrders || loadingPrescriptions
 
@@ -169,28 +168,29 @@ const [showAdmissionModal, setShowAdmissionModal] = useState(false)
     }
     resetMedBuilder()
   }
-// Most recent non-cancelled admission request for the active patient.
-function getActiveAdmissionRequest(patientId) {
-  if (!patientId) return null
-  return admissionRequests
-    .filter(r => r.patient_id === patientId && r.status !== 'cancelled' && r.status !== 'rejected')
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
-}
 
-async function handleSubmitAdmissionRequest(payload) {
-  if (!activePatient || !hospital || !profile) {
-    showToast('Still loading your account — try again in a moment')
-    return
+  // Most recent non-cancelled admission request for the active patient.
+  function getActiveAdmissionRequest(patientId) {
+    if (!patientId) return null
+    return admissionRequests
+      .filter(r => r.patient_id === patientId && r.status !== 'cancelled' && r.status !== 'rejected')
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
   }
-  await addAdmissionRequest({
-    patient_id: activePatient.id,
-    doctor_id: profile.id,
-    status: 'pending',
-    ...payload,
-  })
-  setShowAdmissionModal(false)
-  showToast('Admission recommendation submitted.')
-}
+
+  async function handleSubmitAdmissionRequest(payload) {
+    if (!activePatient || !hospital || !profile) {
+      showToast('Still loading your account — try again in a moment')
+      return
+    }
+    await addAdmissionRequest({
+      patient_id: activePatient.id,
+      doctor_id: profile.id,
+      status: 'pending',
+      ...payload,
+    })
+    setShowAdmissionModal(false)
+    showToast('Admission recommendation submitted.')
+  }
 
   function handleEditMed(m){
     setMedBuilder({
@@ -408,62 +408,63 @@ async function handleSubmitAdmissionRequest(payload) {
             <div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged patients</div>
           </div>
         </div>
-        <div className="dash-stat-card">
-  <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg>
-  </div>
-  <div style={{ flex: 1 }}>
-    <div className="dash-stat-label">Active Consultation</div>
-    <div className="dash-stat-value" style={{ fontSize: 17 }}>{activePatient?.full_name || activeVitals?.patient_name || 'None'}</div>
-    <div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select from queue'}</div>
 
-    {activePatient && (() => {
-      const req = getActiveAdmissionRequest(activePatient.id)
-      if (!req) {
-        return (
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }}
-            onClick={() => setShowAdmissionModal(true)}
-          >
-            Recommend Admission
-          </button>
-        )
-      }
-      const labelByStatus = {
-        pending: 'Admission Requested',
-        approved: 'Admission Approved',
-        converted: 'Currently Admitted',
-      }
-      const colorByStatus = {
-        pending: 'var(--gold)',
-        approved: 'var(--teal)',
-        converted: 'var(--teal)',
-      }
-      return (
-        <div
-          style={{
-            marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8,
-            fontSize: 11.5, fontWeight: 700, color: colorByStatus[req.status] || 'var(--muted)',
-            background: 'var(--bg-elevated)', border: `1px solid ${colorByStatus[req.status] || 'var(--line-soft)'}`,
-          }}
-        >
-          {labelByStatus[req.status] || req.status}
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <div>
+            <div className="dash-stat-label">Consultations Completed</div>
+            <div className="dash-stat-value">{vitals.filter(v => v.status === 'completed').length}</div>
+            <div className="dash-stat-delta">total</div>
+          </div>
         </div>
-      )
-    })()}
-  </div>
-</div>
-        </div>
+
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg>
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="dash-stat-label">Active Consultation</div>
             <div className="dash-stat-value" style={{ fontSize: 17 }}>{activePatient?.full_name || activeVitals?.patient_name || 'None'}</div>
             <div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select from queue'}</div>
+
+            {activePatient && (() => {
+              const req = getActiveAdmissionRequest(activePatient.id)
+              if (!req) {
+                return (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }}
+                    onClick={() => setShowAdmissionModal(true)}
+                  >
+                    Recommend Admission
+                  </button>
+                )
+              }
+              const labelByStatus = {
+                pending: 'Admission Requested',
+                approved: 'Admission Approved',
+                converted: 'Currently Admitted',
+              }
+              const colorByStatus = {
+                pending: 'var(--gold)',
+                approved: 'var(--teal)',
+                converted: 'var(--teal)',
+              }
+              return (
+                <div
+                  style={{
+                    marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8,
+                    fontSize: 11.5, fontWeight: 700, color: colorByStatus[req.status] || 'var(--muted)',
+                    background: 'var(--bg-elevated)', border: `1px solid ${colorByStatus[req.status] || 'var(--line-soft)'}`,
+                  }}
+                >
+                  {labelByStatus[req.status] || req.status}
+                </div>
+              )
+            })()}
           </div>
         </div>
       </div>
@@ -828,16 +829,17 @@ async function handleSubmitAdmissionRequest(payload) {
           padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
         }}>
           {toast}
-          {showAdmissionModal && activePatient && (
-  <AdmissionRequestModal
-    patient={activePatient}
-    consultationId={activeVitals?.id}
-    prefillDiagnosis={diagnoses.map(d => d.label).join(', ')}
-    onSubmit={handleSubmitAdmissionRequest}
-    onClose={() => setShowAdmissionModal(false)}
-  />
-)}
         </div>
+      )}
+
+      {showAdmissionModal && activePatient && (
+        <AdmissionRequestModal
+          patient={activePatient}
+          consultationId={activeVitals?.id}
+          prefillDiagnosis={diagnoses.map(d => d.label).join(', ')}
+          onSubmit={handleSubmitAdmissionRequest}
+          onClose={() => setShowAdmissionModal(false)}
+        />
       )}
     </>
   )
