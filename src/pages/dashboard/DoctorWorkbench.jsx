@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { TagAutocomplete, DrugSearchInput } from '../../components/ClinicalAutocomplete'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
+import AdmissionRequestModal from '../../components/AdmissionRequestModal'
 
 const EMPTY_MED = { drugName: '', dose: '', route: '', frequency: '', frequencyCustom: '', duration: '', quantity: '', instructions: '' }
 
@@ -15,6 +16,9 @@ export default function DoctorWorkbench(){
   const { records: prescriptions, loading: loadingPrescriptions, addRecord: addPrescription, updateRecord: updatePrescription, deleteRecord: deletePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: pharmacyItems } = useOfflineTable('pharmacy_items', hospital?.id)
   const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
+  const { records: admissionRequests, addRecord: addAdmissionRequest } = useOfflineTable('admission_requests', hospital?.id)
+const [showAdmissionModal, setShowAdmissionModal] = useState(false)
+
 
   const loading = loadingPatients || loadingVitals || loadingLabOrders || loadingPrescriptions
 
@@ -165,6 +169,28 @@ export default function DoctorWorkbench(){
     }
     resetMedBuilder()
   }
+// Most recent non-cancelled admission request for the active patient.
+function getActiveAdmissionRequest(patientId) {
+  if (!patientId) return null
+  return admissionRequests
+    .filter(r => r.patient_id === patientId && r.status !== 'cancelled' && r.status !== 'rejected')
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
+}
+
+async function handleSubmitAdmissionRequest(payload) {
+  if (!activePatient || !hospital || !profile) {
+    showToast('Still loading your account — try again in a moment')
+    return
+  }
+  await addAdmissionRequest({
+    patient_id: activePatient.id,
+    doctor_id: profile.id,
+    status: 'pending',
+    ...payload,
+  })
+  setShowAdmissionModal(false)
+  showToast('Admission recommendation submitted.')
+}
 
   function handleEditMed(m){
     setMedBuilder({
