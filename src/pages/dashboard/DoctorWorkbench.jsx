@@ -790,6 +790,15 @@ async function handleSubmitAdmissionRequest(payload) {
           padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
         }}>
           {toast}
+          {showAdmissionModal && activePatient && (
+  <AdmissionRequestModal
+    patient={activePatient}
+    consultationId={activeVitals?.id}
+    prefillDiagnosis={diagnoses.map(d => d.label).join(', ')}
+    onSubmit={handleSubmitAdmissionRequest}
+    onClose={() => setShowAdmissionModal(false)}
+  />
+)}
         </div>
       )}
     </>
