@@ -9,9 +9,6 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 
 const EDITOR_ROLES = ['doctor', 'nurse', 'admin', 'owner']
 
-const PRIORITY_LABELS = { urgent: 'Urgent', routine: 'Routine', scheduled: 'Scheduled' }
-const ADMISSION_TYPE_LABELS = { emergency: 'Emergency', elective: 'Elective', transfer: 'Transfer' }
-
 export default function Admissions(){
   const { hospital, profile } = useAuth()
   const canEdit = EDITOR_ROLES.includes(profile?.role)
@@ -231,7 +228,7 @@ export default function Admissions(){
         <div className="dash-panel-head">
           <div>
             <div className="dash-panel-title">Admissions</div>
-          <div className="dash-panel-sub">
+            <div className="dash-panel-sub">
               Requests, bed assignment, and active admissions
               {!canEdit && !canToggleBilling && !canTogglePharmacy && <span style={{ marginLeft: 8, opacity: .7 }}>· View only</span>}
               {!canEdit && canToggleBilling && <span style={{ marginLeft: 8, opacity: .7 }}>· Billing clearance only</span>}
@@ -296,8 +293,8 @@ export default function Admissions(){
                   <td>{patientName(r.patient_id)}</td>
                   <td>{r.doctor_name || '—'}</td>
                   <td>{r.requested_ward || '—'}</td>
-                  <td>{ADMISSION_TYPE_LABELS[r.admission_type] || r.admission_type || '—'}</td>
-                  <td>{PRIORITY_LABELS[r.priority] || r.priority || '—'}</td>
+                  <td>{r.admission_type || '—'}</td>
+                  <td>{r.priority || '—'}</td>
                   <td>{r.created_at ? new Date(r.created_at).toLocaleString('en-NG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                   <td><span className={`dash-status ${r.status === 'pending' ? 'review' : 'stable'}`}>{r.status}</span></td>
                   <td>
@@ -356,7 +353,7 @@ export default function Admissions(){
                         onChange={e => toggleChecklistItem(a, 'billing_cleared', e.target.checked)}
                       />
                     </td>
-                   <td>
+                    <td>
                       <input
                         type="checkbox"
                         checked={!!bed?.pharmacy_cleared}
@@ -432,14 +429,19 @@ export default function Admissions(){
               {canEdit && reviewing.status === 'pending' ? 'Review Request' : 'Request Details'}
             </div>
 
-            <div style={{ marginBottom: 16 }}>
+            <div className="dash-modal-body">
               <div className="field"><label>Patient</label><div>{patientName(reviewing.patient_id)}</div></div>
               <div className="field"><label>Requesting Doctor</label><div>{reviewing.doctor_name || '—'}</div></div>
-              <div className="field"><label>Admission Type</label><div>{ADMISSION_TYPE_LABELS[reviewing.admission_type] || reviewing.admission_type || '—'}</div></div>
-              <div className="field"><label>Priority</label><div>{PRIORITY_LABELS[reviewing.priority] || reviewing.priority || '—'}</div></div>
-              <div className="field"><label>Requested Ward</label><div>{reviewing.requested_ward || '—'}</div></div>
-              <div className="field"><label>Requested Bed Type</label><div>{reviewing.requested_bed_type || '—'}</div></div>
-              <div className="field"><label>Expected Length of Stay</label><div>{reviewing.expected_los || '—'}</div></div>
+
+              <div className="dash-field-grid">
+                <div className="field"><label>Admission Type</label><div>{reviewing.admission_type || '—'}</div></div>
+                <div className="field"><label>Priority</label><div>{reviewing.priority || '—'}</div></div>
+                {reviewing.requested_ward && <div className="field"><label>Requested Ward</label><div>{reviewing.requested_ward}</div></div>}
+                {reviewing.requested_bed_type && <div className="field"><label>Requested Bed Type</label><div>{reviewing.requested_bed_type}</div></div>}
+                {reviewing.expected_los && <div className="field"><label>Expected LOS</label><div>{reviewing.expected_los}</div></div>}
+                <div className="field"><label>Status</label><div><span className={`dash-status ${reviewing.status === 'pending' ? 'review' : 'stable'}`}>{reviewing.status}</span></div></div>
+              </div>
+
               <div className="field"><label>Diagnosis</label><div>{reviewing.diagnosis || '—'}</div></div>
               <div className="field"><label>Reason</label><div>{reviewing.reason || '—'}</div></div>
               {reviewing.isolation_required && (
@@ -451,60 +453,57 @@ export default function Admissions(){
               {reviewing.clinical_notes && (
                 <div className="field"><label>Clinical Notes</label><div>{reviewing.clinical_notes}</div></div>
               )}
-              <div className="field"><label>Status</label><div><span className={`dash-status ${reviewing.status === 'pending' ? 'review' : 'stable'}`}>{reviewing.status}</span></div></div>
               {reviewing.status === 'rejected' && reviewing.rejection_reason && (
                 <div className="field"><label>Rejection Reason</label><div>{reviewing.rejection_reason}</div></div>
               )}
+
+              {canEdit && reviewing.status === 'pending' && mode === 'approve' && (
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>Assign Bed {reviewing.requested_ward ? `(requested: ${reviewing.requested_ward})` : ''}</label>
+                  <select value={selectedBedId} onChange={e => setSelectedBedId(e.target.value)}>
+                    <option value="">Select an available bed…</option>
+                    {availableBedOptions.map(b => (
+                      <option key={b.id} value={b.id}>{b.section} — Bed {b.bed_number}</option>
+                    ))}
+                  </select>
+                  {availableBedOptions.length === 0 && (
+                    <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>No beds currently available.</div>
+                  )}
+                </div>
+              )}
+
+              {canEdit && reviewing.status === 'pending' && mode === 'reject' && (
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>Reason for Rejection</label>
+                  <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. No bed capacity, insufficient info…" />
+                </div>
+              )}
             </div>
 
-            {canEdit && reviewing.status === 'pending' && (
-              <>
-                {mode === null && (
-                  <div className="dash-modal-actions">
-                    <button className="btn btn-ghost" onClick={closeReview}>Close</button>
-                    <button className="btn btn-ghost dash-danger-btn" onClick={() => setMode('reject')}>Reject</button>
-                    <button className="btn btn-primary" onClick={() => setMode('approve')}>Approve</button>
-                  </div>
-                )}
+            {canEdit && reviewing.status === 'pending' && mode === null && (
+              <div className="dash-modal-actions">
+                <button className="btn btn-ghost" onClick={closeReview}>Close</button>
+                <button className="btn btn-ghost dash-danger-btn" onClick={() => setMode('reject')}>Reject</button>
+                <button className="btn btn-primary" onClick={() => setMode('approve')}>Approve</button>
+              </div>
+            )}
 
-                {mode === 'approve' && (
-                  <>
-                    <div className="field">
-                      <label>Assign Bed {reviewing.requested_ward ? `(requested: ${reviewing.requested_ward})` : ''}</label>
-                      <select value={selectedBedId} onChange={e => setSelectedBedId(e.target.value)}>
-                        <option value="">Select an available bed…</option>
-                        {availableBedOptions.map(b => (
-                          <option key={b.id} value={b.id}>{b.section} — Bed {b.bed_number}</option>
-                        ))}
-                      </select>
-                      {availableBedOptions.length === 0 && (
-                        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>No beds currently available.</div>
-                      )}
-                    </div>
-                    <div className="dash-modal-actions">
-                      <button className="btn btn-ghost" onClick={() => setMode(null)} disabled={busy}>Back</button>
-                      <button className="btn btn-primary" onClick={handleApprove} disabled={busy || !selectedBedId}>
-                        {busy ? 'Admitting…' : 'Confirm Admission'}
-                      </button>
-                    </div>
-                  </>
-                )}
+            {canEdit && reviewing.status === 'pending' && mode === 'approve' && (
+              <div className="dash-modal-actions">
+                <button className="btn btn-ghost" onClick={() => setMode(null)} disabled={busy}>Back</button>
+                <button className="btn btn-primary" onClick={handleApprove} disabled={busy || !selectedBedId}>
+                  {busy ? 'Admitting…' : 'Confirm Admission'}
+                </button>
+              </div>
+            )}
 
-                {mode === 'reject' && (
-                  <>
-                    <div className="field">
-                      <label>Reason for Rejection</label>
-                      <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. No bed capacity, insufficient info…" />
-                    </div>
-                    <div className="dash-modal-actions">
-                      <button className="btn btn-ghost" onClick={() => setMode(null)} disabled={busy}>Back</button>
-                      <button className="btn btn-primary dash-danger-btn" onClick={handleReject} disabled={busy || !rejectReason.trim()}>
-                        {busy ? 'Rejecting…' : 'Confirm Rejection'}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </>
+            {canEdit && reviewing.status === 'pending' && mode === 'reject' && (
+              <div className="dash-modal-actions">
+                <button className="btn btn-ghost" onClick={() => setMode(null)} disabled={busy}>Back</button>
+                <button className="btn btn-primary dash-danger-btn" onClick={handleReject} disabled={busy || !rejectReason.trim()}>
+                  {busy ? 'Rejecting…' : 'Confirm Rejection'}
+                </button>
+              </div>
             )}
 
             {(!canEdit || reviewing.status !== 'pending') && (
@@ -521,7 +520,7 @@ export default function Admissions(){
         <div className="dash-modal-backdrop">
           <div className="card dash-modal">
             <div className="dash-modal-title">Confirm Discharge</div>
-            <div style={{ marginBottom: 16 }}>
+            <div className="dash-modal-body">
               <div className="field"><label>Patient</label><div>{patientName(confirmingDischarge.patient_id)}</div></div>
               <div className="field">
                 <label>Discharge Notes (optional)</label>
