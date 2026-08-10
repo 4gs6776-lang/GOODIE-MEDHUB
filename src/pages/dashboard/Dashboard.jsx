@@ -382,7 +382,7 @@ export default function Dashboard(){
             <span>Emergency Line</span>
             <Icon name="phone" size={15}/>
           </div>
-          <strong>0700 123 4567</strong>
+          <strong>+2348148364233</strong>
           <small>24/7 Available</small>
         </div>
 
