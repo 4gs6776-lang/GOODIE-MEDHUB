@@ -408,15 +408,53 @@ async function handleSubmitAdmissionRequest(payload) {
             <div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged patients</div>
           </div>
         </div>
-        <div className="dash-stat-card">
-          <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg>
-          </div>
-          <div>
-            <div className="dash-stat-label">Consultations Completed</div>
-            <div className="dash-stat-value">{vitals.filter(v => v.status === 'completed').length}</div>
-            <div className="dash-stat-delta">total</div>
-          </div>
+        <<div className="dash-stat-card">
+  <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg>
+  </div>
+  <div style={{ flex: 1 }}>
+    <div className="dash-stat-label">Active Consultation</div>
+    <div className="dash-stat-value" style={{ fontSize: 17 }}>{activePatient?.full_name || activeVitals?.patient_name || 'None'}</div>
+    <div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select from queue'}</div>
+
+    {activePatient && (() => {
+      const req = getActiveAdmissionRequest(activePatient.id)
+      if (!req) {
+        return (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }}
+            onClick={() => setShowAdmissionModal(true)}
+          >
+            Recommend Admission
+          </button>
+        )
+      }
+      const labelByStatus = {
+        pending: 'Admission Requested',
+        approved: 'Admission Approved',
+        converted: 'Currently Admitted',
+      }
+      const colorByStatus = {
+        pending: 'var(--gold)',
+        approved: 'var(--teal)',
+        converted: 'var(--teal)',
+      }
+      return (
+        <div
+          style={{
+            marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8,
+            fontSize: 11.5, fontWeight: 700, color: colorByStatus[req.status] || 'var(--muted)',
+            background: 'var(--bg-elevated)', border: `1px solid ${colorByStatus[req.status] || 'var(--line-soft)'}`,
+          }}
+        >
+          {labelByStatus[req.status] || req.status}
+        </div>
+      )
+    })()}
+  </div>
+</div>
         </div>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
