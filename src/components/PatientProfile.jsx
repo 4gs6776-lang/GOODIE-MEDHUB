@@ -14,6 +14,7 @@ export default function PatientProfile({ patientId, onClose }){
   const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: pharmacyItems, updateRecord: updatePharmacyItem } = useOfflineTable('pharmacy_items', hospital?.id)
   const { records: invoices, addRecord: addInvoice, updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
+  const { records: admissionRequests } = useOfflineTable('admission_requests', hospital?.id)
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
@@ -51,7 +52,14 @@ export default function PatientProfile({ patientId, onClose }){
   const patientInvoices = invoices
     .filter(inv => inv.patient_name === patient.full_name)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
   const outstandingBalance = patientInvoices.filter(inv => inv.status === 'unpaid').reduce((sum, inv) => sum + Number(inv.amount), 0)
+
+  // Most recent non-cancelled/non-rejected admission request for this patient —
+  // same "active request" concept the Doctor Workbench uses.
+  const activeAdmissionRequest = admissionRequests
+    .filter(r => r.patient_id === patient.id && r.status !== 'cancelled' && r.status !== 'rejected')
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
 
   function findPharmacyMatch(drugName){
     if (!drugName) return null
@@ -106,7 +114,7 @@ export default function PatientProfile({ patientId, onClose }){
 
         <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           {tab === 'Overview' && (
-            <OverviewTab patient={patient} latestConsultation={history[0]} activePrescriptions={activePrescriptions} outstandingBalance={outstandingBalance} />
+            <OverviewTab patient={patient} latestConsultation={history[0]} activePrescriptions={activePrescriptions} outstandingBalance={outstandingBalance} admissionRequest={activeAdmissionRequest} />
           )}
           {tab === 'History' && <HistoryTab history={history} />}
           {tab === 'Prescriptions' && <PrescriptionsTab prescriptions={patientPrescriptions} />}
@@ -142,6 +150,7 @@ const overlayStyle = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 100,
   display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12,
 }
+
 const panelStyle = {
   position: 'relative', width: '100%', maxWidth: 640, maxHeight: '88vh',
   background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 16,
@@ -157,9 +166,59 @@ function detailRow(label, value){
   )
 }
 
-function OverviewTab({ patient, latestConsultation, activePrescriptions, outstandingBalance }){
+// Maps admission_requests.status -> card presentation. 'converted' means
+// staff has turned the request into an official admission (Section 9,
+// not built yet) — ward/room/bed detail will attach once that table
+// exists; for now it still shows what was requested.
+const ADMISSION_STATUS_MAP = {
+  pending: { heading: '🏥 ADMISSION RECOMMENDED', label: 'Awaiting Admission', color: 'var(--gold)' },
+  approved: { heading: '🏥 ADMISSION APPROVED', label: 'Admission Approved', color: 'var(--teal)' },
+  converted: { heading: '🏥 CURRENTLY ADMITTED', label: 'Currently Admitted', color: 'var(--teal)' },
+}
+
+function AdmissionStatusCard({ request }){
+  if (!request) return null
+  const meta = ADMISSION_STATUS_MAP[request.status] || { heading: '🏥 ADMISSION REQUEST', label: request.status, color: 'var(--muted)' }
+
+  return (
+    <div style={{
+      marginBottom: 20, padding: 16, borderRadius: 10,
+      background: 'var(--bg-elevated)', border: `1px solid ${meta.color}`,
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: meta.color, marginBottom: 10 }}>{meta.heading}</div>
+
+      <div style={{ fontSize: 13, marginBottom: 10 }}>
+        {request.doctor_name ? `Dr. ${request.doctor_name}` : 'A doctor'} has recommended admission.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        {request.diagnosis && detailRow('Diagnosis', request.diagnosis)}
+        {request.priority && detailRow('Priority', request.priority)}
+        {request.requested_ward && detailRow('Requested Ward', request.requested_ward)}
+        {request.requested_bed_type && detailRow('Requested Bed Type', request.requested_bed_type)}
+      </div>
+
+      {request.reason && (
+        <div style={{ marginBottom: 10 }}>
+          {detailRow('Reason', request.reason)}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--line-soft)' }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: meta.color }}>{meta.label}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          Requested: {new Date(request.created_at).toLocaleString()}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function OverviewTab({ patient, latestConsultation, activePrescriptions, outstandingBalance, admissionRequest }){
   return (
     <div>
+      <AdmissionStatusCard request={admissionRequest} />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
         {detailRow('Phone', patient.phone)}
         {detailRow('Blood Group / Genotype', [patient.blood_group, patient.genotype].filter(Boolean).join(' · '))}
