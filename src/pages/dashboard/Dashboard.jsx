@@ -18,6 +18,7 @@ import Nursing from './Nursing'
 import DutyRoster from './DutyRoster'
 import IPD from './IPD'
 import Reception from './Reception'
+import Admissions from './Admissions'
 import PatientProfile from '../../components/PatientProfile'
 
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { key: 'appointments', label: 'Appointments', section: 'Main', icon: 'calendar' },
   { key: 'patients', label: 'Patients', section: 'Main', icon: 'users' },
   { key: 'reception', label: 'Reception', section: 'Main', icon: 'reception' },
+  { key: 'admissions', label: 'Admissions', section: 'Operations', icon: 'reception' },
   { key: 'billing', label: 'Billing & Invoices', section: 'Main', icon: 'billing' },
   { key: 'laboratory', label: 'Laboratory', section: 'Main', icon: 'lab' },
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main', icon: 'pharmacy' },
@@ -58,6 +60,7 @@ const PAGE_TITLES = {
   notifications: 'Reminders & Alerts',
   settings: 'Settings',
   ipd: 'IPD Management',
+  admissions: 'Admissions',
   reception: 'Reception',
 }
 
@@ -69,12 +72,12 @@ const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
 // Which modules each department can see. Admin/owner always see everything
 // and aren't listed here — handled separately via FULL_ACCESS_ROLES.
 const ROLE_ACCESS = {
-  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd'],
-  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd'],
-  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance'],
+  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
+  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
+  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
   pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory'],
   lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology'],
-  billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance'],
+  billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance', 'admissions'],
 }
 const FULL_ACCESS_ROLES = ['admin', 'owner']
 const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
@@ -688,6 +691,7 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'ipd' && <IPD />}
+          {tab === 'admissions' && <Admissions />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'reception' && <Reception />}
           {tab === 'settings' && <Settings />}
