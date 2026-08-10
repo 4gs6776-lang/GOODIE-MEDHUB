@@ -74,7 +74,7 @@ const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
 const ROLE_ACCESS = {
   doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
   nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
-  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
+  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance'],
   pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory'],
   lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology'],
   billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance', 'admissions'],
