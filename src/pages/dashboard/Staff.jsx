@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
+import SearchInput from '../../components/common/SearchInput'
 
 const FN_CREATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff`
 const FN_UPDATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-staff-login`
@@ -12,6 +13,7 @@ export default function Staff(){
   const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [showAddModal, setShowAddModal] = useState(false)
   const [fullName, setFullName] = useState('')
@@ -125,6 +127,9 @@ export default function Staff(){
     }
   }
 
+  const staffSearch = searchTerm.trim().toLowerCase()
+  const visibleStaff = staffSearch ? staff.filter(m => [m.full_name, m.email, m.role, m.id].some(v => String(v || '').toLowerCase().includes(staffSearch))) : staff
+
   const isAdmin = profile?.role === 'admin'
 
   return (
@@ -135,6 +140,7 @@ export default function Staff(){
             <div className="dash-panel-title">Staff</div>
             <div className="dash-panel-sub">{staff.length} member{staff.length !== 1 ? 's' : ''} at {hospital?.name || 'your hospital'}</div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search staff name, email or role" style={{ minWidth: 260, maxWidth: 420 }} />
           {isAdmin && (
             <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowAddModal(true)}>+ Add Staff</button>
           )}
@@ -142,11 +148,11 @@ export default function Staff(){
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : staff.length === 0 ? (
+        ) : visibleStaff.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No staff yet.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {staff.map(member => (
+            {visibleStaff.map(member => (
               <div key={member.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, opacity: member.active === false ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(150deg,var(--blue),#2a5cc9)', flexShrink: 0 }} />

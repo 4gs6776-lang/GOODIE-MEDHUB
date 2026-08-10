@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 export default function Billing(){
   const { profile, hospital } = useAuth()
   const { records: invoices, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('invoices', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [patientName, setPatientName] = useState('')
   const [description, setDescription] = useState('')
@@ -57,6 +59,9 @@ export default function Billing(){
     showToast('Invoice deleted')
   }
 
+  const billingSearch = searchTerm.trim().toLowerCase()
+  const visibleInvoices = billingSearch ? invoices.filter(i => [i.patient_name, i.patient_id, i.description, i.invoice_number, i.transaction_id, i.id, i.status].some(v => String(v || '').toLowerCase().includes(billingSearch))) : invoices
+
   const totalUnpaid = invoices.filter(i => i.status === 'unpaid').reduce((sum, i) => sum + Number(i.amount), 0)
   const totalPaid = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + Number(i.amount), 0)
 
@@ -98,12 +103,13 @@ export default function Billing(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, invoice or transaction" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Invoice</button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : invoices.length === 0 ? (
+        ) : visibleInvoices.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No invoices yet. Add your first one above.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -115,7 +121,7 @@ export default function Billing(){
               </tr>
             </thead>
             <tbody>
-              {invoices.map(inv => (
+              {visibleInvoices.map(inv => (
                 <tr key={inv.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
                   <td style={{ padding: 12, fontWeight: 700 }}>{inv.patient_name}</td>
                   <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{inv.description || '—'}</td>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
 
@@ -9,6 +10,7 @@ export default function Inventory(){
   const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('inventory_items', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [name, setName] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
@@ -71,7 +73,8 @@ export default function Inventory(){
     showToast('Item removed')
   }
 
-  const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name))
+  const inventorySearch = searchTerm.trim().toLowerCase()
+  const sorted = [...items].filter(i => !inventorySearch || [i.name, i.category, i.supplier, i.item_code, i.id].some(v => String(v || '').toLowerCase().includes(inventorySearch))).sort((a, b) => a.name.localeCompare(b.name))
   const lowStockItems = items.filter(i => i.quantity <= i.reorder_level)
   const totalItems = items.length
 
@@ -109,6 +112,7 @@ export default function Inventory(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search item, category, supplier or code" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Item</button>
         </div>
 

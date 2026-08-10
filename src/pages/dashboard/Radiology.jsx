@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const MODALITIES = ['X-Ray', 'CT Scan', 'MRI', 'Ultrasound', 'Mammography', 'Fluoroscopy']
 
@@ -9,6 +10,7 @@ export default function Radiology(){
   const { records: scans, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('radiology_scans', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [patientName, setPatientName] = useState('')
   const [modality, setModality] = useState(MODALITIES[0])
@@ -89,6 +91,8 @@ export default function Radiology(){
   }
 
   const sorted = [...scans].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
+  const radiologySearch = searchTerm.trim().toLowerCase()
+  const visibleSorted = radiologySearch ? sorted.filter(s => [s.patient_name, s.patient_id, s.modality, s.body_area, s.request_number, s.status, s.report].some(v => String(v || '').toLowerCase().includes(radiologySearch))) : sorted
   const requestedCount = scans.filter(s => s.status === 'requested').length
   const inProgressCount = scans.filter(s => s.status === 'in_progress').length
   const completedCount = scans.filter(s => s.status === 'completed').length
@@ -137,12 +141,13 @@ export default function Radiology(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, scan or request number" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Scan Request</button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : sorted.length === 0 ? (
+        ) : visibleSorted.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No scan requests yet. Add your first one above.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -154,7 +159,7 @@ export default function Radiology(){
               </tr>
             </thead>
             <tbody>
-              {sorted.map(scan => {
+              {visibleSorted.map(scan => {
                 const meta = statusMeta(scan.status)
                 return (
                   <tr key={scan.id} style={{ borderTop: '1px solid var(--line-soft)' }}>

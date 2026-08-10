@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const SECTIONS = [
   { key: 'private', label: 'Private Suites' },
@@ -20,6 +21,7 @@ export default function IPD(){
   const { records: beds, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('beds', hospital?.id)
   const [toast, setToast] = useState(null)
   const [selectedBed, setSelectedBed] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [showAddBed, setShowAddBed] = useState(false)
   const [newSection, setNewSection] = useState('general')
@@ -122,6 +124,9 @@ export default function IPD(){
 
   const allChecked = billingCleared && pharmacyCleared && doctorSigned
 
+  const bedSearch = searchTerm.trim().toLowerCase()
+  const matchesBed = bed => !bedSearch || [bed.bed_number, bed.patient_name, bed.doctor_name, bed.section, bed.status].some(v => String(v || '').toLowerCase().includes(bedSearch))
+
   return (
     <>
       <div className="dash-panel" style={{ marginBottom: 16 }}>
@@ -133,6 +138,7 @@ export default function IPD(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''} · Tap a bed for details
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, bed, ward or doctor" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowAddBed(true)}>+ Add Bed</button>
         </div>
 
@@ -150,7 +156,7 @@ export default function IPD(){
         <div className="dash-panel" style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
       ) : (
         SECTIONS.map(section => {
-          const sectionBeds = beds.filter(b => b.section === section.key)
+          const sectionBeds = beds.filter(b => b.section === section.key && matchesBed(b))
           return (
             <div className="dash-panel" key={section.key} style={{ marginBottom: 16 }}>
               <div className="dash-panel-head">

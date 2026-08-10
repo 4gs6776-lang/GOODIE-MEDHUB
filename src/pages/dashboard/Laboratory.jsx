@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
@@ -9,6 +10,7 @@ export default function Laboratory(){
   const loading = loadingTests || loadingOrders
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [patientName, setPatientName] = useState('')
   const [testName, setTestName] = useState('')
@@ -88,6 +90,8 @@ export default function Laboratory(){
   ]
 
   const sorted = [...combined].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
+  const labSearch = searchTerm.trim().toLowerCase()
+  const visibleSorted = labSearch ? sorted.filter(t => [t.patient_name, t.patient_id, t.test_name, t.request_number, t.status, t.result].some(v => String(v || '').toLowerCase().includes(labSearch))) : sorted
   const pendingCountStat = combined.filter(t => t.isPending).length
   const completedCount = combined.filter(t => !t.isPending).length
 
@@ -125,12 +129,13 @@ export default function Laboratory(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, test or request number" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Request</button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : sorted.length === 0 ? (
+        ) : visibleSorted.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No lab requests yet. Add your first one above.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -142,7 +147,7 @@ export default function Laboratory(){
               </tr>
             </thead>
             <tbody>
-              {sorted.map(test => (
+              {visibleSorted.map(test => (
                 <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
                   <td style={{ padding: 12, fontWeight: 700 }}>
                     {test.patient_name}

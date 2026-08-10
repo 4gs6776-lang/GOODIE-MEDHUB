@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const PROVIDERS = ['NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
@@ -9,6 +10,7 @@ export default function Insurance(){
   const { records: claims, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('insurance_claims', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [patientName, setPatientName] = useState('')
   const [provider, setProvider] = useState(PROVIDERS[0])
@@ -88,6 +90,8 @@ export default function Insurance(){
   }
 
   const sorted = [...claims].sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
+  const insuranceSearch = searchTerm.trim().toLowerCase()
+  const visibleClaims = insuranceSearch ? sorted.filter(c => [c.patient_name, c.patient_id, c.provider, c.policy_number, c.claim_number, c.pa_number, c.icd_code, c.status].some(v => String(v || '').toLowerCase().includes(insuranceSearch))) : sorted
   const submittedCount = claims.filter(c => c.status === 'submitted').length
   const approvedTotal = claims.filter(c => c.status === 'approved').reduce((sum, c) => sum + Number(c.amount), 0)
   const rejectedCount = claims.filter(c => c.status === 'rejected').length
@@ -136,12 +140,13 @@ export default function Insurance(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, claim, policy or PA number" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Claim</button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : sorted.length === 0 ? (
+        ) : visibleClaims.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No claims yet. Add your first one above.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -153,7 +158,7 @@ export default function Insurance(){
               </tr>
             </thead>
             <tbody>
-              {sorted.map(claim => {
+              {visibleClaims.map(claim => {
                 const meta = statusMeta(claim.status)
                 return (
                   <tr key={claim.id} style={{ borderTop: '1px solid var(--line-soft)' }}>

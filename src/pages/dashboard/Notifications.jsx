@@ -1,10 +1,12 @@
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const HOUR = 60 * 60 * 1000
 
 export default function Notifications(){
   const { hospital } = useAuth()
+  const [searchTerm, setSearchTerm] = useState('')
   const { records: appointments, loading: loadingAppts } = useOfflineTable('appointments', hospital?.id)
   const { records: inventory, loading: loadingInventory } = useOfflineTable('inventory_items', hospital?.id)
   const { records: labTests, loading: loadingLab } = useOfflineTable('lab_tests', hospital?.id)
@@ -40,6 +42,11 @@ export default function Notifications(){
   const pendingLab = labTests.filter(t => t.status !== 'completed').length
   const pendingRadiology = scans.filter(s => s.status !== 'completed').length
   const pendingClaims = claims.filter(c => c.status === 'submitted').length
+
+  const notificationSearch = searchTerm.trim().toLowerCase()
+  const visibleSoon = notificationSearch ? soonAppointments.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : soonAppointments
+  const visibleToday = notificationSearch ? todayAppointments.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : todayAppointments
+  const visibleLowStock = notificationSearch ? lowStockItems.filter(i => [i.name, i.category, i.supplier].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : lowStockItems
 
   const totalAlerts = soonAppointments.length + lowStockItems.length
 
@@ -101,6 +108,7 @@ export default function Notifications(){
       </div>
 
       <div className="dash-row dash-row-2">
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search reminders, patients or alerts" style={{ minWidth: 260, maxWidth: 420 }} />
         <div className="dash-panel">
           <div className="dash-panel-head">
             <div>
@@ -115,7 +123,7 @@ export default function Notifications(){
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No more appointments today.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {soonAppointments.map(a => (
+              {visibleSoon.map(a => (
                 <div key={a.id} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '10px 14px', borderRadius: 10, background: 'rgba(225,104,94,0.10)', border: '1px solid rgba(225,104,94,0.25)',
@@ -127,7 +135,7 @@ export default function Notifications(){
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)' }}>{minutesUntil(a.appointment_time)}</span>
                 </div>
               ))}
-              {todayAppointments.map(a => (
+              {visibleToday.map(a => (
                 <div key={a.id} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
@@ -157,7 +165,7 @@ export default function Notifications(){
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>All stock levels are healthy.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {lowStockItems.map(item => (
+              {visibleLowStock.map(item => (
                 <div key={item.id} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '10px 14px', borderRadius: 10, background: 'rgba(201,169,97,0.10)', border: '1px solid rgba(201,169,97,0.25)',

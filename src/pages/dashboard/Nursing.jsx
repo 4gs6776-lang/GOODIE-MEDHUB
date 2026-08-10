@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import PatientProfile from '../../components/PatientProfile'
+import SearchInput from '../../components/common/SearchInput'
 
 const URGENCY_LEVELS = ['Routine', 'Urgent', 'Emergency']
 
@@ -13,6 +14,7 @@ export default function Nursing(){
   const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
 
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
   const [profilePatientId, setProfilePatientId] = useState(null)
   const [selectedPatientId, setSelectedPatientId] = useState('')
   const [assignedDoctor, setAssignedDoctor] = useState('')
@@ -88,6 +90,9 @@ export default function Nursing(){
       const order = { Emergency: 0, Urgent: 1, Routine: 2 }
       return (order[a.urgency] ?? 3) - (order[b.urgency] ?? 3)
     })
+
+  const nursingSearch = searchTerm.trim().toLowerCase()
+  const visibleActiveQueue = nursingSearch ? activeQueue.filter(item => [item.patient_name, item.patient_id, item.urgency, item.assigned_doctor].some(v => String(v || '').toLowerCase().includes(nursingSearch))) : activeQueue
 
   const activeOrders = prescriptions
     .filter(p => p.status === 'active')
@@ -238,13 +243,14 @@ export default function Nursing(){
         <div className="dash-panel">
           <div className="dash-panel-head">
             <div className="dash-panel-title">Active Consultation Queue ({activeQueue.filter(q => q.status === 'waiting').length})</div>
+            <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search active patients by name or ID" style={{ minWidth: 240, maxWidth: 360 }} />
           </div>
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
           ) : (
             <ul className="dash-legend">
-              {activeQueue.map(item => {
+              {visibleActiveQueue.map(item => {
                 const uc = urgencyColor(item.urgency)
                 return (
                   <li key={item.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>

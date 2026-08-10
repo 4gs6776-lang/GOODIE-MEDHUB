@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 export default function Pharmacy(){
   const { profile, hospital } = useAuth()
   const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('pharmacy_items', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const [name, setName] = useState('')
   const [quantity, setQuantity] = useState('')
@@ -67,6 +69,8 @@ export default function Pharmacy(){
     showToast('Item removed')
   }
 
+  const pharmacySearch = searchTerm.trim().toLowerCase()
+  const visibleItems = pharmacySearch ? items.filter(i => [i.name, i.patient_name, i.drug_name, i.id].some(v => String(v || '').toLowerCase().includes(pharmacySearch))) : items
   const lowStockCount = items.filter(i => i.quantity <= i.reorder_level).length
 
   function formatMoney(n){
@@ -109,12 +113,13 @@ export default function Pharmacy(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''} · Tap quantity to restock
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug, patient or prescription" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Item</button>
         </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-        ) : items.length === 0 ? (
+        ) : visibleItems.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No items yet. Add your first one above.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -126,7 +131,7 @@ export default function Pharmacy(){
               </tr>
             </thead>
             <tbody>
-              {items.map(item => {
+              {visibleItems.map(item => {
                 const isLow = item.quantity <= item.reorder_level
                 return (
                   <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>

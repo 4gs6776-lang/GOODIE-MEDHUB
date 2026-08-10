@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-']
 const GENOTYPES = ['AA','AS','SS','AC']
@@ -47,6 +48,7 @@ export default function Reception(){
   const { records: patients, loading, isOnline, pendingCount, addRecord, updateRecord } = useOfflineTable('patients', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
   const fileInputRef = useRef(null)
 
   const [fullName, setFullName] = useState('')
@@ -131,6 +133,8 @@ export default function Reception(){
   }
 
   const inQueue = patients.filter(p => p.queue_status)
+  const queueSearch = searchTerm.trim().toLowerCase()
+  const visibleQueue = queueSearch ? inQueue.filter(p => [p.full_name, p.patient_id, p.phone].some(v => String(v || '').toLowerCase().includes(queueSearch))) : inQueue
 
   return (
     <>
@@ -143,6 +147,7 @@ export default function Reception(){
               {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
             </div>
           </div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patients by name, ID or phone" style={{ minWidth: 260, maxWidth: 420 }} />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Register &amp; Check In</button>
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{inQueue.length} patient(s) currently in the queue</div>
@@ -153,7 +158,7 @@ export default function Reception(){
       ) : (
         <div className="dash-row dash-row-2b">
           {QUEUE_STAGES.map(stage => {
-            const stagePatients = inQueue.filter(p => p.queue_status === stage.key)
+            const stagePatients = visibleQueue.filter(p => p.queue_status === stage.key)
             return (
               <div className="dash-panel" key={stage.key}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>

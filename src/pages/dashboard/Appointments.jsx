@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import SearchInput from '../../components/common/SearchInput'
 
 const STATUS_CYCLE = { scheduled: 'completed', completed: 'cancelled', cancelled: 'scheduled' }
 const STATUS_LABEL = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' }
@@ -17,6 +18,7 @@ export default function Appointments(){
   const { records: appointments, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('appointments', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
+  const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState('all') // 'all' | 'day'
   const [dayFilter, setDayFilter] = useState(todayStr())
 
@@ -104,6 +106,11 @@ export default function Appointments(){
   const dayList = sorted.filter(a => new Date(a.appointment_time).toISOString().slice(0, 10) === dayFilter)
   const visible = viewMode === 'day' ? dayList : sorted
 
+  const appointmentSearch = searchTerm.trim().toLowerCase()
+  const searchedSorted = appointmentSearch ? sorted.filter(a => [a.patient_name, a.patient_id, a.doctor_name, a.appointment_id, a.status].some(v => String(v || '').toLowerCase().includes(appointmentSearch))) : sorted
+  const searchedDayList = appointmentSearch ? dayList.filter(a => [a.patient_name, a.patient_id, a.doctor_name, a.appointment_id, a.status].some(v => String(v || '').toLowerCase().includes(appointmentSearch))) : dayList
+  const searchedVisible = viewMode === 'day' ? searchedDayList : searchedSorted
+
   const today = new Date().toDateString()
   const todayCount = sorted.filter(a => new Date(a.appointment_time).toDateString() === today).length
   const upcomingCount = sorted.filter(a => new Date(a.appointment_time) > new Date() && a.status === 'scheduled').length
@@ -118,7 +125,7 @@ export default function Appointments(){
 
   const byDoctor = {}
   if (viewMode === 'day') {
-    dayList.forEach(a => {
+    searchedDayList.forEach(a => {
       const key = a.doctor_name || 'Unassigned'
       if (!byDoctor[key]) byDoctor[key] = []
       byDoctor[key].push(a)
@@ -151,6 +158,7 @@ export default function Appointments(){
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, doctor or appointment ID" style={{ minWidth: 260, maxWidth: 420 }} />
         <button
           onClick={() => setViewMode('all')}
           className="btn" style={{ width: 'auto', background: viewMode === 'all' ? 'var(--teal)' : 'transparent', color: viewMode === 'all' ? '#00251F' : 'var(--muted)', border: viewMode === 'all' ? 'none' : '1px solid var(--line)' }}
@@ -233,7 +241,7 @@ export default function Appointments(){
                 </tr>
               </thead>
               <tbody>
-                {visible.map(appt => (
+                {searchedVisible.map(appt => (
                   <tr key={appt.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
                     <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{formatWhen(appt.appointment_time)}</td>
                     <td style={{ padding: 12, fontWeight: 700 }}>{appt.patient_name}</td>
