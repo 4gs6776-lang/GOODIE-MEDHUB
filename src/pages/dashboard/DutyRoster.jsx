@@ -62,36 +62,30 @@ const MONTHS = [
   'December',
 ]
 
-function getDaysInMonth(year, month){
+function getDaysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate()
 }
 
-function makeDateKey(year, month, day){
+function makeDateKey(year, month, day) {
   const monthText = String(month + 1).padStart(2, '0')
   const dayText = String(day).padStart(2, '0')
 
   return year + '-' + monthText + '-' + dayText
 }
 
-function getDayName(year, month, day){
-  return new Date(year, month, day)
-    .toLocaleDateString('en-US', {
-      weekday: 'short',
-    })
+function getDayName(year, month, day) {
+  return new Date(year, month, day).toLocaleDateString('en-US', {
+    weekday: 'short',
+  })
 }
 
-export default function DutyRoster(){
+export default function DutyRoster() {
   const { profile, hospital } = useAuth()
 
   const currentDate = new Date()
 
-  const [month, setMonth] = useState(
-    currentDate.getMonth()
-  )
-
-  const [year, setYear] = useState(
-    currentDate.getFullYear()
-  )
+  const [month, setMonth] = useState(currentDate.getMonth())
+  const [year, setYear] = useState(currentDate.getFullYear())
 
   const [staff, setStaff] = useState([])
   const [roster, setRoster] = useState(null)
@@ -117,15 +111,15 @@ export default function DutyRoster(){
     )
   }, [daysInMonth])
 
-  function showToast(message){
+  function showToast(message) {
     setToast(message)
 
     setTimeout(() => {
       setToast(null)
-    }, 3000)
+    }, 3500)
   }
 
-  async function loadStaff(){
+  async function loadStaff() {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -137,7 +131,7 @@ export default function DutyRoster(){
     if (error) {
       showToast(
         'Could not load staff: ' +
-        error.message
+          error.message
       )
       return
     }
@@ -145,21 +139,23 @@ export default function DutyRoster(){
     setStaff(data || [])
   }
 
-  async function loadRoster(){
+  async function loadRoster() {
     if (!hospital?.id) return
 
     setLoading(true)
 
     try {
-      const { data: rosterData, error: rosterError } =
-        await supabase
-          .from('rosters')
-          .select('*')
-          .eq('hospital_id', hospital.id)
-          .eq('month', month + 1)
-          .eq('year', year)
-          .is('department', null)
-          .maybeSingle()
+      const {
+        data: rosterData,
+        error: rosterError,
+      } = await supabase
+        .from('rosters')
+        .select('*')
+        .eq('hospital_id', hospital.id)
+        .eq('month', month + 1)
+        .eq('year', year)
+        .is('department', null)
+        .maybeSingle()
 
       if (rosterError) {
         throw rosterError
@@ -168,19 +164,21 @@ export default function DutyRoster(){
       let currentRoster = rosterData
 
       if (!currentRoster) {
-        const { data: createdRoster, error: createError } =
-          await supabase
-            .from('rosters')
-            .insert({
-              hospital_id: hospital.id,
-              month: month + 1,
-              year: year,
-              department: null,
-              status: 'draft',
-              created_by: profile?.id || null,
-            })
-            .select()
-            .single()
+        const {
+          data: createdRoster,
+          error: createError,
+        } = await supabase
+          .from('rosters')
+          .insert({
+            hospital_id: hospital.id,
+            month: month + 1,
+            year: year,
+            department: null,
+            status: 'draft',
+            created_by: profile?.id || null,
+          })
+          .select()
+          .single()
 
         if (createError) {
           throw createError
@@ -192,11 +190,13 @@ export default function DutyRoster(){
       setRoster(currentRoster)
       setStatus(currentRoster.status || 'draft')
 
-      const { data: entryData, error: entryError } =
-        await supabase
-          .from('roster_entries')
-          .select('*')
-          .eq('roster_id', currentRoster.id)
+      const {
+        data: entryData,
+        error: entryError,
+      } = await supabase
+        .from('roster_entries')
+        .select('*')
+        .eq('roster_id', currentRoster.id)
 
       if (entryError) {
         throw entryError
@@ -210,16 +210,14 @@ export default function DutyRoster(){
           '|' +
           entry.roster_date
 
-        mappedEntries[key] =
-          entry.shift_code
+        mappedEntries[key] = entry.shift_code
       })
 
       setEntries(mappedEntries)
-
     } catch (error) {
       showToast(
         'Could not load roster: ' +
-        error.message
+          error.message
       )
     } finally {
       setLoading(false)
@@ -277,7 +275,7 @@ export default function DutyRoster(){
   function getEntry(
     staffId,
     day
-  ){
+  ) {
     const dateKey =
       makeDateKey(
         year,
@@ -288,17 +286,135 @@ export default function DutyRoster(){
     return (
       entries[
         staffId +
-        '|' +
-        dateKey
+          '|' +
+          dateKey
       ] || ''
     )
+  }
+
+  /*
+   * Checks whether assigning Morning to this
+   * staff member would violate the Night → Morning rule.
+   *
+   * If today is day 2, we check day 1.
+   *
+   * For the first day of a month, we also check
+   * the previous calendar day from the previous month.
+   */
+  async function hasPreviousNightShift(
+    staffId,
+    day
+  ) {
+    if (day > 1) {
+      return (
+        getEntry(
+          staffId,
+          day - 1
+        ) === 'N'
+      )
+    }
+
+    /*
+     * Day 1 needs special handling because the
+     * previous day belongs to the previous month.
+     *
+     * If we already have previous-month roster data,
+     * check it from Supabase.
+     */
+    const previousDate = new Date(
+      year,
+      month,
+      0
+    )
+
+    const previousYear =
+      previousDate.getFullYear()
+
+    const previousMonth =
+      previousDate.getMonth()
+
+    const previousDay =
+      previousDate.getDate()
+
+    if (!hospital?.id) {
+      return false
+    }
+
+    try {
+      const {
+        data: previousRoster,
+        error: previousRosterError,
+      } = await supabase
+        .from('rosters')
+        .select('id')
+        .eq(
+          'hospital_id',
+          hospital.id
+        )
+        .eq(
+          'month',
+          previousMonth + 1
+        )
+        .eq(
+          'year',
+          previousYear
+        )
+        .is('department', null)
+        .maybeSingle()
+
+      if (previousRosterError) {
+        return false
+      }
+
+      if (!previousRoster) {
+        return false
+      }
+
+      const previousDateKey =
+        makeDateKey(
+          previousYear,
+          previousMonth,
+          previousDay
+        )
+
+      const {
+        data: previousEntry,
+        error: previousEntryError,
+      } = await supabase
+        .from('roster_entries')
+        .select('shift_code')
+        .eq(
+          'roster_id',
+          previousRoster.id
+        )
+        .eq(
+          'staff_id',
+          staffId
+        )
+        .eq(
+          'roster_date',
+          previousDateKey
+        )
+        .maybeSingle()
+
+      if (previousEntryError) {
+        return false
+      }
+
+      return (
+        previousEntry?.shift_code ===
+        'N'
+      )
+    } catch {
+      return false
+    }
   }
 
   async function saveShift(
     staffId,
     day,
     shiftCode
-  ){
+  ) {
     if (!isAdmin) {
       showToast(
         'Only administrators can edit the roster.'
@@ -307,6 +423,28 @@ export default function DutyRoster(){
     }
 
     if (!roster) return
+
+    /*
+     * NIGHT → MORNING PROTECTION
+     *
+     * If Admin selects Morning and the staff
+     * member worked Night the previous day,
+     * prevent the assignment.
+     */
+    if (shiftCode === 'M') {
+      const previousNight =
+        await hasPreviousNightShift(
+          staffId,
+          day
+        )
+
+      if (previousNight) {
+        showToast(
+          '⚠ Shift conflict: This staff member worked Night on the previous day and cannot be assigned Morning today.'
+        )
+        return
+      }
+    }
 
     const rosterDate =
       makeDateKey(
@@ -320,6 +458,12 @@ export default function DutyRoster(){
       '|' +
       rosterDate
 
+    const previousShift =
+      entries[key] || ''
+
+    /*
+     * Optimistic UI update.
+     */
     setEntries(previous => ({
       ...previous,
       [key]: shiftCode,
@@ -328,15 +472,48 @@ export default function DutyRoster(){
     setSaving(true)
 
     try {
-      const { error } =
-        await supabase
+      /*
+       * If the Admin clears a shift,
+       * remove the entry instead of saving
+       * an empty shift code.
+       */
+      if (!shiftCode) {
+        const {
+          error: deleteError,
+        } = await supabase
+          .from('roster_entries')
+          .delete()
+          .eq(
+            'roster_id',
+            roster.id
+          )
+          .eq(
+            'staff_id',
+            staffId
+          )
+          .eq(
+            'roster_date',
+            rosterDate
+          )
+
+        if (deleteError) {
+          throw deleteError
+        }
+      } else {
+        const {
+          error,
+        } = await supabase
           .from('roster_entries')
           .upsert(
             {
-              roster_id: roster.id,
-              staff_id: staffId,
-              roster_date: rosterDate,
-              shift_code: shiftCode,
+              roster_id:
+                roster.id,
+              staff_id:
+                staffId,
+              roster_date:
+                rosterDate,
+              shift_code:
+                shiftCode,
             },
             {
               onConflict:
@@ -344,30 +521,39 @@ export default function DutyRoster(){
             }
           )
 
-      if (error) {
-        throw error
+        if (error) {
+          throw error
+        }
       }
     } catch (error) {
+      /*
+       * Restore the previous value if saving fails.
+       */
       setEntries(previous => {
         const copy = {
           ...previous,
         }
 
-        delete copy[key]
+        if (previousShift) {
+          copy[key] =
+            previousShift
+        } else {
+          delete copy[key]
+        }
 
         return copy
       })
 
       showToast(
         'Could not save shift: ' +
-        error.message
+          error.message
       )
     } finally {
       setSaving(false)
     }
   }
 
-  async function publishRoster(){
+  async function publishRoster() {
     if (!isAdmin || !roster) return
 
     setSaving(true)
@@ -379,7 +565,10 @@ export default function DutyRoster(){
           .update({
             status: 'published',
           })
-          .eq('id', roster.id)
+          .eq(
+            'id',
+            roster.id
+          )
 
       if (error) {
         throw error
@@ -398,14 +587,14 @@ export default function DutyRoster(){
     } catch (error) {
       showToast(
         'Could not publish roster: ' +
-        error.message
+          error.message
       )
     } finally {
       setSaving(false)
     }
   }
 
-  async function returnToDraft(){
+  async function returnToDraft() {
     if (!isAdmin || !roster) return
 
     setSaving(true)
@@ -417,7 +606,10 @@ export default function DutyRoster(){
           .update({
             status: 'draft',
           })
-          .eq('id', roster.id)
+          .eq(
+            'id',
+            roster.id
+          )
 
       if (error) {
         throw error
@@ -436,14 +628,16 @@ export default function DutyRoster(){
     } catch (error) {
       showToast(
         'Could not update roster: ' +
-        error.message
+          error.message
       )
     } finally {
       setSaving(false)
     }
   }
 
-  function getShiftStyle(shiftCode){
+  function getShiftStyle(
+    shiftCode
+  ) {
     if (shiftCode === 'M') {
       return {
         background:
@@ -536,31 +730,25 @@ export default function DutyRoster(){
 
   return (
     <div>
-
       <div
         className="dash-panel"
         style={{
           marginBottom: 16,
         }}
       >
-
         <div
           className="dash-panel-head"
           style={{
-            alignItems: 'flex-start',
+            alignItems:
+              'flex-start',
           }}
         >
-
           <div>
-            <div
-              className="dash-panel-title"
-            >
+            <div className="dash-panel-title">
               Duty Roster
             </div>
 
-            <div
-              className="dash-panel-sub"
-            >
+            <div className="dash-panel-sub">
               {MONTHS[month] +
                 ' ' +
                 year +
@@ -572,26 +760,31 @@ export default function DutyRoster(){
 
           <div
             style={{
-              display: 'flex',
+              display:
+                'flex',
               gap: 8,
-              flexWrap: 'wrap',
+              flexWrap:
+                'wrap',
               justifyContent:
                 'flex-end',
             }}
           >
-
             {isAdmin && (
               <>
-                {status === 'draft' ? (
+                {status ===
+                'draft' ? (
                   <button
                     className="btn btn-primary"
                     style={{
-                      width: 'auto',
+                      width:
+                        'auto',
                     }}
                     onClick={
                       publishRoster
                     }
-                    disabled={saving}
+                    disabled={
+                      saving
+                    }
                   >
                     {saving
                       ? 'Saving...'
@@ -601,39 +794,43 @@ export default function DutyRoster(){
                   <button
                     className="btn btn-ghost"
                     style={{
-                      width: 'auto',
+                      width:
+                        'auto',
                     }}
                     onClick={
                       returnToDraft
                     }
-                    disabled={saving}
+                    disabled={
+                      saving
+                    }
                   >
                     Return to Draft
                   </button>
                 )}
               </>
             )}
-
           </div>
-
         </div>
 
         <div
           style={{
-            display: 'flex',
+            display:
+              'flex',
             gap: 10,
-            flexWrap: 'wrap',
-            alignItems: 'center',
+            flexWrap:
+              'wrap',
+            alignItems:
+              'center',
             marginTop: 14,
           }}
         >
-
           <select
             value={month}
             onChange={e =>
               setMonth(
                 Number(
-                  e.target.value
+                  e.target
+                    .value
                 )
               )
             }
@@ -642,12 +839,21 @@ export default function DutyRoster(){
             }}
           >
             {MONTHS.map(
-              (monthName, index) => (
+              (
+                monthName,
+                index
+              ) => (
                 <option
-                  key={monthName}
-                  value={index}
+                  key={
+                    monthName
+                  }
+                  value={
+                    index
+                  }
                 >
-                  {monthName}
+                  {
+                    monthName
+                  }
                 </option>
               )
             )}
@@ -658,7 +864,8 @@ export default function DutyRoster(){
             onChange={e =>
               setYear(
                 Number(
-                  e.target.value
+                  e.target
+                    .value
                 )
               )
             }
@@ -670,22 +877,35 @@ export default function DutyRoster(){
               {
                 length: 5,
               },
-              (_, index) =>
+              (
+                _,
+                index
+              ) =>
                 currentDate.getFullYear() -
                 1 +
                 index
-            ).map(yearOption => (
-              <option
-                key={yearOption}
-                value={yearOption}
-              >
-                {yearOption}
-              </option>
-            ))}
+            ).map(
+              yearOption => (
+                <option
+                  key={
+                    yearOption
+                  }
+                  value={
+                    yearOption
+                  }
+                >
+                  {
+                    yearOption
+                  }
+                </option>
+              )
+            )}
           </select>
 
           <SearchInput
-            value={searchTerm}
+            value={
+              searchTerm
+            }
             onChange={
               setSearchTerm
             }
@@ -697,10 +917,13 @@ export default function DutyRoster(){
           />
 
           <select
-            value={roleFilter}
+            value={
+              roleFilter
+            }
             onChange={e =>
               setRoleFilter(
-                e.target.value
+                e.target
+                  .value
               )
             }
             style={{
@@ -714,29 +937,37 @@ export default function DutyRoster(){
             {Object.entries(
               ROLE_LABELS
             ).map(
-              ([roleCode, label]) => (
+              ([
+                roleCode,
+                label,
+              ]) => (
                 <option
-                  key={roleCode}
-                  value={roleCode}
+                  key={
+                    roleCode
+                  }
+                  value={
+                    roleCode
+                  }
                 >
                   {label}
                 </option>
               )
             )}
           </select>
-
         </div>
 
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
+            display:
+              'flex',
+            alignItems:
+              'center',
             gap: 8,
             marginTop: 14,
-            flexWrap: 'wrap',
+            flexWrap:
+              'wrap',
           }}
         >
-
           <span
             style={{
               fontSize: 11,
@@ -751,15 +982,19 @@ export default function DutyRoster(){
             style={{
               padding:
                 '4px 9px',
-              borderRadius: 20,
+              borderRadius:
+                20,
               fontSize: 10,
-              fontWeight: 800,
+              fontWeight:
+                800,
               background:
-                status === 'published'
+                status ===
+                'published'
                   ? 'var(--teal-soft)'
                   : 'rgba(201,169,97,0.14)',
               color:
-                status === 'published'
+                status ===
+                'published'
                   ? 'var(--teal)'
                   : 'var(--gold)',
             }}
@@ -793,40 +1028,38 @@ export default function DutyRoster(){
               Saving...
             </span>
           )}
-
         </div>
-
       </div>
 
       <div
         className="dash-panel"
         style={{
           padding: 0,
-          overflow: 'hidden',
+          overflow:
+            'hidden',
         }}
       >
-
         <div
           style={{
-            overflowX: 'auto',
-            width: '100%',
+            overflowX:
+              'auto',
+            width:
+              '100%',
           }}
         >
-
           <table
             style={{
               borderCollapse:
                 'collapse',
-              width: 'max-content',
-              minWidth: '100%',
+              width:
+                'max-content',
+              minWidth:
+                '100%',
               fontSize: 11,
             }}
           >
-
             <thead>
-
               <tr>
-
                 <th
                   style={{
                     position:
@@ -842,66 +1075,75 @@ export default function DutyRoster(){
                     padding:
                       '12px 14px',
                     minWidth: 190,
-                    textAlign: 'left',
+                    textAlign:
+                      'left',
                   }}
                 >
                   Staff
                 </th>
 
-                {days.map(day => (
-                  <th
-                    key={day}
-                    style={{
-                      borderBottom:
-                        '1px solid var(--line)',
-                      borderRight:
-                        '1px solid var(--line)',
-                      padding:
-                        '8px 5px',
-                      minWidth: 58,
-                      textAlign:
-                        'center',
-                      background:
-                        'var(--bg-elevated)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        fontSize: 11,
-                      }}
-                    >
-                      {day}
-                    </div>
-
-                    <div
-                      style={{
-                        fontSize: 9,
-                        color:
-                          'var(--muted)',
-                        marginTop: 2,
-                      }}
-                    >
-                      {getDayName(
-                        year,
-                        month,
+                {days.map(
+                  day => (
+                    <th
+                      key={
                         day
-                      )}
-                    </div>
-                  </th>
-                ))}
+                      }
+                      style={{
+                        borderBottom:
+                          '1px solid var(--line)',
+                        borderRight:
+                          '1px solid var(--line)',
+                        padding:
+                          '8px 5px',
+                        minWidth:
+                          58,
+                        textAlign:
+                          'center',
+                        background:
+                          'var(--bg-elevated)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontWeight:
+                            800,
+                          fontSize:
+                            11,
+                        }}
+                      >
+                        {day}
+                      </div>
 
+                      <div
+                        style={{
+                          fontSize:
+                            9,
+                          color:
+                            'var(--muted)',
+                          marginTop:
+                            2,
+                        }}
+                      >
+                        {getDayName(
+                          year,
+                          month,
+                          day
+                        )}
+                      </div>
+                    </th>
+                  )
+                )}
               </tr>
-
             </thead>
 
             <tbody>
-
-              {visibleStaff.length === 0 ? (
+              {visibleStaff.length ===
+              0 ? (
                 <tr>
                   <td
                     colSpan={
-                      days.length + 1
+                      days.length +
+                      1
                     }
                     style={{
                       textAlign:
@@ -922,7 +1164,6 @@ export default function DutyRoster(){
                         member.id
                       }
                     >
-
                       <td
                         style={{
                           position:
@@ -940,7 +1181,6 @@ export default function DutyRoster(){
                           minWidth: 190,
                         }}
                       >
-
                         <div
                           style={{
                             display:
@@ -950,7 +1190,6 @@ export default function DutyRoster(){
                             gap: 9,
                           }}
                         >
-
                           <div
                             style={{
                               width: 30,
@@ -969,8 +1208,10 @@ export default function DutyRoster(){
                                 '#fff',
                               fontWeight:
                                 800,
-                              fontSize: 11,
-                              flexShrink: 0,
+                              fontSize:
+                                11,
+                              flexShrink:
+                                0,
                             }}
                           >
                             {member.full_name
@@ -983,10 +1224,10 @@ export default function DutyRoster(){
 
                           <div
                             style={{
-                              minWidth: 0,
+                              minWidth:
+                                0,
                             }}
                           >
-
                             <div
                               style={{
                                 fontWeight:
@@ -1001,7 +1242,9 @@ export default function DutyRoster(){
                                   'ellipsis',
                               }}
                             >
-                              {member.full_name}
+                              {
+                                member.full_name
+                              }
 
                               {member.id ===
                                 profile?.id && (
@@ -1031,16 +1274,14 @@ export default function DutyRoster(){
                               }}
                             >
                               {ROLE_LABELS[
-                                member.role
+                                member
+                                  .role
                               ] ||
                                 member.role ||
                                 'Staff'}
                             </div>
-
                           </div>
-
                         </div>
-
                       </td>
 
                       {days.map(
@@ -1072,7 +1313,6 @@ export default function DutyRoster(){
                                     : 'transparent',
                               }}
                             >
-
                               {isAdmin ? (
                                 <select
                                   value={
@@ -1082,7 +1322,8 @@ export default function DutyRoster(){
                                     saveShift(
                                       member.id,
                                       day,
-                                      e.target.value
+                                      e.target
+                                        .value
                                     )
                                   }
                                   style={{
@@ -1105,10 +1346,7 @@ export default function DutyRoster(){
                                     ),
                                   }}
                                 >
-
-                                  <option
-                                    value=""
-                                  >
+                                  <option value="">
                                     —
                                   </option>
 
@@ -1122,11 +1360,12 @@ export default function DutyRoster(){
                                           shift.code
                                         }
                                       >
-                                        {shift.short}
+                                        {
+                                          shift.short
+                                        }
                                       </option>
                                     )
                                   )}
-
                                 </select>
                               ) : (
                                 <div
@@ -1156,23 +1395,17 @@ export default function DutyRoster(){
                                     '—'}
                                 </div>
                               )}
-
                             </td>
                           )
                         }
                       )}
-
                     </tr>
                   )
                 )
               )}
-
             </tbody>
-
           </table>
-
         </div>
-
       </div>
 
       <div
@@ -1181,7 +1414,6 @@ export default function DutyRoster(){
           marginTop: 16,
         }}
       >
-
         <div
           className="dash-panel-title"
           style={{
@@ -1193,12 +1425,13 @@ export default function DutyRoster(){
 
         <div
           style={{
-            display: 'flex',
+            display:
+              'flex',
             gap: 8,
-            flexWrap: 'wrap',
+            flexWrap:
+              'wrap',
           }}
         >
-
           {SHIFT_TYPES.map(
             shift => (
               <div
@@ -1224,7 +1457,9 @@ export default function DutyRoster(){
                 }}
               >
                 <span>
-                  {shift.short}
+                  {
+                    shift.short
+                  }
                 </span>
 
                 <span
@@ -1235,20 +1470,51 @@ export default function DutyRoster(){
                       500,
                   }}
                 >
-                  {shift.name}
+                  {
+                    shift.name
+                  }
                 </span>
               </div>
             )
           )}
-
         </div>
 
+        <div
+          style={{
+            marginTop: 14,
+            padding:
+              '10px 12px',
+            borderRadius: 8,
+            background:
+              'rgba(225,104,94,0.08)',
+            border:
+              '1px solid rgba(225,104,94,0.2)',
+            color:
+              'var(--muted)',
+            fontSize: 11,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong
+            style={{
+              color:
+                'var(--danger)',
+            }}
+          >
+            Shift rule:
+          </strong>{' '}
+          A staff member who works
+          a Night shift cannot be
+          assigned a Morning shift
+          on the following day.
+        </div>
       </div>
 
       {toast && (
         <div
           style={{
-            position: 'fixed',
+            position:
+              'fixed',
             bottom: 24,
             left: '50%',
             transform:
@@ -1274,7 +1540,6 @@ export default function DutyRoster(){
           {toast}
         </div>
       )}
-
     </div>
   )
 }
