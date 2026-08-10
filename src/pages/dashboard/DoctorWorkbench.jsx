@@ -408,7 +408,7 @@ async function handleSubmitAdmissionRequest(payload) {
             <div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged patients</div>
           </div>
         </div>
-        <<div className="dash-stat-card">
+        <div className="dash-stat-card">
   <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg>
   </div>
