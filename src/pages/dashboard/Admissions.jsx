@@ -356,11 +356,11 @@ export default function Admissions(){
                         onChange={e => toggleChecklistItem(a, 'billing_cleared', e.target.checked)}
                       />
                     </td>
-                    <td>
+                   <td>
                       <input
                         type="checkbox"
                         checked={!!bed?.pharmacy_cleared}
-                        disabled={!canEdit || rowBusy || !bed}
+                        disabled={!canTogglePharmacy || rowBusy || !bed}
                         onChange={e => toggleChecklistItem(a, 'pharmacy_cleared', e.target.checked)}
                       />
                     </td>
