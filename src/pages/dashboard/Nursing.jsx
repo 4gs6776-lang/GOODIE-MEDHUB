@@ -126,9 +126,46 @@ export default function Nursing(){
   }
 
   async function handleMarkAdministered(rx){
-    await updatePrescription(rx.id, { status: 'dispensed' })
-    showToast(`Marked ${rx.drug_name} as administered for ${rx.patient_name}`)
+  if (!hospital || !profile) {
+    showToast('Account is still loading — try again')
+    return
   }
+
+  try {
+    await addMedicationAdministration({
+      patient_id: rx.patient_id || null,
+      prescription_id: rx.id,
+
+      patient_name: rx.patient_name,
+      drug_name: rx.drug_name,
+      dosage: rx.dosage || '',
+      route: rx.route || '',
+      frequency: rx.frequency || '',
+      instructions: rx.instructions || '',
+
+      administered_by: profile.id,
+      administered_by_name: profile.full_name || 'Nurse',
+
+      status: 'administered',
+      administered_at: new Date().toISOString(),
+
+      notes: ''
+    })
+
+    await updatePrescription(rx.id, {
+      status: 'dispensed',
+      administered_at: new Date().toISOString(),
+      administered_by: profile.id
+    })
+
+    showToast(
+      `${rx.drug_name} administered to ${rx.patient_name}`
+    )
+
+  } catch (err) {
+    showToast(err.message || 'Could not record medication administration')
+  }
+}
 
   return (
     <>
