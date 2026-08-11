@@ -11,7 +11,13 @@ export default function Nursing(){
   const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { records: vitalsQueue, loading, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: staff } = useOfflineTable('profiles', hospital?.id)
-  const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
+const { records: prescriptions } = useOfflineTable('prescriptions', hospital?.id)
+
+const {
+  records: medicationAdministrations,
+  addRecord: addMedicationAdministration,
+  loading: loadingMedicationAdministrations,
+} = useOfflineTable('medication_administrations', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
