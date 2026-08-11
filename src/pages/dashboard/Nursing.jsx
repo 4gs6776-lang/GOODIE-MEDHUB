@@ -11,13 +11,7 @@ export default function Nursing(){
   const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { records: vitalsQueue, loading, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: staff } = useOfflineTable('profiles', hospital?.id)
-const { records: prescriptions } = useOfflineTable('prescriptions', hospital?.id)
-
-const {
-  records: medicationAdministrations,
-  addRecord: addMedicationAdministration,
-  loading: loadingMedicationAdministrations,
-} = useOfflineTable('medication_administrations', hospital?.id)
+  const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -127,52 +121,10 @@ const {
     setPatientSearch('')
   }
 
-  async function handleSignMedication(rx){
-  if (!profile || !hospital || !selectedLookupPatient) {
-    showToast('Unable to identify staff or patient')
-    return
+  async function handleMarkAdministered(rx){
+    await updatePrescription(rx.id, { status: 'dispensed' })
+    showToast(`Marked ${rx.drug_name} as administered for ${rx.patient_name}`)
   }
-
-  const now = new Date()
-
-  const date = now.toISOString().slice(0, 10)
-
-  const time = now.toTimeString().slice(0, 5)
-
-  const nextDose = calculateNextDose(
-    now,
-    rx.frequency
-  )
-
-  try {
-    await addMedicationAdministration({
-      patient_id: selectedLookupPatient.id,
-      patient_vitals_id: rx.patient_vitals_id || null,
-      prescription_id: rx.id,
-
-      date,
-      time,
-
-      medication: rx.drug_name,
-      dose: rx.dosage,
-      next_dose: nextDose,
-      frequency: rx.frequency || null,
-      route: rx.route || null,
-
-      staff_id: profile.id,
-      staff_name: profile.full_name || 'Unknown Staff',
-
-      sign: profile.full_name || 'Unknown Staff',
-      signed_at: now.toISOString(),
-
-      status: 'administered',
-    })
-
-    showToast(`${rx.drug_name} signed by ${profile.full_name}`)
-  } catch (err) {
-    showToast(err.message || 'Could not record medication')
-  }
-}
 
   return (
     <>
@@ -439,17 +391,13 @@ const {
                   <li key={rx.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                       <strong style={{ color: 'var(--ivory)' }}>{rx.drug_name}</strong>
-                     <button
-  onClick={() => handleSignMedication(rx)}
-  className="btn btn-primary"
-  style={{
-    width: 'auto',
-    padding: '5px 12px',
-    fontSize: 11
-  }}
->
-  Sign & Administer
-</button>
+                      <button
+                        onClick={() => handleMarkAdministered(rx)}
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 10px', fontSize: 11 }}
+                      >
+                        Mark Administered
+                      </button>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {rx.dosage}{rx.route ? ` · ${rx.route}` : ''}{rx.frequency ? ` · ${rx.frequency}` : ''}{rx.duration ? ` · ${rx.duration}` : ''}
