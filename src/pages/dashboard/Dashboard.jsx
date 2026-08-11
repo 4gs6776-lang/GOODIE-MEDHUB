@@ -17,8 +17,8 @@ import DoctorWorkbench from './DoctorWorkbench'
 import Nursing from './Nursing'
 import DutyRoster from './DutyRoster'
 import IPD from './IPD'
-import Reception from './Reception'
 import Admissions from './Admissions'
+import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 
 const NAV_ITEMS = [
@@ -26,7 +26,6 @@ const NAV_ITEMS = [
   { key: 'appointments', label: 'Appointments', section: 'Main', icon: 'calendar' },
   { key: 'patients', label: 'Patients', section: 'Main', icon: 'users' },
   { key: 'reception', label: 'Reception', section: 'Main', icon: 'reception' },
-  { key: 'admissions', label: 'Admissions', section: 'Operations', icon: 'reception' },
   { key: 'billing', label: 'Billing & Invoices', section: 'Main', icon: 'billing' },
   { key: 'laboratory', label: 'Laboratory', section: 'Main', icon: 'lab' },
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main', icon: 'pharmacy' },
@@ -36,6 +35,7 @@ const NAV_ITEMS = [
   { key: 'doctor', label: 'Doctor Workbench', section: 'Operations', icon: 'doctor' },
   { key: 'nursing', label: 'Nursing / Triage', section: 'Operations', icon: 'nurse' },
   { key: 'ipd', label: 'IPD Management', section: 'Operations', icon: 'bed' },
+  { key: 'admissions', label: 'Admissions', section: 'Operations', icon: 'bed' },
   { key: 'insurance', label: 'Insurance / HMO', section: 'Operations', icon: 'insurance' },
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
@@ -60,8 +60,9 @@ const PAGE_TITLES = {
   notifications: 'Reminders & Alerts',
   settings: 'Settings',
   ipd: 'IPD Management',
-  admissions: 'Admissions',
   reception: 'Reception',
+  admissions: 'Admissions',
+  roster: 'Duty Roster',
 }
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -74,13 +75,24 @@ const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
 const ROLE_ACCESS = {
   doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
   nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
-  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance'],
-  pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory', 'admissions'],
+  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
+  pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory'],
   lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology'],
-  billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance', 'admissions'],
+  billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance'],
 }
 const FULL_ACCESS_ROLES = ['admin', 'owner']
 const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
+
+// Same shift styling used in DutyRoster.jsx, kept in sync so the
+// dashboard preview looks consistent with the full roster page.
+const SHIFT_STYLE = {
+  M: { background: 'rgba(201,169,97,0.16)', color: 'var(--gold)' },
+  N: { background: 'rgba(76,141,255,0.16)', color: 'var(--blue)' },
+  OFF: { background: 'rgba(255,255,255,0.04)', color: 'var(--muted)' },
+  LEAVE: { background: 'rgba(225,104,94,0.12)', color: 'var(--danger)' },
+  'ON CALL': { background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' },
+  TRAINING: { background: 'var(--teal-soft)', color: 'var(--teal)' },
+}
 
 function Icon({ name, size = 18, strokeWidth = 1.8 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -153,6 +165,11 @@ export default function Dashboard(){
   const pendingTimeoutRef = useRef(null)
   const pendingIntervalRef = useRef(null)
 
+  // Today's Duty preview — pulled from the same rosters/roster_entries
+  // tables DutyRoster.jsx uses, filtered to just today's date.
+  const [todayDuty, setTodayDuty] = useState([])
+  const [loadingDuty, setLoadingDuty] = useState(true)
+
   useEffect(() => computeWeeklyCounts(patients), [patients])
   useEffect(() => subscribeSyncErrors(setSyncErrors), [])
   useEffect(() => {
@@ -216,8 +233,61 @@ export default function Dashboard(){
     }
   }
 
+  async function loadTodayDuty(){
+    if (!hospital?.id) return
+    setLoadingDuty(true)
+    try {
+      const now = new Date()
+      const month = now.getMonth() + 1
+      const year = now.getFullYear()
+      const todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+
+      const { data: roster } = await supabase
+        .from('rosters')
+        .select('id')
+        .eq('hospital_id', hospital.id)
+        .eq('month', month)
+        .eq('year', year)
+        .is('department', null)
+        .maybeSingle()
+
+      if (!roster) { setTodayDuty([]); return }
+
+      const { data: entries } = await supabase
+        .from('roster_entries')
+        .select('staff_id, shift_code')
+        .eq('roster_id', roster.id)
+        .eq('roster_date', todayKey)
+
+      if (!entries || entries.length === 0) { setTodayDuty([]); return }
+
+      const staffIds = entries.map(e => e.staff_id)
+      const { data: staffData } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .in('id', staffIds)
+
+      const combined = entries
+        .map(e => {
+          const staffMember = (staffData || []).find(s => s.id === e.staff_id)
+          return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
+        })
+        .filter(Boolean)
+        .filter(e => e.shift && e.shift !== 'OFF')
+
+      setTodayDuty(combined)
+    } catch {
+      setTodayDuty([])
+    } finally {
+      setLoadingDuty(false)
+    }
+  }
+
   useEffect(() => {
-    if (hospital?.id) loadOverviewSummary()
+    if (hospital?.id) {
+      loadOverviewSummary()
+      loadTodayDuty()
+    }
   }, [hospital?.id])
 
   function showToast(msg){
@@ -602,6 +672,33 @@ export default function Dashboard(){
                   </div>
                 </div>
 
+                <div className="dash-panel dash-duty-today">
+                  <div className="dash-panel-head">
+                    <div className="dash-panel-title">Today's Duty</div>
+                    <button className="dash-view-all" onClick={() => setTab('roster')}>View full roster</button>
+                  </div>
+                  {loadingDuty ? (
+                    <div className="dash-empty">Loading…</div>
+                  ) : todayDuty.length === 0 ? (
+                    <div className="dash-empty">No shifts assigned for today yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {todayDuty.map((d, i) => {
+                        const style = SHIFT_STYLE[d.shift] || { background: 'rgba(255,255,255,0.04)', color: 'var(--muted)' }
+                        return (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 13 }}>{d.name}</div>
+                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{ROLE_LABELS[d.role] || d.role || 'Staff'}</div>
+                            </div>
+                            <span style={{ ...style, padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800 }}>{d.shift}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 <div className="dash-panel dash-recent">
                   <div className="dash-panel-head">
                     <div className="dash-panel-title">Recent Patients</div>
@@ -690,7 +787,7 @@ export default function Dashboard(){
           {tab === 'inventory' && <Inventory />}
           {tab === 'reports' && <Reports />}
           {tab === 'notifications' && <Notifications />}
-          {tab === 'ipd' && <IPD />}
+          {tab === 'ipd' && <IPD onGoToAdmissions={() => setTab('admissions')} />}
           {tab === 'admissions' && <Admissions />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'reception' && <Reception />}
