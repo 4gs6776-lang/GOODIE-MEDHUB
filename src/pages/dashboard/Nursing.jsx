@@ -439,13 +439,17 @@ const {
                   <li key={rx.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                       <strong style={{ color: 'var(--ivory)' }}>{rx.drug_name}</strong>
-                      <button
-                        onClick={() => handleMarkAdministered(rx)}
-                        className="btn btn-ghost"
-                        style={{ padding: '4px 10px', fontSize: 11 }}
-                      >
-                        Mark Administered
-                      </button>
+                     <button
+  onClick={() => handleSignMedication(rx)}
+  className="btn btn-primary"
+  style={{
+    width: 'auto',
+    padding: '5px 12px',
+    fontSize: 11
+  }}
+>
+  Sign & Administer
+</button>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {rx.dosage}{rx.route ? ` · ${rx.route}` : ''}{rx.frequency ? ` · ${rx.frequency}` : ''}{rx.duration ? ` · ${rx.duration}` : ''}
