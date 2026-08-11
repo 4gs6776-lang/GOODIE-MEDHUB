@@ -3,8 +3,33 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 
-const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-']
+const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown']
 const GENOTYPES = ['AA','AS','SS','AC']
+const MARITAL_STATUSES = ['Single','Married','Widow','Widower','Divorced']
+const RELIGIONS = ['Christianity','Islam','Traditional','Other']
+const CATEGORIES = [
+  { value: 'personal', label: 'Personal Folder' },
+  { value: 'family', label: 'Family Folder' },
+  { value: 'emergency', label: 'Emergency Folder' },
+  { value: 'anc', label: 'ANC Folder' },
+]
+
+const NIGERIAN_STATES = [
+  'Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta',
+  'Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)','Gombe','Imo','Jigawa','Kaduna','Kano',
+  'Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun',
+  'Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara',
+]
+
+const AFRICAN_COUNTRIES = [
+  'Algeria','Angola','Benin','Botswana','Burkina Faso','Burundi','Cabo Verde','Cameroon',
+  'Central African Republic','Chad','Comoros','Congo (Republic)','Congo (DRC)','Djibouti','Egypt',
+  'Equatorial Guinea','Eritrea','Eswatini','Ethiopia','Gabon','Gambia','Ghana','Guinea',
+  'Guinea-Bissau','Ivory Coast','Kenya','Lesotho','Liberia','Libya','Madagascar','Malawi','Mali',
+  'Mauritania','Mauritius','Morocco','Mozambique','Namibia','Niger','Nigeria','Rwanda',
+  'Sao Tome and Principe','Senegal','Seychelles','Sierra Leone','Somalia','South Africa',
+  'South Sudan','Sudan','Tanzania','Togo','Tunisia','Uganda','Zambia','Zimbabwe',
+]
 
 const QUEUE_STAGES = [
   { key: 'waiting', label: 'Waiting', color: 'var(--gold)', bg: 'rgba(201,169,97,0.14)' },
@@ -12,6 +37,16 @@ const QUEUE_STAGES = [
   { key: 'in_lab', label: 'In Lab', color: 'var(--violet)', bg: 'rgba(139,124,246,0.14)' },
   { key: 'discharged', label: 'Discharged', color: 'var(--teal)', bg: 'var(--teal-soft)' },
 ]
+
+const EMPTY_FORM = {
+  surname: '', otherNames: '', phone: '', email: '', gender: '', maritalStatus: '',
+  dateOfBirth: '', age: '', bloodGroup: '', nationality: '', stateOfOrigin: '',
+  occupation: '', religion: '', category: '', homeAddress: '',
+  ancSpecialPoint: '', ancDateOfBooking: '', ancIndication: '', ancLmp: '', ancEdd: '',
+  ancHusbandName: '', ancHusbandOccupation: '', ancEmployer: '',
+  nokName: '', nokRelationship: '', nokPhone: '', nokAddress: '',
+  genotype: '',
+}
 
 function compressImage(file, maxWidth = 240){
   return new Promise((resolve, reject) => {
@@ -43,6 +78,25 @@ function timeSince(iso){
   return `${Math.floor(mins / 60)}h ${mins % 60}m ago`
 }
 
+function calculateAge(dobStr){
+  if (!dobStr) return ''
+  const dob = new Date(dobStr)
+  if (Number.isNaN(dob.getTime())) return ''
+  const today = new Date()
+  let age = today.getFullYear() - dob.getFullYear()
+  const m = today.getMonth() - dob.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--
+  return age >= 0 ? String(age) : ''
+}
+
+function calculateEdd(lmpStr){
+  if (!lmpStr) return ''
+  const lmp = new Date(lmpStr)
+  if (Number.isNaN(lmp.getTime())) return ''
+  lmp.setDate(lmp.getDate() + 280)
+  return lmp.toISOString().slice(0, 10)
+}
+
 export default function Reception(){
   const { profile, hospital } = useAuth()
   const { records: patients, loading, isOnline, pendingCount, addRecord, updateRecord } = useOfflineTable('patients', hospital?.id)
@@ -51,17 +105,22 @@ export default function Reception(){
   const [searchTerm, setSearchTerm] = useState('')
   const fileInputRef = useRef(null)
 
-  const [fullName, setFullName] = useState('')
-  const [age, setAge] = useState('')
-  const [gender, setGender] = useState('')
-  const [phone, setPhone] = useState('')
-  const [emName, setEmName] = useState('')
-  const [emPhone, setEmPhone] = useState('')
-  const [bloodGroup, setBloodGroup] = useState('')
-  const [genotype, setGenotype] = useState('')
+  const [form, setForm] = useState(EMPTY_FORM)
   const [photoData, setPhotoData] = useState(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+
+  function set(key, value){
+    setForm(f => ({ ...f, [key]: value }))
+  }
+
+  function handleDobChange(value){
+    setForm(f => ({ ...f, dateOfBirth: value, age: calculateAge(value) }))
+  }
+
+  function handleLmpChange(value){
+    setForm(f => ({ ...f, ancLmp: value, ancEdd: calculateEdd(value) }))
+  }
 
   function showToast(msg){
     setToast(msg)
@@ -82,8 +141,8 @@ export default function Reception(){
   async function handleRegister(e){
     e.preventDefault()
     setFormError('')
-    if (!fullName || !age) {
-      setFormError('Full name and age are required.')
+    if (!form.surname || !form.otherNames) {
+      setFormError('Surname and other names are required.')
       return
     }
     if (!hospital || !profile) {
@@ -92,15 +151,38 @@ export default function Reception(){
     }
     setSaving(true)
     try {
+      const fullName = `${form.surname} ${form.otherNames}`.trim()
+      const isAnc = form.category === 'anc'
       await addRecord({
         full_name: fullName,
-        age: parseInt(age, 10),
-        gender: gender || null,
-        phone: phone || null,
-        emergency_contact_name: emName || null,
-        emergency_contact_phone: emPhone || null,
-        blood_group: bloodGroup || null,
-        genotype: genotype || null,
+        age: form.age ? parseInt(form.age, 10) : null,
+        gender: form.gender || null,
+        phone: form.phone || null,
+        email: form.email || null,
+        marital_status: form.maritalStatus || null,
+        date_of_birth: form.dateOfBirth || null,
+        blood_group: form.bloodGroup || null,
+        genotype: form.genotype || null,
+        nationality: form.nationality || null,
+        state_of_origin: form.stateOfOrigin || null,
+        occupation: form.occupation || null,
+        religion: form.religion || null,
+        category: form.category || null,
+        address: form.homeAddress || null,
+        // ANC — only saved when the ANC folder is selected
+        anc_special_point: isAnc ? (form.ancSpecialPoint || null) : null,
+        anc_date_of_booking: isAnc ? (form.ancDateOfBooking || null) : null,
+        anc_indication: isAnc ? (form.ancIndication || null) : null,
+        anc_lmp: isAnc ? (form.ancLmp || null) : null,
+        anc_edd: isAnc ? (form.ancEdd || null) : null,
+        anc_husband_name: isAnc ? (form.ancHusbandName || null) : null,
+        anc_husband_occupation: isAnc ? (form.ancHusbandOccupation || null) : null,
+        anc_employer: isAnc ? (form.ancEmployer || null) : null,
+        // Next of Kin — reuses existing emergency_contact_name/phone columns
+        emergency_contact_name: form.nokName || null,
+        emergency_contact_phone: form.nokPhone || null,
+        next_of_kin_relationship: form.nokRelationship || null,
+        next_of_kin_address: form.nokAddress || null,
         photo_data: photoData || null,
         status: 'stable',
         queue_status: 'waiting',
@@ -118,8 +200,8 @@ export default function Reception(){
   }
 
   function resetForm(){
-    setFullName(''); setAge(''); setGender(''); setPhone('')
-    setEmName(''); setEmPhone(''); setBloodGroup(''); setGenotype(''); setPhotoData(null)
+    setForm(EMPTY_FORM)
+    setPhotoData(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -207,7 +289,7 @@ export default function Reception(){
 
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 420, maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="card" style={{ width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>Register &amp; Check In</div>
             {formError && <div className="error-box">{formError}</div>}
             <form onSubmit={handleRegister}>
@@ -233,52 +315,169 @@ export default function Reception(){
                 <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoSelect} style={{ display: 'none' }} />
               </div>
 
-              <div className="field">
-                <label>Full Name</label>
-                <input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
+              {/* ===================== SECTION 1: BIODATA ===================== */}
+              <div style={{ fontSize: 11, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--line-soft)' }}>
+                Patient Biodata
               </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field">
-                  <label>Age</label>
-                  <input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 34" />
+                  <label>Surname</label>
+                  <input value={form.surname} onChange={e => set('surname', e.target.value)} placeholder="e.g. Okafor" />
+                </div>
+                <div className="field">
+                  <label>Other Names</label>
+                  <input value={form.otherNames} onChange={e => set('otherNames', e.target.value)} placeholder="e.g. Chinedu" />
+                </div>
+                <div className="field">
+                  <label>Tel</label>
+                  <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="e.g. 0803 000 0000" />
+                </div>
+                <div className="field">
+                  <label>Email</label>
+                  <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="e.g. name@email.com" />
                 </div>
                 <div className="field">
                   <label>Gender</label>
-                  <select value={gender} onChange={e => setGender(e.target.value)}>
+                  <select value={form.gender} onChange={e => set('gender', e.target.value)}>
                     <option value="">—</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
                   </select>
                 </div>
-              </div>
-              <div className="field">
-                <label>Phone</label>
-                <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. 0803 000 0000" />
-              </div>
-              <div className="field">
-                <label>Emergency Contact Name</label>
-                <input value={emName} onChange={e => setEmName(e.target.value)} placeholder="e.g. Ngozi Okafor" />
-              </div>
-              <div className="field">
-                <label>Emergency Contact Phone</label>
-                <input value={emPhone} onChange={e => setEmPhone(e.target.value)} placeholder="e.g. 0803 000 0000" />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>Marital Status</label>
+                  <select value={form.maritalStatus} onChange={e => set('maritalStatus', e.target.value)}>
+                    <option value="">—</option>
+                    {MARITAL_STATUSES.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Date of Birth</label>
+                  <input type="date" value={form.dateOfBirth} onChange={e => handleDobChange(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>Age</label>
+                  <input value={form.age} readOnly placeholder="Auto-calculated" style={{ opacity: 0.75 }} />
+                </div>
                 <div className="field">
                   <label>Blood Group</label>
-                  <select value={bloodGroup} onChange={e => setBloodGroup(e.target.value)}>
+                  <select value={form.bloodGroup} onChange={e => set('bloodGroup', e.target.value)}>
                     <option value="">—</option>
                     {BLOOD_GROUPS.map(bg => <option key={bg} value={bg}>{bg}</option>)}
                   </select>
                 </div>
                 <div className="field">
                   <label>Genotype</label>
-                  <select value={genotype} onChange={e => setGenotype(e.target.value)}>
+                  <select value={form.genotype} onChange={e => set('genotype', e.target.value)}>
                     <option value="">—</option>
                     {GENOTYPES.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
+                <div className="field">
+                  <label>Nationality</label>
+                  <input list="african-countries" value={form.nationality} onChange={e => set('nationality', e.target.value)} placeholder="Start typing…" />
+                  <datalist id="african-countries">
+                    {AFRICAN_COUNTRIES.map(c => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
+                <div className="field">
+                  <label>State of Origin</label>
+                  <select value={form.stateOfOrigin} onChange={e => set('stateOfOrigin', e.target.value)}>
+                    <option value="">—</option>
+                    {NIGERIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Occupation</label>
+                  <input value={form.occupation} onChange={e => set('occupation', e.target.value)} placeholder="e.g. Trader" />
+                </div>
+                <div className="field">
+                  <label>Religion</label>
+                  <select value={form.religion} onChange={e => set('religion', e.target.value)}>
+                    <option value="">—</option>
+                    {RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Category / Folder</label>
+                  <select value={form.category} onChange={e => set('category', e.target.value)}>
+                    <option value="">—</option>
+                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
               </div>
+              <div className="field">
+                <label>Home Address</label>
+                <input value={form.homeAddress} onChange={e => set('homeAddress', e.target.value)} placeholder="e.g. 12 Ada George Road, Port Harcourt" />
+              </div>
+
+              {/* ===================== SECTION 2: ANC (conditional) ===================== */}
+              {form.category === 'anc' && (
+                <>
+                  <div style={{ fontSize: 11, color: 'var(--violet)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginTop: 18, marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--line-soft)' }}>
+                    ANC Specific Details
+                  </div>
+                  <div className="field">
+                    <label>Special Point</label>
+                    <input value={form.ancSpecialPoint} onChange={e => set('ancSpecialPoint', e.target.value)} placeholder="e.g. First pregnancy" />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div className="field">
+                      <label>Date of Booking</label>
+                      <input type="date" value={form.ancDateOfBooking} onChange={e => set('ancDateOfBooking', e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Indication for Booking</label>
+                      <input value={form.ancIndication} onChange={e => set('ancIndication', e.target.value)} placeholder="e.g. Routine ANC" />
+                    </div>
+                    <div className="field">
+                      <label>Last Menstrual Period (LMP)</label>
+                      <input type="date" value={form.ancLmp} onChange={e => handleLmpChange(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Estimated Date of Delivery (EDD)</label>
+                      <input type="date" value={form.ancEdd} readOnly style={{ opacity: 0.75 }} />
+                    </div>
+                    <div className="field">
+                      <label>Husband's Name</label>
+                      <input value={form.ancHusbandName} onChange={e => set('ancHusbandName', e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Husband's Occupation</label>
+                      <input value={form.ancHusbandOccupation} onChange={e => set('ancHusbandOccupation', e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Employer</label>
+                    <input value={form.ancEmployer} onChange={e => set('ancEmployer', e.target.value)} />
+                  </div>
+                </>
+              )}
+
+              {/* ===================== SECTION 3: NEXT OF KIN ===================== */}
+              <div style={{ fontSize: 11, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginTop: 18, marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--line-soft)' }}>
+                Next of Kin
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>Name</label>
+                  <input value={form.nokName} onChange={e => set('nokName', e.target.value)} placeholder="e.g. Ngozi Okafor" />
+                </div>
+                <div className="field">
+                  <label>Relationship</label>
+                  <input value={form.nokRelationship} onChange={e => set('nokRelationship', e.target.value)} placeholder="e.g. Spouse" />
+                </div>
+                <div className="field">
+                  <label>Tel</label>
+                  <input value={form.nokPhone} onChange={e => set('nokPhone', e.target.value)} placeholder="e.g. 0803 000 0000" />
+                </div>
+                <div className="field">
+                  <label>Address</label>
+                  <input value={form.nokAddress} onChange={e => set('nokAddress', e.target.value)} />
+                </div>
+              </div>
+
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
                 <button type="button" className="btn btn-ghost" onClick={() => { setShowModal(false); resetForm() }}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Registering…' : 'Register & Check In'}</button>
