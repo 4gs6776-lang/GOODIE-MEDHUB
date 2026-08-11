@@ -262,8 +262,9 @@ export default function DoctorWorkbench(){
       const updated = []
       for (const m of medications) {
         const payload = {
-          patient_vitals_id: activeVitals.id,
-          patient_name: activePatient?.full_name || activeVitals.patient_name || 'Unknown',
+  patient_vitals_id: activeVitals.id,
+  patient_id: activePatient?.id || activeVitals.patient_id || null,
+  patient_name: activePatient?.full_name || activeVitals.patient_name || 'Unknown',
           drug_name: m.drugName,
           dosage: m.dose,
           route: m.route || null,
