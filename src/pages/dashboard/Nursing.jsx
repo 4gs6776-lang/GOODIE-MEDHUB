@@ -127,10 +127,52 @@ const {
     setPatientSearch('')
   }
 
-  async function handleMarkAdministered(rx){
-    await updatePrescription(rx.id, { status: 'dispensed' })
-    showToast(`Marked ${rx.drug_name} as administered for ${rx.patient_name}`)
+  async function handleSignMedication(rx){
+  if (!profile || !hospital || !selectedLookupPatient) {
+    showToast('Unable to identify staff or patient')
+    return
   }
+
+  const now = new Date()
+
+  const date = now.toISOString().slice(0, 10)
+
+  const time = now.toTimeString().slice(0, 5)
+
+  const nextDose = calculateNextDose(
+    now,
+    rx.frequency
+  )
+
+  try {
+    await addMedicationAdministration({
+      patient_id: selectedLookupPatient.id,
+      patient_vitals_id: rx.patient_vitals_id || null,
+      prescription_id: rx.id,
+
+      date,
+      time,
+
+      medication: rx.drug_name,
+      dose: rx.dosage,
+      next_dose: nextDose,
+      frequency: rx.frequency || null,
+      route: rx.route || null,
+
+      staff_id: profile.id,
+      staff_name: profile.full_name || 'Unknown Staff',
+
+      sign: profile.full_name || 'Unknown Staff',
+      signed_at: now.toISOString(),
+
+      status: 'administered',
+    })
+
+    showToast(`${rx.drug_name} signed by ${profile.full_name}`)
+  } catch (err) {
+    showToast(err.message || 'Could not record medication')
+  }
+}
 
   return (
     <>
