@@ -1,69 +1,81 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
 :root{
   --bg:#070F14;
   --bg-elevated:#081118;
   --bg-card:#0C151D;
   --bg-card-hover:#101D26;
-
   --line:#17252F;
   --line-soft:#1B2B35;
-
   --teal:#00C7C7;
   --teal-bright:#00E0D0;
   --teal-soft:rgba(0,199,199,0.12);
   --teal-border:rgba(0,199,199,0.25);
-
   --gold:#E8B82E;
   --violet:#7657E8;
   --blue:#3B82F6;
-
   --ivory:#F1F6FA;
   --muted:#9AAAB7;
   --muted-dim:#667784;
-
   --danger:#F04F5F;
   --danger-soft:rgba(240,79,95,0.12);
   --success:#18D99B;
-
   --radius:12px;
-
   --font-display:'Plus Jakarta Sans', sans-serif;
   --font-body:'Plus Jakarta Sans', sans-serif;
   --font-mono:'JetBrains Mono', monospace;
 }
-
 *{
   margin:0;
   padding:0;
   box-sizing:border-box;
 }
-
 html{
   min-height:100%;
+  /* Tells the browser this app is dark-themed, so native controls
+     (dropdowns, date/time pickers, scrollbars, etc.) render with
+     correct contrast instead of defaulting to a white/light sheet
+     with our light theme text drawn on top of it (invisible). */
+  color-scheme: dark;
 }
-
 body{
   background:var(--bg);
   color:var(--ivory);
   font-family:var(--font-body);
   min-height:100vh;
 }
-
+/* Explicit background+text pairing on every form control, so none of
+   them can silently inherit a white background from the browser or OS
+   while still being told to draw light-colored text on top of it. */
+input,
+select,
+textarea{
+  background:var(--bg-elevated);
+  color:var(--ivory);
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:9px 12px;
+  font-size:13.5px;
+}
+input::placeholder,
+textarea::placeholder{
+  color:var(--muted-dim);
+}
+/* Fallback for browsers/OSes that ignore color-scheme on <option> */
+select option{
+  background:var(--bg-elevated);
+  color:var(--ivory);
+}
 ::selection{
   background:var(--teal-soft);
   color:var(--teal);
 }
-
 a{
   color:inherit;
   text-decoration:none;
 }
-
 button{
   font-family:var(--font-body);
 }
-
 input,
 select{
   font-family:var(--font-body);
