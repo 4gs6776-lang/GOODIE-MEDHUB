@@ -27,7 +27,7 @@ export default function Admissions(){
   const bedById = (bedId) => beds.find(b => b.id === bedId)
 
   const pendingRequests = admissionRequests.filter(r => r.status === 'pending').length
-  const approvedRequests = admissionRequests.filter(r => r.status === 'approved').length
+  const approvedRequests = admissionRequests.filter(r => r.status === 'converted').length
   const admittedToday = admissions.filter(a => a.admitted_at && new Date(a.admitted_at).toDateString() === todayStr).length
   const currentlyAdmitted = admissions.filter(a => a.status === 'active').length
   const availableBeds = beds.filter(b => b.status === 'available').length
@@ -36,7 +36,7 @@ export default function Admissions(){
 
   const stats = [
     { label: 'Pending Requests', value: pendingRequests, color: 'var(--gold)' },
-    { label: 'Approved Requests', value: approvedRequests, color: 'var(--teal)' },
+    { label: 'Admitted (Converted)', value: approvedRequests, color: 'var(--teal)' },
     { label: 'Admitted Today', value: admittedToday, color: 'var(--teal)' },
     { label: 'Currently Admitted', value: currentlyAdmitted, color: 'var(--blue)' },
     { label: 'Available Beds', value: availableBeds, color: 'var(--muted)' },
@@ -112,8 +112,11 @@ export default function Admissions(){
         doctor_signed: false,
       })
 
+      // 'converted' = the request has become a real, active admission.
+      // Kept in sync with the status Patient Overview's admission card
+      // checks for ("Currently Admitted").
       await updateRequest(reviewing.id, {
-        status: 'approved',
+        status: 'converted',
         reviewed_by: profile.id,
         reviewed_at: new Date().toISOString(),
       })
@@ -258,7 +261,7 @@ export default function Admissions(){
         <div className="dash-panel-head">
           <div className="dash-panel-title">Admission Requests</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {['pending', 'approved', 'rejected', 'all'].map(f => (
+            {['pending', 'converted', 'rejected', 'all'].map(f => (
               <button
                 key={f}
                 className={`btn btn-ghost ${filter === f ? 'active' : ''}`}
@@ -428,11 +431,9 @@ export default function Admissions(){
             <div className="dash-modal-title">
               {canEdit && reviewing.status === 'pending' ? 'Review Request' : 'Request Details'}
             </div>
-
             <div className="dash-modal-body">
               <div className="field"><label>Patient</label><div>{patientName(reviewing.patient_id)}</div></div>
               <div className="field"><label>Requesting Doctor</label><div>{reviewing.doctor_name || '—'}</div></div>
-
               <div className="dash-field-grid">
                 <div className="field"><label>Admission Type</label><div>{reviewing.admission_type || '—'}</div></div>
                 <div className="field"><label>Priority</label><div>{reviewing.priority || '—'}</div></div>
@@ -441,7 +442,6 @@ export default function Admissions(){
                 {reviewing.expected_los && <div className="field"><label>Expected LOS</label><div>{reviewing.expected_los}</div></div>}
                 <div className="field"><label>Status</label><div><span className={`dash-status ${reviewing.status === 'pending' ? 'review' : 'stable'}`}>{reviewing.status}</span></div></div>
               </div>
-
               <div className="field"><label>Diagnosis</label><div>{reviewing.diagnosis || '—'}</div></div>
               <div className="field"><label>Reason</label><div>{reviewing.reason || '—'}</div></div>
               {reviewing.isolation_required && (
@@ -487,7 +487,6 @@ export default function Admissions(){
                 <button className="btn btn-primary" onClick={() => setMode('approve')}>Approve</button>
               </div>
             )}
-
             {canEdit && reviewing.status === 'pending' && mode === 'approve' && (
               <div className="dash-modal-actions">
                 <button className="btn btn-ghost" onClick={() => setMode(null)} disabled={busy}>Back</button>
@@ -496,7 +495,6 @@ export default function Admissions(){
                 </button>
               </div>
             )}
-
             {canEdit && reviewing.status === 'pending' && mode === 'reject' && (
               <div className="dash-modal-actions">
                 <button className="btn btn-ghost" onClick={() => setMode(null)} disabled={busy}>Back</button>
@@ -505,7 +503,6 @@ export default function Admissions(){
                 </button>
               </div>
             )}
-
             {(!canEdit || reviewing.status !== 'pending') && (
               <div className="dash-modal-actions">
                 <button className="btn btn-ghost" onClick={closeReview}>Close</button>
