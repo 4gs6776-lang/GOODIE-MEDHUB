@@ -4,7 +4,6 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import { TagAutocomplete, DrugSearchInput } from '../../components/ClinicalAutocomplete'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
 import AdmissionRequestModal from '../../components/AdmissionRequestModal'
-import SearchInput from '../../components/common/SearchInput'
 
 const EMPTY_MED = { drugName: '', dose: '', route: '', frequency: '', frequencyCustom: '', duration: '', quantity: '', instructions: '' }
 
@@ -18,13 +17,13 @@ export default function DoctorWorkbench(){
   const { records: pharmacyItems } = useOfflineTable('pharmacy_items', hospital?.id)
   const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
   const { records: admissionRequests, addRecord: addAdmissionRequest } = useOfflineTable('admission_requests', hospital?.id)
+  const { addRecord: addTimelineEvent } = useOfflineTable('admission_timeline_events', hospital?.id)
   const [showAdmissionModal, setShowAdmissionModal] = useState(false)
 
   const loading = loadingPatients || loadingVitals || loadingLabOrders || loadingPrescriptions
 
   const [activeVitalsId, setActiveVitalsId] = useState(null)
   const [toast, setToast] = useState(null)
-  const [searchTerm, setSearchTerm] = useState('')
   const [completing, setCompleting] = useState(false)
 
   // History / clinical note fields for the active consultation
@@ -71,9 +70,6 @@ export default function DoctorWorkbench(){
       if (urgencyDiff !== 0) return urgencyDiff
       return new Date(a.recorded_at || a.created_at) - new Date(b.recorded_at || b.created_at)
     })
-
-  const queueSearch = searchTerm.trim().toLowerCase()
-  const visibleQueue = queueSearch ? queue.filter(v => { const p = patients.find(pt => pt.id === v.patient_id); return [p?.full_name, p?.patient_id, p?.phone, v.patient_name, v.assigned_doctor].some(x => String(x || '').toLowerCase().includes(queueSearch)) }) : queue
 
   const activeVitals = vitals.find(v => v.id === activeVitalsId) || null
   const activePatient = activeVitals
@@ -187,13 +183,25 @@ export default function DoctorWorkbench(){
       showToast('Still loading your account — try again in a moment')
       return
     }
-    await addAdmissionRequest({
+    const request = await addAdmissionRequest({
       patient_id: activePatient.id,
       doctor_id: profile.id,
       doctor_name: profile.full_name || null,
       status: 'pending',
       ...payload,
     })
+    try {
+      await addTimelineEvent({
+        patient_id: activePatient.id,
+        admission_request_id: request?.id || null,
+        event_type: 'recommended',
+        description: `Dr. ${profile.full_name || 'Unknown'} recommended admission${payload.diagnosis ? ` — ${payload.diagnosis}` : ''}.`,
+        created_by: profile.id,
+      })
+    } catch {
+      // Timeline is a supplementary record — never block the admission
+      // request itself if this write fails.
+    }
     setShowAdmissionModal(false)
     showToast('Admission recommendation submitted.')
   }
@@ -262,9 +270,8 @@ export default function DoctorWorkbench(){
       const updated = []
       for (const m of medications) {
         const payload = {
-  patient_vitals_id: activeVitals.id,
-  patient_id: activePatient?.id || activeVitals.patient_id || null,
-  patient_name: activePatient?.full_name || activeVitals.patient_name || 'Unknown',
+          patient_vitals_id: activeVitals.id,
+          patient_name: activePatient?.full_name || activeVitals.patient_name || 'Unknown',
           drug_name: m.drugName,
           dosage: m.dose,
           route: m.route || null,
@@ -484,7 +491,6 @@ export default function DoctorWorkbench(){
               <div className="dash-panel-sub">Triaged patients with vitals logged</div>
             </div>
           </div>
-          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient name, ID or phone" style={{ minWidth: 260, maxWidth: 420 }} />
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
@@ -492,7 +498,7 @@ export default function DoctorWorkbench(){
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients waiting.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {visibleQueue.map(v => {
+              {queue.map(v => {
                 const p = patients.find(pt => pt.id === v.patient_id)
                 const isActive = activeVitalsId === v.id
                 return (
