@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 
-// 1. Download Blank Excel Template (Supports General Hospital Supplies & Drugs)
+// 1. Download Blank Excel Template
 export const downloadExcelTemplate = () => {
   const headers = [
     'Item Name',
@@ -30,7 +30,7 @@ export const downloadExcelTemplate = () => {
     },
     {
       'Item Name': 'Paracetamol 500mg',
-      'Category': 'Consumables',
+      'Category': 'Drug',
       'Quantity': 500,
       'Unit': 'Tablet',
       'Supplier': 'Emzor',
@@ -66,7 +66,6 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
           const errors = [];
           const warnings = [];
 
-          // Supports both general 'Item Name' and pharmaceutical 'Drug Name' headers
           const drugName = (
             row['Item Name'] || 
             row['item_name'] || 
