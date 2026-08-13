@@ -14,19 +14,6 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
-    
-const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-
-const handleImportSave = async (itemPayload, matchedItemId) => {
-  if (matchedItemId) {
-    await updateRow(matchedItemId, {
-      quantity: itemPayload.quantity,
-      updated_at: itemPayload.updated_at
-    });
-  } else {
-    await insertRow(itemPayload);
-  }
-};
 
     setLoading(true);
     setErrorMessage('');
@@ -106,11 +93,13 @@ const handleImportSave = async (itemPayload, matchedItemId) => {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black bg-opacity-50 p-2 sm:p-4">
       <div className="bg-white rounded-t-xl sm:rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
         <div className="p-3 sm:p-4 border-b flex justify-between items-center bg-slate-50">
           <h2 className="text-lg sm:text-xl font-bold text-slate-800">Import Drugs from Excel</h2>
           <button onClick={onClose} className="text-slate-500 text-xl font-semibold p-1">✕</button>
         </div>
 
+        {/* Content */}
         <div className="p-4 overflow-y-auto flex-1 space-y-4">
           {!importSummary && (
             <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 sm:p-6 text-center bg-slate-50">
@@ -149,6 +138,7 @@ const handleImportSave = async (itemPayload, matchedItemId) => {
             </div>
           )}
 
+          {/* Complete View */}
           {importSummary && (
             <div className="space-y-3 p-4 bg-slate-50 rounded-lg border text-xs sm:text-sm">
               <h3 className="text-base font-bold text-slate-800">Import Complete</h3>
@@ -167,6 +157,7 @@ const handleImportSave = async (itemPayload, matchedItemId) => {
             </div>
           )}
 
+          {/* Table Preview */}
           {!importSummary && rows.length > 0 && (
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs font-medium text-slate-600">
@@ -204,6 +195,7 @@ const handleImportSave = async (itemPayload, matchedItemId) => {
             </div>
           )}
 
+          {/* Progress Bar */}
           {importing && (
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-slate-600">
@@ -217,6 +209,7 @@ const handleImportSave = async (itemPayload, matchedItemId) => {
           )}
         </div>
 
+        {/* Footer */}
         {!importSummary && (
           <div className="p-3 border-t bg-slate-50 flex justify-end gap-2">
             <button
