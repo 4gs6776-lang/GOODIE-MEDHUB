@@ -141,6 +141,7 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
       }
     };
 
+
     reader.onerror = (error) => reject(error);
     reader.readAsArrayBuffer(file);
   });
