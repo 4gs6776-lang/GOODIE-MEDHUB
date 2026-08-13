@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx';
 
-// 1. Download Blank Excel Template (Supports General Hospital Supplies & Drugs)
 export const downloadExcelTemplate = () => {
   const headers = [
     'Item Name',
@@ -48,7 +47,6 @@ export const downloadExcelTemplate = () => {
   XLSX.writeFile(workbook, 'Hospital_Inventory_Import_Template.xlsx');
 };
 
-// 2. Parse & Validate Excel / CSV Rows
 export const parseAndValidateExcel = (file, existingInventory = []) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -66,7 +64,6 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
           const errors = [];
           const warnings = [];
 
-          // Supports general 'Item Name' and pharmaceutical 'Drug Name' headers
           const drugName = (
             row['Item Name'] || 
             row['item_name'] || 
