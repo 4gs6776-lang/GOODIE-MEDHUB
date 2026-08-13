@@ -14,6 +14,19 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
+    
+const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+const handleImportSave = async (itemPayload, matchedItemId) => {
+  if (matchedItemId) {
+    await updateRow(matchedItemId, {
+      quantity: itemPayload.quantity,
+      updated_at: itemPayload.updated_at
+    });
+  } else {
+    await insertRow(itemPayload);
+  }
+};
 
     setLoading(true);
     setErrorMessage('');
