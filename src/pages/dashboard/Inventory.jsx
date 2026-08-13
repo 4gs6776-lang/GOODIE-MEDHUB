@@ -28,15 +28,16 @@ export default function Inventory(){
     setTimeout(() => setToast(null), 3000)
   }
 
-  // Updated async handler that returns database write Promises
+  // Updated async handler returning write promises directly
   async function handleImportSave(itemPayload, matchedItemId) {
     if (matchedItemId) {
-      return await updateRecord(matchedItemId, {
+      const updated = await updateRecord(matchedItemId, {
         quantity: itemPayload.quantity,
         updated_at: itemPayload.updated_at
       })
+      return updated
     } else {
-      return await addRecord({
+      const created = await addRecord({
         name: itemPayload.drug_name || 'Unnamed Item',
         category: itemPayload.category || 'Other',
         quantity: itemPayload.quantity || 0,
@@ -45,6 +46,7 @@ export default function Inventory(){
         reorder_level: itemPayload.reorder_level || 10,
         created_by: profile?.id,
       })
+      return created
     }
   }
 
@@ -75,7 +77,7 @@ export default function Inventory(){
       showToast(isOnline ? 'Item added' : 'Item added — will sync when back online')
     } catch (err) {
       setFormError(err.message || 'Could not save item')
-    } => {
+    } finally {
       setSaving(false)
     }
   }
