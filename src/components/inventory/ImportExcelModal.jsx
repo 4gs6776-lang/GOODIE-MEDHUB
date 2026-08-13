@@ -67,7 +67,6 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           updated_at: new Date().toISOString()
         };
 
-        // Complete write commitment guaranteed
         await onImportSuccess(itemPayload, row.matchedItemId);
 
         if (row.matchedItemId) {
