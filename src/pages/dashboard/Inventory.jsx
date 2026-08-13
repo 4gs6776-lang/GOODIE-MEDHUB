@@ -36,11 +36,11 @@ export default function Inventory(){
       })
     } else {
       await addRecord({
-        name: itemPayload.drug_name,
+        name: itemPayload.drug_name || 'Unnamed Item',
         category: itemPayload.category || 'Other',
-        quantity: itemPayload.quantity,
+        quantity: itemPayload.quantity || 0,
         unit: itemPayload.unit || 'units',
-        supplier: itemPayload.brand_name || '',
+        supplier: itemPayload.supplier || itemPayload.brand_name || '',
         reorder_level: itemPayload.reorder_level || 10,
         created_by: profile?.id,
       })
