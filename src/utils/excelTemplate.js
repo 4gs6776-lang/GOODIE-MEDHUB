@@ -1,16 +1,13 @@
 import * as XLSX from 'xlsx';
 
-// 1. Download Blank Excel Template
+// 1. Download Blank Excel Template (Supports General Hospital Supplies & Drugs)
 export const downloadExcelTemplate = () => {
   const headers = [
-    'Drug Name',
-    'Generic Name',
-    'Brand Name',
-    'Strength',
-    'Dosage Form',
+    'Item Name',
     'Category',
-    'Unit',
     'Quantity',
+    'Unit',
+    'Supplier',
     'Reorder Level',
     'Selling Price',
     'Cost Price',
@@ -20,41 +17,35 @@ export const downloadExcelTemplate = () => {
 
   const sampleRows = [
     {
-      'Drug Name': 'Paracetamol 500mg',
-      'Generic Name': 'Paracetamol',
-      'Brand Name': 'Emzor',
-      'Strength': '500mg',
-      'Dosage Form': 'Tablet',
-      'Category': 'Analgesic',
-      'Unit': 'Tablet',
+      'Item Name': 'Surgical Gloves (Box of 100)',
+      'Category': 'PPE',
+      'Quantity': 100,
+      'Unit': 'boxes',
+      'Supplier': 'MedSupply Nigeria',
+      'Reorder Level': 15,
+      'Selling Price': 3500,
+      'Cost Price': 2500,
+      'Batch Number': 'GLV2026',
+      'Expiry Date': '2028-12-31'
+    },
+    {
+      'Item Name': 'Paracetamol 500mg',
+      'Category': 'Consumables',
       'Quantity': 500,
+      'Unit': 'Tablet',
+      'Supplier': 'Emzor',
       'Reorder Level': 50,
       'Selling Price': 50,
       'Cost Price': 30,
       'Batch Number': 'PCM001',
       'Expiry Date': '2027-08-30'
-    },
-    {
-      'Drug Name': 'Amoxicillin 500mg',
-      'Generic Name': 'Amoxicillin',
-      'Brand Name': 'Beecham',
-      'Strength': '500mg',
-      'Dosage Form': 'Capsule',
-      'Category': 'Antibiotic',
-      'Unit': 'Capsule',
-      'Quantity': 200,
-      'Reorder Level': 30,
-      'Selling Price': 150,
-      'Cost Price': 100,
-      'Batch Number': 'AMX001',
-      'Expiry Date': '2027-06-15'
     }
   ];
 
   const worksheet = XLSX.utils.json_to_sheet(sampleRows, { header: headers });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Inventory Template');
-  XLSX.writeFile(workbook, 'Hospital_Drug_Import_Template.xlsx');
+  XLSX.writeFile(workbook, 'Hospital_Inventory_Import_Template.xlsx');
 };
 
 // 2. Parse & Validate Excel Rows
@@ -75,13 +66,23 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
           const errors = [];
           const warnings = [];
 
-          const drugName = (row['Drug Name'] || row['drug_name'] || '').toString().trim();
+          // Supports both general 'Item Name' and pharmaceutical 'Drug Name' headers
+          const drugName = (
+            row['Item Name'] || 
+            row['item_name'] || 
+            row['Drug Name'] || 
+            row['drug_name'] || 
+            row['Name'] || 
+            ''
+          ).toString().trim();
+
           const genericName = (row['Generic Name'] || row['generic_name'] || '').toString().trim();
-          const brandName = (row['Brand Name'] || row['brand_name'] || '').toString().trim();
+          const brandName = (row['Brand Name'] || row['brand_name'] || row['Supplier'] || row['supplier'] || '').toString().trim();
           const strength = (row['Strength'] || row['strength'] || '').toString().trim();
           const dosageForm = (row['Dosage Form'] || row['dosage_form'] || row['Form'] || '').toString().trim();
-          const category = (row['Category'] || row['category'] || 'General').toString().trim();
-          const unit = (row['Unit'] || row['unit'] || 'Unit').toString().trim();
+          const category = (row['Category'] || row['category'] || 'Other').toString().trim();
+          const unit = (row['Unit'] || row['unit'] || 'units').toString().trim();
+          const supplier = (row['Supplier'] || row['supplier'] || brandName || '').toString().trim();
           const batchNumber = (row['Batch Number'] || row['batch_number'] || '').toString().trim();
           const expiryDate = (row['Expiry Date'] || row['expiry_date'] || '').toString().trim();
 
@@ -90,9 +91,8 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
           const sellingPrice = parseFloat(row['Selling Price'] || row['selling_price'] || 0);
           const costPrice = parseFloat(row['Cost Price'] || row['cost_price'] || 0);
 
-          if (!drugName) errors.push('Missing Drug Name');
+          if (!drugName) errors.push('Missing Item Name');
           if (isNaN(quantity) || quantity < 0) errors.push('Quantity must be a number');
-          if (isNaN(sellingPrice) || sellingPrice < 0) errors.push('Selling Price must be a number');
 
           if (expiryDate) {
             const parsedDate = new Date(expiryDate);
@@ -105,7 +105,7 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
 
           const matchedItem = existingInventory.find(
             (item) =>
-              (item.drug_name || item.name || item.item_name || '').toLowerCase() === drugName.toLowerCase()
+              (item.name || item.drug_name || item.item_name || '').toLowerCase() === drugName.toLowerCase()
           );
 
           if (matchedItem) {
@@ -121,6 +121,7 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
             dosageForm,
             category,
             unit,
+            supplier,
             quantity,
             reorderLevel,
             sellingPrice,
@@ -140,7 +141,6 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
         reject(new Error('Failed to parse Excel file: ' + err.message));
       }
     };
-
 
     reader.onerror = (error) => reject(error);
     reader.readAsArrayBuffer(file);
