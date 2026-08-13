@@ -31,7 +31,6 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
 
   const validRows = rows.filter((r) => r.status !== 'Error');
   const errorCount = rows.filter((r) => r.status === 'Error').length;
-  const warningCount = rows.filter((r) => r.status === 'Warning').length;
 
   const handleExecuteImport = async () => {
     if (validRows.length === 0) return;
@@ -54,6 +53,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           drug_name: row.drugName,
           generic_name: row.genericName,
           brand_name: row.brandName,
+          supplier: row.supplier,
           strength: row.strength,
           dosage_form: row.dosageForm,
           category: row.category,
@@ -95,7 +95,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
       <div className="bg-white rounded-t-xl sm:rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-3 sm:p-4 border-b flex justify-between items-center bg-slate-50">
-          <h2 className="text-lg sm:text-xl font-bold text-slate-800">Import Drugs from Excel</h2>
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800">Import Inventory Items</h2>
           <button onClick={onClose} className="text-slate-500 text-xl font-semibold p-1">✕</button>
         </div>
 
@@ -134,7 +134,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
 
           {loading && (
             <div className="text-center py-4 text-xs sm:text-sm text-slate-600">
-              Reading and validating rows...
+              Reading and validating items...
             </div>
           )}
 
@@ -143,7 +143,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
             <div className="space-y-3 p-4 bg-slate-50 rounded-lg border text-xs sm:text-sm">
               <h3 className="text-base font-bold text-slate-800">Import Complete</h3>
               <ul className="space-y-1 text-slate-700">
-                <li className="text-green-600">✓ {importSummary.imported} new drugs added</li>
+                <li className="text-green-600">✓ {importSummary.imported} new items added</li>
                 <li className="text-blue-600">✓ {importSummary.updated} stock quantities updated</li>
                 {importSummary.skipped > 0 && <li className="text-amber-600">⚠ {importSummary.skipped} invalid rows skipped</li>}
                 {importSummary.failed > 0 && <li className="text-red-600">✕ {importSummary.failed} writes failed</li>}
@@ -171,7 +171,8 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
                   <thead className="bg-slate-100 sticky top-0 border-b">
                     <tr>
                       <th className="p-2">#</th>
-                      <th className="p-2">Drug</th>
+                      <th className="p-2">Item</th>
+                      <th className="p-2">Category</th>
                       <th className="p-2">Qty</th>
                       <th className="p-2">Status</th>
                     </tr>
@@ -181,6 +182,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
                       <tr key={r.rowNum} className="border-b">
                         <td className="p-2 font-mono">{r.rowNum}</td>
                         <td className="p-2 font-medium">{r.drugName || '—'}</td>
+                        <td className="p-2 text-slate-500">{r.category}</td>
                         <td className="p-2">{r.quantity}</td>
                         <td className="p-2">
                           {r.status === 'Ready' && <span className="text-green-600">✓</span>}
