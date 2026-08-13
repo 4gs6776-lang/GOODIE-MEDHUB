@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from './supabaseClient'; // Same folder: src/lib/supabaseClient.js
-
+import { supabase } from '../lib/supabaseClient'
 const DB_NAME = 'HospitalOfflineDB';
 const DB_VERSION = 1;
 
