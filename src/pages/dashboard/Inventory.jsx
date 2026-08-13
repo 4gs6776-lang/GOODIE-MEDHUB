@@ -29,23 +29,29 @@ export default function Inventory(){
   }
 
   async function handleImportSave(itemPayload, matchedItemId) {
-    if (matchedItemId) {
-      const updated = await updateRecord(matchedItemId, {
-        quantity: itemPayload.quantity,
-        updated_at: itemPayload.updated_at
-      })
-      return updated
-    } else {
-      const created = await addRecord({
-        name: itemPayload.drug_name || 'Unnamed Item',
-        category: itemPayload.category || 'Other',
-        quantity: itemPayload.quantity || 0,
-        unit: itemPayload.unit || 'units',
-        supplier: itemPayload.supplier || itemPayload.brand_name || '',
-        reorder_level: itemPayload.reorder_level || 10,
-        created_by: profile?.id,
-      })
-      return created
+    try {
+      if (matchedItemId) {
+        const updated = await updateRecord(matchedItemId, {
+          quantity: parseInt(itemPayload.quantity, 10) || 0,
+          updated_at: itemPayload.updated_at || new Date().toISOString()
+        })
+        return updated
+      } else {
+        const created = await addRecord({
+          name: itemPayload.drug_name || itemPayload.name || 'Unnamed Item',
+          category: itemPayload.category || 'Other',
+          quantity: parseInt(itemPayload.quantity, 10) || 0,
+          unit: itemPayload.unit || 'units',
+          supplier: itemPayload.supplier || itemPayload.brand_name || '',
+          reorder_level: parseInt(itemPayload.reorder_level, 10) || 10,
+          hospital_id: hospital?.id,
+          created_by: profile?.id || null,
+        })
+        return created
+      }
+    } catch (err) {
+      console.error('Import save failed for item:', itemPayload, err)
+      throw err
     }
   }
 
@@ -76,6 +82,7 @@ export default function Inventory(){
         unit,
         supplier,
         reorder_level: parseInt(reorderLevel, 10) || 10,
+        hospital_id: hospital.id,
         created_by: profile.id,
       })
       setShowModal(false)
