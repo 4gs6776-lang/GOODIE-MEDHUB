@@ -64,7 +64,7 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
           const errors = [];
           const warnings = [];
 
-          const drugName = (
+          const name = (
             row['Item Name'] || 
             row['item_name'] || 
             row['Drug Name'] || 
@@ -88,7 +88,7 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
           const sellingPrice = parseFloat(row['Selling Price'] || row['selling_price'] || 0);
           const costPrice = parseFloat(row['Cost Price'] || row['cost_price'] || 0);
 
-          if (!drugName) errors.push('Missing Item Name');
+          if (!name) errors.push('Missing Item Name');
           if (isNaN(quantity) || quantity < 0) errors.push('Quantity must be a number');
 
           if (expiryDate) {
@@ -102,7 +102,7 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
 
           const matchedItem = existingInventory.find(
             (item) =>
-              (item.name || item.drug_name || item.item_name || '').toLowerCase() === drugName.toLowerCase()
+              (item.name || item.drug_name || item.item_name || '').toLowerCase() === name.toLowerCase()
           );
 
           if (matchedItem) {
@@ -111,7 +111,8 @@ export const parseAndValidateExcel = (file, existingInventory = []) => {
 
           return {
             rowNum,
-            drugName,
+            name,
+            drugName: name,
             genericName,
             brandName,
             strength,
