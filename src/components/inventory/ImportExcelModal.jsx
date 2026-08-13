@@ -67,6 +67,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           updated_at: new Date().toISOString()
         };
 
+        // Await each write operation directly to prevent missing items
         await onImportSuccess(itemPayload, row.matchedItemId);
 
         if (row.matchedItemId) {
@@ -75,9 +76,12 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           importedCount++;
         }
       } catch (err) {
+        console.error('Import write failed for row:', row, err);
         failedCount++;
       }
 
+      // Small delay so offline storage and network index can process sequential writes
+      await new Promise((res) => setTimeout(res, 60));
       setProgress(Math.round(((i + 1) / total) * 100));
     }
 
@@ -112,7 +116,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
               />
               <label htmlFor="excelFileInput" className="cursor-pointer space-y-2 block">
                 <div className="text-slate-700 font-medium text-sm sm:text-base">
-                  Tap to Select Excel File (.xlsx, .csv)
+                  Tap to Select Excel or CSV File
                 </div>
               </label>
 
@@ -122,7 +126,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
                   onClick={downloadExcelTemplate}
                   className="text-xs sm:text-sm text-blue-600 hover:underline font-medium"
                 >
-                  📥 Download Excel Template
+                  📥 Download Blank Template
                 </button>
               </div>
             </div>
@@ -134,16 +138,16 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
 
           {loading && (
             <div className="text-center py-4 text-xs sm:text-sm text-slate-600">
-              Reading and validating items...
+              Reading file contents...
             </div>
           )}
 
-          {/* Complete View */}
+          {/* Complete Summary View */}
           {importSummary && (
             <div className="space-y-3 p-4 bg-slate-50 rounded-lg border text-xs sm:text-sm">
-              <h3 className="text-base font-bold text-slate-800">Import Complete</h3>
+              <h3 className="text-base font-bold text-slate-800">Import Finished</h3>
               <ul className="space-y-1 text-slate-700">
-                <li className="text-green-600">✓ {importSummary.imported} new items added</li>
+                <li className="text-green-600">✓ {importSummary.imported} items saved to database</li>
                 <li className="text-blue-600">✓ {importSummary.updated} stock quantities updated</li>
                 {importSummary.skipped > 0 && <li className="text-amber-600">⚠ {importSummary.skipped} invalid rows skipped</li>}
                 {importSummary.failed > 0 && <li className="text-red-600">✕ {importSummary.failed} writes failed</li>}
@@ -171,7 +175,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
                   <thead className="bg-slate-100 sticky top-0 border-b">
                     <tr>
                       <th className="p-2">#</th>
-                      <th className="p-2">Item</th>
+                      <th className="p-2">Item Name</th>
                       <th className="p-2">Category</th>
                       <th className="p-2">Qty</th>
                       <th className="p-2">Status</th>
@@ -201,7 +205,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           {importing && (
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-slate-600">
-                <span>Importing...</span>
+                <span>Saving to database...</span>
                 <span>{progress}%</span>
               </div>
               <div className="w-full bg-slate-200 h-2 rounded overflow-hidden">
@@ -226,7 +230,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
               disabled={validRows.length === 0 || importing}
               className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs sm:text-sm font-medium disabled:opacity-50"
             >
-              {importing ? 'Importing...' : `Import (${validRows.length})`}
+              {importing ? 'Saving...' : `Import (${validRows.length})`}
             </button>
           </div>
         )}
