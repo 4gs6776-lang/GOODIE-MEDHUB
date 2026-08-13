@@ -1,271 +1,200 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { supabase } from './supabaseClient'
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from './supabase';
 
-// Generic offline-first data hook.
-// Reads/writes local data instantly (works with zero internet),
-// and syncs to Supabase in the background whenever a connection is available.
-//
-// Usage: const { records, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospitalId)
+const DB_NAME = 'HospitalOfflineDB';
+const DB_VERSION = 1;
 
-function storageKey(table, hospitalId){ return `gmedhub_${table}_${hospitalId}` }
-function queueKey(table, hospitalId){ return `gmedhub_${table}_${hospitalId}_queue` }
-
-function readLocal(key, fallback){
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : fallback
-  } catch {
-    return fallback
-  }
-}
-function writeLocal(key, value){
-  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full or unavailable — ignore */ }
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('offline_records')) {
+        const store = db.createObjectStore('offline_records', { keyPath: 'id' });
+        store.createIndex('table_name', 'table_name', { unique: false });
+        store.createIndex('hospital_id', 'hospital_id', { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
 }
 
-// --- Shared sync-error status, readable/writable without a mounted hook ---
-// Keyed by table name. Lets a global "sync stuck" badge work even for
-// tables whose hook isn't currently mounted anywhere on screen.
-const SYNC_STATUS_KEY = 'gmedhub_sync_status'
-const SYNC_STATUS_EVENT = 'gmedhub-sync-status-changed'
+export function useOfflineTable(tableName, hospitalId) {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingCount, setPendingCount] = useState(0);
 
-function readSyncStatus(){
-  try { return JSON.parse(localStorage.getItem(SYNC_STATUS_KEY)) || {} } catch { return {} }
-}
-function writeSyncStatus(status){
-  try { localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(status)) } catch { /* ignore */ }
-  window.dispatchEvent(new Event(SYNC_STATUS_EVENT))
-}
-function setTableSyncError(table, message, queueLength){
-  const status = readSyncStatus()
-  status[table] = { table, message, queueLength, at: new Date().toISOString() }
-  writeSyncStatus(status)
-}
-function clearTableSyncError(table){
-  const status = readSyncStatus()
-  if (status[table]) {
-    delete status[table]
-    writeSyncStatus(status)
-  }
-}
-// Exported so the topbar (or any component) can show a global badge without
-// needing that table's useOfflineTable hook mounted.
-export function getAllSyncErrors(){
-  return readSyncStatus()
-}
-export function subscribeSyncErrors(callback){
-  function handler(){ callback(readSyncStatus()) }
-  window.addEventListener(SYNC_STATUS_EVENT, handler)
-  return () => window.removeEventListener(SYNC_STATUS_EVENT, handler)
-}
+  const loadLocalRecords = useCallback(async () => {
+    if (!hospitalId) return;
+    try {
+      const db = await openDB();
+      const tx = db.transaction('offline_records', 'readonly');
+      const store = tx.objectStore('offline_records');
+      const request = store.getAll();
 
-// Attempt one sync operation against Supabase and report success/error.
-async function performOp(table, op){
-  if (op.type === 'insert') {
-    const { error } = await supabase.from(table).insert(op.payload)
-    return { ok: !error, error }
-  }
-  if (op.type === 'delete') {
-    const { error } = await supabase.from(table).delete().eq('id', op.id)
-    return { ok: !error, error }
-  }
-  if (op.type === 'update') {
-    const { error } = await supabase.from(table).update(op.payload).eq('id', op.id)
-    return { ok: !error, error }
-  }
-  return { ok: true, error: null }
-}
-
-// Standalone (non-hook) queue flush for a given table/hospital. Used both by
-// the hook internally and by the global sync-status badge, which may need to
-// retry/skip a table that isn't currently mounted as a hook anywhere.
-export async function flushTableQueue(table, hospitalId){
-  if (!table || !hospitalId || !navigator.onLine) return
-  const qKey = queueKey(table, hospitalId)
-  let queue = readLocal(qKey, [])
-  clearTableSyncError(table)
-  while (queue.length > 0) {
-    const op = queue[0]
-    const { ok, error } = await performOp(table, op)
-    if (!ok) {
-      setTableSyncError(table, error?.message || 'Unknown sync error', queue.length)
-      break
+      request.onsuccess = () => {
+        const all = request.result || [];
+        const filtered = all.filter(
+          (r) => r.table_name === tableName && r.hospital_id === hospitalId && !r._deleted
+        );
+        setRecords(filtered);
+        setPendingCount(all.filter((r) => r._synced === false).length);
+        setLoading(false);
+      };
+    } catch (err) {
+      console.error('Error reading offline storage:', err);
+      setLoading(false);
     }
-    queue = queue.slice(1)
-    writeLocal(qKey, queue)
-  }
-}
-
-// Discards just the item currently stuck at the front of a table's queue —
-// the local record itself is untouched, only that one sync attempt is
-// abandoned so everything behind it can proceed.
-export async function skipStuckSyncItem(table, hospitalId){
-  const qKey = queueKey(table, hospitalId)
-  const queue = readLocal(qKey, [])
-  if (queue.length === 0) return null
-  const skipped = queue[0]
-  writeLocal(qKey, queue.slice(1))
-  clearTableSyncError(table)
-  await flushTableQueue(table, hospitalId)
-  return skipped
-}
-
-export function useOfflineTable(table, hospitalId){
-  const [records, setRecords] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [pendingCount, setPendingCount] = useState(0)
-  const [lastError, setLastError] = useState(() => readSyncStatus()[table] || null)
-  const syncingRef = useRef(false)
-
-  const sKey = hospitalId ? storageKey(table, hospitalId) : null
-  const qKey = hospitalId ? queueKey(table, hospitalId) : null
+  }, [tableName, hospitalId]);
 
   useEffect(() => {
-    return subscribeSyncErrors(status => setLastError(status[table] || null))
-  }, [table])
+    loadLocalRecords();
 
-  const refreshPendingCount = useCallback(() => {
-    if (!qKey) return
-    const queue = readLocal(qKey, [])
-    setPendingCount(queue.length)
-  }, [qKey])
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
 
-  // Push local queue of changes up to Supabase, one at a time, in order.
-  const flushQueue = useCallback(async () => {
-    if (!qKey || !sKey || syncingRef.current || !navigator.onLine || !hospitalId) return
-    syncingRef.current = true
-    try {
-      await flushTableQueue(table, hospitalId)
-    } finally {
-      syncingRef.current = false
-      refreshPendingCount()
-    }
-  }, [table, hospitalId, qKey, sKey, refreshPendingCount])
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
-  // Pull fresh data from Supabase and merge with any not-yet-synced local records.
-  const refresh = useCallback(async () => {
-    if (!hospitalId || !sKey) return
-    setLoading(true)
-    const local = readLocal(sKey, [])
-    setRecords(local) // show cached data immediately, even before network responds
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [loadLocalRecords]);
+
+  const addRecord = async (data) => {
+    const id = data.id || `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newRecord = {
+      ...data,
+      id,
+      table_name: tableName,
+      hospital_id: hospitalId,
+      _synced: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('offline_records', 'readwrite');
+      const store = tx.objectStore('offline_records');
+      const req = store.put(newRecord);
+      
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
 
     if (navigator.onLine) {
-      const { data, error } = await supabase.from(table).select('*').eq('hospital_id', hospitalId).order('created_at', { ascending: false })
-      if (!error && data) {
-        const queue = readLocal(qKey, [])
-
-        // Re-apply any local changes that haven't been confirmed on the
-        // server yet, so a fresh fetch can never silently overwrite an
-        // optimistic edit or deletion that's still mid-sync.
-        const pendingDeletes = new Set(queue.filter(op => op.type === 'delete').map(op => op.id))
-        const pendingUpdatesById = {}
-        for (const op of queue) {
-          if (op.type === 'update') {
-            pendingUpdatesById[op.id] = { ...(pendingUpdatesById[op.id] || {}), ...op.payload }
-          }
+      try {
+        const { _synced, _deleted, ...payload } = newRecord;
+        const { data: remoteData, error } = await supabase.from(tableName).insert([payload]).select().single();
+        
+        if (!error && remoteData) {
+          const tx = db.transaction('offline_records', 'readwrite');
+          const store = tx.objectStore('offline_records');
+          await new Promise((res) => {
+            const req = store.put({ ...remoteData, table_name: tableName, hospital_id: hospitalId, _synced: true });
+            tx.oncomplete = () => res(req.result);
+          });
         }
-        const pendingInserts = queue.filter(op => op.type === 'insert').map(op => op.payload)
-        const serverIds = new Set(data.map(r => r.id))
-
-        const withPendingEdits = data
-          .filter(r => !pendingDeletes.has(r.id))
-          .map(r => pendingUpdatesById[r.id] ? { ...r, ...pendingUpdatesById[r.id] } : r)
-
-        const merged = [
-          ...pendingInserts.filter(p => !serverIds.has(p.id) && !pendingDeletes.has(p.id)),
-          ...withPendingEdits,
-        ]
-        writeLocal(sKey, merged)
-        setRecords(merged)
+      } catch (err) {
+        console.warn('Network write failed, remaining in local queue:', err);
       }
     }
-    setLoading(false)
-    refreshPendingCount()
-  }, [table, hospitalId, sKey, qKey, refreshPendingCount])
 
-  // Manually re-attempt the queue (same as flushQueue, but also refreshes
-  // records afterward so a fix takes effect on screen immediately).
-  const retrySync = useCallback(async () => {
-    await flushQueue()
-    await refresh()
-  }, [flushQueue, refresh])
+    await loadLocalRecords();
+    return newRecord;
+  };
 
-  // Permanently discard just the one item stuck at the front of the queue,
-  // then retry everything behind it.
-  const skipStuckItem = useCallback(async () => {
-    if (!hospitalId) return null
-    const skipped = await skipStuckSyncItem(table, hospitalId)
-    refreshPendingCount()
-    await refresh()
-    return skipped
-  }, [table, hospitalId, refresh, refreshPendingCount])
+  const updateRecord = async (id, updates) => {
+    const db = await openDB();
+    let updatedRecord = null;
 
-  useEffect(() => {
-    refresh()
-    flushQueue()
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('offline_records', 'readwrite');
+      const store = tx.objectStore('offline_records');
+      const getReq = store.get(id);
 
-    function handleOnline(){ setIsOnline(true); flushQueue().then(refresh) }
-    function handleOffline(){ setIsOnline(false) }
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
+      getReq.onsuccess = () => {
+        const existing = getReq.result || { id, table_name: tableName, hospital_id: hospitalId };
+        updatedRecord = {
+          ...existing,
+          ...updates,
+          _synced: false,
+          updated_at: new Date().toISOString()
+        };
+        const putReq = store.put(updatedRecord);
+        tx.oncomplete = () => resolve(putReq.result);
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+
+    if (navigator.onLine) {
+      try {
+        const { _synced, _deleted, ...payload } = updatedRecord;
+        await supabase.from(tableName).update(payload).eq('id', id);
+        
+        const tx = db.transaction('offline_records', 'readwrite');
+        const store = tx.objectStore('offline_records');
+        await new Promise((res) => {
+          const req = store.put({ ...updatedRecord, _synced: true });
+          tx.oncomplete = () => res(req.result);
+        });
+      } catch (err) {
+        console.warn('Network update failed, saved locally:', err);
+      }
     }
-  }, [hospitalId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addRecord = useCallback(async (fields) => {
-    if (!hospitalId || !sKey || !qKey) return
-    const newRecord = { id: crypto.randomUUID(), hospital_id: hospitalId, created_at: new Date().toISOString(), ...fields }
+    await loadLocalRecords();
+    return updatedRecord;
+  };
 
-    const local = readLocal(sKey, [])
-    const updated = [newRecord, ...local]
-    writeLocal(sKey, updated)
-    setRecords(updated)
+  const deleteRecord = async (id) => {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('offline_records', 'readwrite');
+      const store = tx.objectStore('offline_records');
+      const getReq = store.get(id);
 
-    const queue = readLocal(qKey, [])
-    queue.push({ type: 'insert', id: newRecord.id, payload: newRecord })
-    writeLocal(qKey, queue)
-    refreshPendingCount()
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        if (existing) {
+          existing._deleted = true;
+          existing._synced = false;
+          store.put(existing);
+        }
+        tx.oncomplete = () => resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
 
-    if (navigator.onLine) flushQueue()
-    return newRecord
-  }, [hospitalId, sKey, qKey, flushQueue, refreshPendingCount])
-
-  const deleteRecord = useCallback(async (id) => {
-    if (!sKey || !qKey) return
-    const local = readLocal(sKey, [])
-    writeLocal(sKey, local.filter(r => r.id !== id))
-    setRecords(prev => prev.filter(r => r.id !== id))
-
-    let queue = readLocal(qKey, [])
-    const hadPendingInsert = queue.some(op => op.type === 'insert' && op.id === id)
-    if (hadPendingInsert) {
-      // Never made it to the server yet — just drop it, nothing to sync.
-      queue = queue.filter(op => op.id !== id)
-    } else {
-      queue.push({ type: 'delete', id })
+    if (navigator.onLine) {
+      try {
+        await supabase.from(tableName).delete().eq('id', id);
+        const tx = db.transaction('offline_records', 'readwrite');
+        const store = tx.objectStore('offline_records');
+        await new Promise((res) => {
+          const req = store.delete(id);
+          tx.oncomplete = () => res(req.result);
+        });
+      } catch (err) {
+        console.warn('Network delete failed, marked offline:', err);
+      }
     }
-    writeLocal(qKey, queue)
-    refreshPendingCount()
 
-    if (navigator.onLine) flushQueue()
-  }, [sKey, qKey, flushQueue, refreshPendingCount])
+    await loadLocalRecords();
+  };
 
-  const updateRecord = useCallback(async (id, fields) => {
-    if (!sKey || !qKey) return
-    const local = readLocal(sKey, [])
-    const updated = local.map(r => r.id === id ? { ...r, ...fields } : r)
-    writeLocal(sKey, updated)
-    setRecords(updated)
-
-    const queue = readLocal(qKey, [])
-    queue.push({ type: 'update', id, payload: fields })
-    writeLocal(qKey, queue)
-    refreshPendingCount()
-
-    if (navigator.onLine) flushQueue()
-  }, [sKey, qKey, flushQueue, refreshPendingCount])
-
-  return { records, loading, isOnline, pendingCount, lastError, addRecord, deleteRecord, updateRecord, refresh, retrySync, skipStuckItem }
+  return {
+    records,
+    loading,
+    isOnline,
+    pendingCount,
+    addRecord,
+    updateRecord,
+    deleteRecord,
+    refreshTable: loadLocalRecords
+  };
 }
