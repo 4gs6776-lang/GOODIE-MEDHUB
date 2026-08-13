@@ -10,6 +10,7 @@ export default function Inventory(){
   const { profile, hospital } = useAuth()
   const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('inventory_items', hospital?.id)
   const [showModal, setShowModal] = useState(false)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -25,6 +26,25 @@ export default function Inventory(){
   function showToast(msg){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  async function handleImportSave(itemPayload, matchedItemId) {
+    if (matchedItemId) {
+      await updateRecord(matchedItemId, {
+        quantity: itemPayload.quantity,
+        updated_at: itemPayload.updated_at
+      })
+    } else {
+      await addRecord({
+        name: itemPayload.drug_name,
+        category: itemPayload.category || 'Other',
+        quantity: itemPayload.quantity,
+        unit: itemPayload.unit || 'units',
+        supplier: itemPayload.brand_name || '',
+        reorder_level: itemPayload.reorder_level || 10,
+        created_by: profile?.id,
+      })
+    }
   }
 
   async function handleAdd(e){
@@ -114,7 +134,12 @@ export default function Inventory(){
             </div>
           </div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search item, category, supplier or code" style={{ minWidth: 260, maxWidth: 420 }} />
-          <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Item</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setIsImportModalOpen(true)}>
+              📊 Import Excel
+            </button>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Item</button>
+          </div>
         </div>
 
         {loading ? (
@@ -206,6 +231,14 @@ export default function Inventory(){
           </div>
         </div>
       )}
+
+      <ImportExcelModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        existingInventory={items || []}
+        onImportSuccess={handleImportSave}
+        hospitalId={hospital?.id}
+      />
 
       {toast && (
         <div style={{
