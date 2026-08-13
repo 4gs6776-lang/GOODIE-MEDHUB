@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { parseAndValidateExcel, downloadExcelTemplate } from '../../utils/excelTemplate';
+import { useState } from 'react';
+import { downloadExcelTemplate, parseAndValidateExcel } from '../../utils/excelImportUtils';
 
-export default function ImportExcelModal({ isOpen, onClose, existingInventory = [], onImportSuccess, hospitalId }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [importSummary, setImportSummary] = useState(null);
+export default function ImportExcelModal({ isOpen, onClose, existingInventory = [], onImportSuccess }) {
+  const [file, setFile] = useState(null);
+  const [validatedData, setValidatedData] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
+  const [parseError, setParseError] = useState('');
+  const [summary, setSummary] = useState({ saved: 0, updated: 0, failed: 0, errors: [] });
 
   if (!isOpen) return null;
 
@@ -15,220 +15,136 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
-    setLoading(true);
-    setErrorMessage('');
-    setImportSummary(null);
-
+    setFile(selectedFile);
+    setParseError('');
     try {
-      const parsedRows = await parseAndValidateExcel(selectedFile, existingInventory);
-      setRows(parsedRows);
+      const parsed = await parseAndValidateExcel(selectedFile, existingInventory);
+      setValidatedData(parsed);
     } catch (err) {
-      setErrorMessage(err.message || 'Error processing file.');
-    } finally {
-      setLoading(false);
+      setParseError(err.message || 'Error parsing Excel file');
+      setValidatedData([]);
     }
   };
 
-  const validRows = rows.filter((r) => r.status !== 'Error');
-  const errorCount = rows.filter((r) => r.status === 'Error').length;
-
-  const handleExecuteImport = async () => {
-    if (validRows.length === 0) return;
-
-    setImporting(true);
-    setProgress(0);
-
-    let importedCount = 0;
+  const handleStartImport = async () => {
+    setIsProcessing(true);
+    let savedCount = 0;
     let updatedCount = 0;
     let failedCount = 0;
+    const failureDetails = [];
 
-    const total = validRows.length;
-
-    for (let i = 0; i < total; i++) {
-      const row = validRows[i];
-
-      try {
-        const itemPayload = {
-          hospital_id: hospitalId,
-          drug_name: row.drugName,
-          generic_name: row.genericName,
-          brand_name: row.brandName,
-          supplier: row.supplier,
-          strength: row.strength,
-          dosage_form: row.dosageForm,
-          category: row.category,
-          unit: row.unit,
-          reorder_level: row.reorderLevel,
-          selling_price: row.sellingPrice,
-          cost_price: row.costPrice,
-          batch_number: row.batchNumber,
-          expiry_date: row.expiryDate || null,
-          quantity: row.matchedItemId ? row.existingStock + row.quantity : row.quantity,
-          updated_at: new Date().toISOString()
-        };
-
-        await onImportSuccess(itemPayload, row.matchedItemId);
-
-        if (row.matchedItemId) {
-          updatedCount++;
-        } else {
-          importedCount++;
-        }
-      } catch (err) {
-        console.error('Failed row import:', row, err);
+    for (const item of validatedData) {
+      if (item.status === 'Error') {
         failedCount++;
+        failureDetails.push(`${item.name || 'Row ' + item.rowNum}: ${item.errors.join(', ')}`);
+        continue;
       }
 
-      setProgress(Math.round(((i + 1) / total) * 100));
+      try {
+        await onImportSuccess(item, item.matchedItemId);
+        if (item.matchedItemId) {
+          updatedCount++;
+        } else {
+          savedCount++;
+        }
+      } catch (err) {
+        failedCount++;
+        failureDetails.push(`${item.name || 'Row ' + item.rowNum}: ${err.message || 'Database write error'}`);
+      }
     }
 
-    setImporting(false);
-    setImportSummary({
-      imported: importedCount,
+    setSummary({
+      saved: savedCount,
       updated: updatedCount,
-      skipped: errorCount,
-      failed: failedCount
+      failed: failedCount,
+      errors: failureDetails
     });
+    setIsProcessing(false);
+    setIsFinished(true);
+  };
+
+  const handleReset = () => {
+    setFile(null);
+    setValidatedData([]);
+    setIsFinished(false);
+    setIsProcessing(false);
+    setParseError('');
+    setSummary({ saved: 0, updated: 0, failed: 0, errors: [] });
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black bg-opacity-50 p-2 sm:p-4">
-      <div className="bg-white rounded-t-xl sm:rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="p-3 sm:p-4 border-b flex justify-between items-center bg-slate-50">
-          <h2 className="text-lg sm:text-xl font-bold text-slate-800">Import Inventory Items</h2>
-          <button onClick={onClose} className="text-slate-500 text-xl font-semibold p-1">✕</button>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+      <div className="card" style={{ width: '100%', maxWidth: 550, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 19 }}>Import Inventory Items</div>
+          <button onClick={handleReset} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 overflow-y-auto flex-1 space-y-4">
-          {!importSummary && (
-            <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 sm:p-6 text-center bg-slate-50">
-              <input
-                type="file"
-                accept=".xlsx, .xls, .csv"
-                onChange={handleFileChange}
-                className="hidden"
-                id="excelFileInput"
-              />
-              <label htmlFor="excelFileInput" className="cursor-pointer space-y-2 block">
-                <div className="text-slate-700 font-medium text-sm sm:text-base">
-                  Tap to Select Excel or CSV File
-                </div>
-              </label>
-
-              <div className="mt-3 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={downloadExcelTemplate}
-                  className="text-xs sm:text-sm text-blue-600 hover:underline font-medium"
-                >
-                  📥 Download Blank Template
-                </button>
-              </div>
-            </div>
-          )}
-
-          {errorMessage && (
-            <div className="p-3 bg-red-100 text-red-700 rounded text-xs sm:text-sm">{errorMessage}</div>
-          )}
-
-          {loading && (
-            <div className="text-center py-4 text-xs sm:text-sm text-slate-600">
-              Reading file contents...
-            </div>
-          )}
-
-          {/* Complete Summary View */}
-          {importSummary && (
-            <div className="space-y-3 p-4 bg-slate-50 rounded-lg border text-xs sm:text-sm">
-              <h3 className="text-base font-bold text-slate-800">Import Finished</h3>
-              <ul className="space-y-1 text-slate-700">
-                <li className="text-green-600">✓ {importSummary.imported} items saved to database</li>
-                <li className="text-blue-600">✓ {importSummary.updated} stock quantities updated</li>
-                {importSummary.skipped > 0 && <li className="text-amber-600">⚠ {importSummary.skipped} invalid rows skipped</li>}
-                {importSummary.failed > 0 && <li className="text-red-600">✕ {importSummary.failed} writes failed</li>}
-              </ul>
-              <button
-                onClick={onClose}
-                className="w-full mt-2 py-2 bg-blue-600 text-white rounded text-xs sm:text-sm font-medium"
-              >
-                Done
+        {!isFinished ? (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <button onClick={downloadExcelTemplate} className="btn btn-ghost" style={{ fontSize: 12 }}>
+                📥 Download Excel Template
               </button>
             </div>
-          )}
 
-          {/* Table Preview */}
-          {!importSummary && rows.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-xs font-medium text-slate-600">
-                <span>Total: {rows.length}</span>
-                <span className="text-green-600">Valid: {rows.length - errorCount}</span>
-                <span className="text-red-600">Errors: {errorCount}</span>
+            <div className="field">
+              <label>Select Excel File (.xlsx, .xls)</label>
+              <input type="file" accept=".xlsx, .xls" onChange={handleFileChange} />
+            </div>
+
+            {parseError && <div className="error-box" style={{ marginTop: 10 }}>{parseError}</div>}
+
+            {validatedData.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Preview ({validatedData.length} items found):</div>
+                <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 8 }}>
+                  {validatedData.map((row) => (
+                    <div key={row.rowNum} style={{ fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span><strong>{row.name || row.drugName}</strong> ({row.category}) - Qty: {row.quantity}</span>
+                      <span style={{ color: row.status === 'Error' ? 'var(--danger)' : row.status === 'Warning' ? 'var(--gold)' : 'var(--teal)' }}>
+                        {row.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
+            )}
 
-              <div className="max-h-48 overflow-y-auto border rounded text-xs">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-100 sticky top-0 border-b">
-                    <tr>
-                      <th className="p-2">#</th>
-                      <th className="p-2">Item Name</th>
-                      <th className="p-2">Category</th>
-                      <th className="p-2">Qty</th>
-                      <th className="p-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.rowNum} className="border-b">
-                        <td className="p-2 font-mono">{r.rowNum}</td>
-                        <td className="p-2 font-medium">{r.drugName || '—'}</td>
-                        <td className="p-2 text-slate-500">{r.category}</td>
-                        <td className="p-2">{r.quantity}</td>
-                        <td className="p-2">
-                          {r.status === 'Ready' && <span className="text-green-600">✓</span>}
-                          {r.status === 'Warning' && <span className="text-amber-600">⚠</span>}
-                          {r.status === 'Error' && <span className="text-red-600">✕</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              <button type="button" className="btn btn-ghost" onClick={handleReset}>Cancel</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!file || validatedData.length === 0 || isProcessing}
+                onClick={handleStartImport}
+              >
+                {isProcessing ? 'Importing…' : 'Start Import'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Import Finished</div>
+            <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div>✓ {summary.saved} items saved to database</div>
+              <div>✓ {summary.updated} stock quantities updated</div>
+              <div style={{ color: summary.failed > 0 ? 'var(--danger)' : undefined }}>
+                ✕ {summary.failed} writes failed
               </div>
             </div>
-          )}
 
-          {/* Progress Bar */}
-          {importing && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>Saving to database...</span>
-                <span>{progress}%</span>
+            {summary.errors.length > 0 && (
+              <div style={{ marginTop: 16, background: 'rgba(225,104,94,0.1)', border: '1px solid var(--danger)', padding: 12, borderRadius: 8, maxHeight: 150, overflowY: 'auto' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger)', marginBottom: 6 }}>Failure Reasons:</div>
+                {summary.errors.map((err, idx) => (
+                  <div key={idx} style={{ fontSize: 11, color: 'var(--danger)', marginBottom: 4 }}>• {err}</div>
+                ))}
               </div>
-              <div className="w-full bg-slate-200 h-2 rounded overflow-hidden">
-                <div className="bg-blue-600 h-2 transition-all duration-150" style={{ width: `${progress}%` }}></div>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
 
-        {/* Footer */}
-        {!importSummary && (
-          <div className="p-3 border-t bg-slate-50 flex justify-end gap-2">
-            <button
-              onClick={onClose}
-              disabled={importing}
-              className="px-3 py-1.5 text-slate-600 text-xs sm:text-sm font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleExecuteImport}
-              disabled={validRows.length === 0 || importing}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs sm:text-sm font-medium disabled:opacity-50"
-            >
-              {importing ? 'Saving...' : `Import (${validRows.length})`}
-            </button>
+            <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={handleReset}>Done</button>
           </div>
         )}
       </div>
