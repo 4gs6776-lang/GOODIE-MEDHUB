@@ -31,27 +31,35 @@ export default function Inventory(){
   async function handleImportSave(itemPayload, matchedItemId) {
     try {
       if (matchedItemId) {
+        const existingItem = items.find(i => i.id === matchedItemId);
+        const currentQty = existingItem ? (parseInt(existingItem.quantity, 10) || 0) : 0;
+        const importedQty = parseInt(itemPayload.quantity, 10) || 0;
+
         const updated = await updateRecord(matchedItemId, {
-          quantity: parseInt(itemPayload.quantity, 10) || 0,
-          updated_at: itemPayload.updated_at || new Date().toISOString()
-        })
-        return updated
+          quantity: currentQty + importedQty,
+          updated_at: new Date().toISOString()
+        });
+        return updated;
       } else {
         const created = await addRecord({
-          name: itemPayload.drug_name || itemPayload.name || 'Unnamed Item',
+          name: itemPayload.name || itemPayload.drugName || 'Unnamed Item',
           category: itemPayload.category || 'Other',
           quantity: parseInt(itemPayload.quantity, 10) || 0,
           unit: itemPayload.unit || 'units',
-          supplier: itemPayload.supplier || itemPayload.brand_name || '',
-          reorder_level: parseInt(itemPayload.reorder_level, 10) || 10,
+          supplier: itemPayload.supplier || itemPayload.brandName || '',
+          reorder_level: parseInt(itemPayload.reorderLevel, 10) || 10,
+          selling_price: parseFloat(itemPayload.sellingPrice) || 0,
+          cost_price: parseFloat(itemPayload.costPrice) || 0,
+          batch_number: itemPayload.batchNumber || '',
+          expiry_date: itemPayload.expiryDate || null,
           hospital_id: hospital?.id,
           created_by: profile?.id || null,
-        })
-        return created
+        });
+        return created;
       }
     } catch (err) {
-      console.error('Import save failed for item:', itemPayload, err)
-      throw err
+      console.error('Import save failed:', err);
+      throw err;
     }
   }
 
@@ -111,7 +119,7 @@ export default function Inventory(){
   }
 
   const inventorySearch = searchTerm.trim().toLowerCase()
-  const sorted = [...items].filter(i => !inventorySearch || [i.name, i.category, i.supplier, i.item_code, i.id].some(v => String(v || '').toLowerCase().includes(inventorySearch))).sort((a, b) => a.name.localeCompare(b.name))
+  const sorted = [...items].filter(i => !inventorySearch || [i.name, i.category, i.supplier, i.item_code, i.id].some(v => String(v || '').toLowerCase().includes(inventorySearch))).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
   const lowStockItems = items.filter(i => i.quantity <= i.reorder_level)
   const totalItems = items.length
 
