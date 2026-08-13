@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from './supabaseClient'; // Adjusted to match standard supabase client file name
+import { supabase } from './supabase'; // Named import matching export const supabase
 
 const DB_NAME = 'HospitalOfflineDB';
 const DB_VERSION = 1;
@@ -86,7 +86,7 @@ export function useOfflineTable(tableName, hospitalId) {
       tx.onerror = () => reject(tx.error);
     });
 
-    if (navigator.onLine) {
+    if (navigator.onLine && supabase?.from) {
       try {
         const { _synced, _deleted, ...payload } = newRecord;
         const { data: remoteData, error } = await supabase.from(tableName).insert([payload]).select().single();
@@ -131,7 +131,7 @@ export function useOfflineTable(tableName, hospitalId) {
       tx.onerror = () => reject(tx.error);
     });
 
-    if (navigator.onLine) {
+    if (navigator.onLine && supabase?.from) {
       try {
         const { _synced, _deleted, ...payload } = updatedRecord;
         await supabase.from(tableName).update(payload).eq('id', id);
@@ -170,7 +170,7 @@ export function useOfflineTable(tableName, hospitalId) {
       tx.onerror = () => reject(tx.error);
     });
 
-    if (navigator.onLine) {
+    if (navigator.onLine && supabase?.from) {
       try {
         await supabase.from(tableName).delete().eq('id', id);
         const tx = db.transaction('offline_records', 'readwrite');
