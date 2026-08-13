@@ -4,11 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
-// Replace your top imports around lines 1-10 with this:
-import React, { useState, useEffect } from 'react';
-import { useOfflineTable } from '../../lib/useOfflineTable';
-import { getAllSyncErrors, subscribeSyncErrors, flushTableQueue } from '../../lib/useOfflineSync';
-
+import { useOfflineTable, getAllSyncErrors, subscribeSyncErrors, flushTableQueue } from '../../lib/useOfflineTable';
 import Pharmacy from './Pharmacy'
 import Laboratory from './Laboratory'
 import Radiology from './Radiology'
