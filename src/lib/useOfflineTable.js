@@ -238,3 +238,40 @@ export function subscribeSyncErrors(callback) {
     window.removeEventListener('offline', handler);
   };
 }
+
+export async function flushTableQueue(tableName) {
+  if (!navigator.onLine || !supabase?.from) return;
+
+  try {
+    const db = await openDB();
+    const tx = db.transaction('offline_records', 'readwrite');
+    const store = tx.objectStore('offline_records');
+    const getReq = store.getAll();
+
+    getReq.onsuccess = async () => {
+      const all = getReq.result || [];
+      const pending = all.filter(
+        (r) => (tableName ? r.table_name === tableName : true) && r._synced === false
+      );
+
+      for (const record of pending) {
+        try {
+          const { _synced, _deleted, _syncError, ...payload } = record;
+          if (record._deleted) {
+            await supabase.from(record.table_name).delete().eq('id', record.id);
+            const deleteTx = db.transaction('offline_records', 'readwrite');
+            deleteTx.objectStore('offline_records').delete(record.id);
+          } else {
+            await supabase.from(record.table_name).upsert(payload);
+            const updateTx = db.transaction('offline_records', 'readwrite');
+            updateTx.objectStore('offline_records').put({ ...record, _synced: true });
+          }
+        } catch (err) {
+          console.warn('Failed to sync record:', record.id, err);
+        }
+      }
+    };
+  } catch (err) {
+    console.error('Error flushing queue:', err);
+  }
+}
