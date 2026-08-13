@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabaseClient';
+
 const DB_NAME = 'HospitalOfflineDB';
 const DB_VERSION = 1;
 
@@ -197,6 +198,7 @@ export function useOfflineTable(tableName, hospitalId) {
     refreshTable: loadLocalRecords
   };
 }
+
 export async function getAllSyncErrors() {
   try {
     const request = indexedDB.open('HospitalOfflineDB', 1);
@@ -219,4 +221,3 @@ export async function getAllSyncErrors() {
     return [];
   }
 }
-
