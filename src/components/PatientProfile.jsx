@@ -183,9 +183,9 @@ function detailRow(label, value){
 }
 
 // Maps admission_requests.status -> card presentation. 'converted' means
-// staff has turned the request into an official admission (Section 9) —
-// ward/room/bed detail will attach once that table exists; for now it
-// still shows what was requested.
+// staff has turned the request into an official admission — ward/room/bed
+// detail attaches once Section 9's admissions table has more room/bed
+// granularity; for now it still shows what was requested.
 const ADMISSION_STATUS_MAP = {
   pending: { heading: '🏥 ADMISSION RECOMMENDED', label: 'Awaiting Admission', color: 'var(--gold)' },
   approved: { heading: '🏥 ADMISSION APPROVED', label: 'Admission Approved', color: 'var(--teal)' },
