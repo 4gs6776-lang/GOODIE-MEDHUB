@@ -67,7 +67,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           updated_at: new Date().toISOString()
         };
 
-        // Await each write operation directly to prevent missing items
+        // Strictly await database creation call
         await onImportSuccess(itemPayload, row.matchedItemId);
 
         if (row.matchedItemId) {
@@ -76,12 +76,12 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           importedCount++;
         }
       } catch (err) {
-        console.error('Import write failed for row:', row, err);
+        console.error('Failed row import:', row, err);
         failedCount++;
       }
 
-      // Small delay so offline storage and network index can process sequential writes
-      await new Promise((res) => setTimeout(res, 60));
+      // 150ms pause gives your offline DB / Supabase client time to complete each write sequentially
+      await new Promise((res) => setTimeout(res, 150));
       setProgress(Math.round(((i + 1) / total) * 100));
     }
 
