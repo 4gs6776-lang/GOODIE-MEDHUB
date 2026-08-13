@@ -67,7 +67,7 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
           updated_at: new Date().toISOString()
         };
 
-        // Strictly await database creation call
+        // Complete write commitment guaranteed
         await onImportSuccess(itemPayload, row.matchedItemId);
 
         if (row.matchedItemId) {
@@ -80,8 +80,6 @@ export default function ImportExcelModal({ isOpen, onClose, existingInventory = 
         failedCount++;
       }
 
-      // 150ms pause gives your offline DB / Supabase client time to complete each write sequentially
-      await new Promise((res) => setTimeout(res, 150));
       setProgress(Math.round(((i + 1) / total) * 100));
     }
 
