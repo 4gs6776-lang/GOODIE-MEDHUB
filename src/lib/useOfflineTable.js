@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 
 const DB_NAME = 'HospitalOfflineDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Bumped to 2 to force IndexedDB schema creation
 
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('offline_records')) {
@@ -15,6 +16,7 @@ function openDB() {
         store.createIndex('hospital_id', 'hospital_id', { unique: false });
       }
     };
+
     request.onsuccess = () => resolve(request.result);
     request.onerror = (e) => reject(e.target.error);
   });
@@ -90,7 +92,7 @@ export function useOfflineTable(tableName, hospitalId) {
       try {
         const { _synced, _deleted, table_name, ...payload } = newRecord;
 
-        // Clean out empty/invalid fields before inserting to Supabase
+        // Strip empty or invalid foreign keys before writing to Supabase
         if (!payload.hospital_id) delete payload.hospital_id;
         if (!payload.created_by) delete payload.created_by;
 
@@ -99,9 +101,9 @@ export function useOfflineTable(tableName, hospitalId) {
           .insert([payload])
           .select()
           .single();
-        
+
         if (error) {
-          console.error('❌ Supabase insert failed:', error);
+          console.error('❌ Supabase write failed:', error);
           throw new Error(error.message || error.details || 'Database rejected insertion');
         }
 
@@ -115,7 +117,7 @@ export function useOfflineTable(tableName, hospitalId) {
         }
       } catch (err) {
         console.warn('Network write issue:', err);
-        throw err; // Re-throw so callers (e.g. excel import loop) catch failure
+        throw err;
       }
     }
 
@@ -150,7 +152,7 @@ export function useOfflineTable(tableName, hospitalId) {
       try {
         const { _synced, _deleted, table_name, ...payload } = updatedRecord;
         const { error } = await supabase.from(tableName).update(payload).eq('id', id);
-        
+
         if (error) throw new Error(error.message);
 
         const tx = db.transaction('offline_records', 'readwrite');
@@ -219,21 +221,16 @@ export function useOfflineTable(tableName, hospitalId) {
 
 export async function getAllSyncErrors() {
   try {
-    const request = indexedDB.open('HospitalOfflineDB', 1);
+    const db = await openDB();
     return new Promise((resolve) => {
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('offline_records')) return resolve([]);
-        const tx = db.transaction('offline_records', 'readonly');
-        const store = tx.objectStore('offline_records');
-        const getReq = store.getAll();
-        getReq.onsuccess = () => {
-          const all = getReq.result || [];
-          resolve(all.filter((r) => r._syncError));
-        };
-        getReq.onerror = () => resolve([]);
+      const tx = db.transaction('offline_records', 'readonly');
+      const store = tx.objectStore('offline_records');
+      const getReq = store.getAll();
+      getReq.onsuccess = () => {
+        const all = getReq.result || [];
+        resolve(all.filter((r) => r._syncError));
       };
-      request.onerror = () => resolve([]);
+      getReq.onerror = () => resolve([]);
     });
   } catch (err) {
     return [];
@@ -261,37 +258,33 @@ export async function flushTableQueue(tableName) {
   if (!navigator.onLine || !supabase?.from) return;
 
   try {
-    const request = indexedDB.open('HospitalOfflineDB', 1);
-    request.onsuccess = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains('offline_records')) return;
-      const tx = db.transaction('offline_records', 'readwrite');
-      const store = tx.objectStore('offline_records');
-      const getReq = store.getAll();
+    const db = await openDB();
+    const tx = db.transaction('offline_records', 'readwrite');
+    const store = tx.objectStore('offline_records');
+    const getReq = store.getAll();
 
-      getReq.onsuccess = async () => {
-        const all = getReq.result || [];
-        const pending = all.filter(
-          (r) => (tableName ? r.table_name === tableName : true) && r._synced === false
-        );
+    getReq.onsuccess = async () => {
+      const all = getReq.result || [];
+      const pending = all.filter(
+        (r) => (tableName ? r.table_name === tableName : true) && r._synced === false
+      );
 
-        for (const record of pending) {
-          try {
-            const { _synced, _deleted, _syncError, table_name, ...payload } = record;
-            if (record._deleted) {
-              await supabase.from(record.table_name).delete().eq('id', record.id);
-              const deleteTx = db.transaction('offline_records', 'readwrite');
-              deleteTx.objectStore('offline_records').delete(record.id);
-            } else {
-              await supabase.from(record.table_name).upsert(payload);
-              const updateTx = db.transaction('offline_records', 'readwrite');
-              updateTx.objectStore('offline_records').put({ ...record, _synced: true });
-            }
-          } catch (err) {
-            console.warn('Failed to sync record:', record.id, err);
+      for (const record of pending) {
+        try {
+          const { _synced, _deleted, _syncError, table_name, ...payload } = record;
+          if (record._deleted) {
+            await supabase.from(record.table_name).delete().eq('id', record.id);
+            const deleteTx = db.transaction('offline_records', 'readwrite');
+            deleteTx.objectStore('offline_records').delete(record.id);
+          } else {
+            await supabase.from(record.table_name).upsert(payload);
+            const updateTx = db.transaction('offline_records', 'readwrite');
+            updateTx.objectStore('offline_records').put({ ...record, _synced: true });
           }
+        } catch (err) {
+          console.warn('Failed to sync record:', record.id, err);
         }
-      };
+      }
     };
   } catch (err) {
     console.error('Error flushing queue:', err);
