@@ -88,10 +88,24 @@ export function useOfflineTable(tableName, hospitalId) {
 
     if (navigator.onLine && supabase?.from) {
       try {
-        const { _synced, _deleted, ...payload } = newRecord;
-        const { data: remoteData, error } = await supabase.from(tableName).insert([payload]).select().single();
+        const { _synced, _deleted, table_name, ...payload } = newRecord;
+
+        // Clean out empty/invalid fields before inserting to Supabase
+        if (!payload.hospital_id) delete payload.hospital_id;
+        if (!payload.created_by) delete payload.created_by;
+
+        const { data: remoteData, error } = await supabase
+          .from(tableName)
+          .insert([payload])
+          .select()
+          .single();
         
-        if (!error && remoteData) {
+        if (error) {
+          console.error('❌ Supabase insert failed:', error);
+          throw new Error(error.message || error.details || 'Database rejected insertion');
+        }
+
+        if (remoteData) {
           const tx = db.transaction('offline_records', 'readwrite');
           const store = tx.objectStore('offline_records');
           await new Promise((res) => {
@@ -100,7 +114,8 @@ export function useOfflineTable(tableName, hospitalId) {
           });
         }
       } catch (err) {
-        console.warn('Network write failed, remaining in local queue:', err);
+        console.warn('Network write issue:', err);
+        throw err; // Re-throw so callers (e.g. excel import loop) catch failure
       }
     }
 
@@ -133,9 +148,11 @@ export function useOfflineTable(tableName, hospitalId) {
 
     if (navigator.onLine && supabase?.from) {
       try {
-        const { _synced, _deleted, ...payload } = updatedRecord;
-        await supabase.from(tableName).update(payload).eq('id', id);
+        const { _synced, _deleted, table_name, ...payload } = updatedRecord;
+        const { error } = await supabase.from(tableName).update(payload).eq('id', id);
         
+        if (error) throw new Error(error.message);
+
         const tx = db.transaction('offline_records', 'readwrite');
         const store = tx.objectStore('offline_records');
         await new Promise((res) => {
@@ -144,6 +161,7 @@ export function useOfflineTable(tableName, hospitalId) {
         });
       } catch (err) {
         console.warn('Network update failed, saved locally:', err);
+        throw err;
       }
     }
 
@@ -259,7 +277,7 @@ export async function flushTableQueue(tableName) {
 
         for (const record of pending) {
           try {
-            const { _synced, _deleted, _syncError, ...payload } = record;
+            const { _synced, _deleted, _syncError, table_name, ...payload } = record;
             if (record._deleted) {
               await supabase.from(record.table_name).delete().eq('id', record.id);
               const deleteTx = db.transaction('offline_records', 'readwrite');
