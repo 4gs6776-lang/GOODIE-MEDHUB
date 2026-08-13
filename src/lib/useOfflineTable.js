@@ -197,3 +197,26 @@ export function useOfflineTable(tableName, hospitalId) {
     refreshTable: loadLocalRecords
   };
 }
+export async function getAllSyncErrors() {
+  try {
+    const request = indexedDB.open('HospitalOfflineDB', 1);
+    return new Promise((resolve) => {
+      request.onsuccess = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('offline_records')) return resolve([]);
+        const tx = db.transaction('offline_records', 'readonly');
+        const store = tx.objectStore('offline_records');
+        const getReq = store.getAll();
+        getReq.onsuccess = () => {
+          const all = getReq.result || [];
+          resolve(all.filter((r) => r._syncError));
+        };
+        getReq.onerror = () => resolve([]);
+      };
+      request.onerror = () => resolve([]);
+    });
+  } catch (err) {
+    return [];
+  }
+}
+
