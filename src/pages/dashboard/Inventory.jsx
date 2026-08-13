@@ -4,7 +4,7 @@ import ImportExcelModal from '../../components/inventory/ImportExcelModal';
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 
-const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
+const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
 
 export default function Inventory(){
   const { profile, hospital } = useAuth()
@@ -28,14 +28,15 @@ export default function Inventory(){
     setTimeout(() => setToast(null), 3000)
   }
 
+  // Updated async handler that returns database write Promises
   async function handleImportSave(itemPayload, matchedItemId) {
     if (matchedItemId) {
-      await updateRecord(matchedItemId, {
+      return await updateRecord(matchedItemId, {
         quantity: itemPayload.quantity,
         updated_at: itemPayload.updated_at
       })
     } else {
-      await addRecord({
+      return await addRecord({
         name: itemPayload.drug_name || 'Unnamed Item',
         category: itemPayload.category || 'Other',
         quantity: itemPayload.quantity || 0,
@@ -74,7 +75,7 @@ export default function Inventory(){
       showToast(isOnline ? 'Item added' : 'Item added — will sync when back online')
     } catch (err) {
       setFormError(err.message || 'Could not save item')
-    } finally {
+    } => {
       setSaving(false)
     }
   }
