@@ -8,7 +8,7 @@ const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies'
 
 export default function Inventory(){
   const { profile, hospital } = useAuth()
-  const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('inventory_items', hospital?.id)
+  const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord, refreshTable } = useOfflineTable('inventory_items', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [toast, setToast] = useState(null)
@@ -28,7 +28,6 @@ export default function Inventory(){
     setTimeout(() => setToast(null), 3000)
   }
 
-  // Updated async handler returning write promises directly
   async function handleImportSave(itemPayload, matchedItemId) {
     if (matchedItemId) {
       const updated = await updateRecord(matchedItemId, {
@@ -47,6 +46,13 @@ export default function Inventory(){
         created_by: profile?.id,
       })
       return created
+    }
+  }
+
+  async function handleCloseImportModal() {
+    setIsImportModalOpen(false)
+    if (refreshTable) {
+      await refreshTable()
     }
   }
 
@@ -237,7 +243,7 @@ export default function Inventory(){
 
       <ImportExcelModal
         isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
+        onClose={handleCloseImportModal}
         existingInventory={items || []}
         onImportSuccess={handleImportSave}
         hospitalId={hospital?.id}
