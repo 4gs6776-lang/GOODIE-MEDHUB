@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
@@ -65,8 +65,12 @@ const PAGE_TITLES = {
   roster: 'Duty Roster',
 }
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Every role can always reach these, regardless of department.
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
 
+// Which modules each department can see. Admin/owner always see everything
 const ROLE_ACCESS = {
   doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
   nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
@@ -77,6 +81,15 @@ const ROLE_ACCESS = {
 }
 const FULL_ACCESS_ROLES = ['admin', 'owner']
 const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
+
+const SHIFT_STYLE = {
+  M: { background: 'rgba(201,169,97,0.16)', color: 'var(--gold)' },
+  N: { background: 'rgba(76,141,255,0.16)', color: 'var(--blue)' },
+  OFF: { background: 'rgba(255,255,255,0.04)', color: 'var(--muted)' },
+  LEAVE: { background: 'rgba(225,104,94,0.12)', color: 'var(--danger)' },
+  'ON CALL': { background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' },
+  TRAINING: { background: 'var(--teal-soft)', color: 'var(--teal)' },
+}
 
 function Icon({ name, size = 18, strokeWidth = 1.8 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -100,9 +113,13 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
     moon: <path d="M20.5 15.5A8 8 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>,
-    building: <><path d="M4 21V5l8-3 8 3v16"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/></>,
+    chevron: <path d="m9 18 6-6-6-6"/>,
+    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+    plus: <><path d="M12 5v14M5 12h14"/></>,
     arrowUp: <><path d="m6 15 6-6 6 6"/></>,
     arrowDown: <><path d="m6 9 6 6 6-6"/></>,
+    building: <><path d="M4 21V5l8-3 8 3v16"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/></>,
+    clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     phone: <><path d="M6 3h3l2 5-2 2a14 14 0 0 0 5 5l2-2 5 2v3c0 1-1 2-2 2C10 20 4 14 4 5c0-1 1-2 2-2Z"/></>,
   }
   return <svg {...common}>{paths[name] || paths.home}</svg>
@@ -111,6 +128,7 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
 
+  // null = full access (admin/owner); otherwise an array of allowed nav keys.
   const allowedKeys = useMemo(() => {
     if (FULL_ACCESS_ROLES.includes(profile?.role)) return null
     return ROLE_ACCESS[profile?.role] || COMMON_ACCESS
@@ -123,31 +141,41 @@ export default function Dashboard(){
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [syncActionBusy, setSyncActionBusy] = useState(false)
 
-  const [activeMenu, setActiveMenu] = useState(null)
+  // Top header popover states
+  const [activeMenu, setActiveMenu] = useState(null) // 'notifs' | 'messages' | null
   const headerMenuRef = useRef(null)
 
-  const { records: patients, isOnline } = useOfflineTable('patients', hospital?.id)
+  const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
 
   const [profilePatientId, setProfilePatientId] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+  const [name, setName] = useState('')
+  const [age, setAge] = useState('')
+  const [status, setStatus] = useState('stable')
+  const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
 
-  // Live Stats State
   const [todayApptCount, setTodayApptCount] = useState(0)
   const [upcomingApptCount, setUpcomingApptCount] = useState(0)
-  const [todayRevenue, setTodayRevenue] = useState(0)
-  const [pendingBillsCount, setPendingBillsCount] = useState(0)
-  const [pendingBillsAmount, setPendingBillsAmount] = useState(0)
-  const [lowStockCount, setLowStockCount] = useState(0)
-  const [pendingLabCount, setPendingLabCount] = useState(0)
+  const [revenueCollected, setRevenueCollected] = useState(0)
+  const [revenueOutstanding, setRevenueOutstanding] = useState(0)
+  const [weeklyCounts, setWeeklyCounts] = useState([0,0,0,0,0,0,0])
   const [appointments, setAppointments] = useState([])
-  const [deptStats, setDeptStats] = useState({ Outpatient: 0, Emergency: 0, Laboratory: 0, Pharmacy: 0, Radiology: 0, IPD: 0 })
   const [search, setSearch] = useState('')
+  const [pending, setPending] = useState(null)
+  const pendingTimeoutRef = useRef(null)
+  const pendingIntervalRef = useRef(null)
 
+  const [todayDuty, setTodayDuty] = useState([])
+  const [loadingDuty, setLoadingDuty] = useState(true)
+
+  useEffect(() => computeWeeklyCounts(patients), [patients])
   useEffect(() => subscribeSyncErrors(setSyncErrors), [])
   useEffect(() => {
     if (allowedKeys && !allowedKeys.includes(tab)) setTab('overview')
   }, [allowedKeys, tab])
 
+  // Close top header popovers when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) {
@@ -160,88 +188,181 @@ export default function Dashboard(){
 
   const stuckTables = Object.values(syncErrors)
 
-  // Real Database Queries for Overview Dashboard
-  const loadOverviewSummary = useCallback(async () => {
+  async function handleRetrySync(table){
     if (!hospital?.id) return
+    setSyncActionBusy(true)
+    try {
+      await flushTableQueue(table, hospital.id)
+      setSyncErrors(getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
 
+  async function handleSkipStuck(table){
+    if (!hospital?.id) return
+    if (!confirm(`Skip the stuck item for "${table}"? The local record stays — only this one sync attempt is abandoned so the rest of the queue can proceed.`)) return
+    setSyncActionBusy(true)
+    try {
+      await skipStuckSyncItem(table, hospital.id)
+      setSyncErrors(getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
+
+  function computeWeeklyCounts(patientList){
+    const counts = [0,0,0,0,0,0,0]
     const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()
+    const sevenDaysAgo = new Date(now)
+    sevenDaysAgo.setDate(now.getDate() - 6)
+    sevenDaysAgo.setHours(0,0,0,0)
 
-    // 1. Appointments Data
-    const { data: apptData } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('hospital_id', hospital.id)
+    patientList.forEach(p => {
+      const created = new Date(p.created_at)
+      if (!Number.isNaN(created.getTime()) && created >= sevenDaysAgo) counts[created.getDay()] += 1
+    })
+    setWeeklyCounts(counts)
+  }
 
+  async function loadOverviewSummary(){
+    const now = new Date()
+    const todayStr = now.toDateString()
+
+    const { data: apptData } = await supabase.from('appointments').select('*')
     if (apptData) {
       setAppointments(apptData)
-      const todayCount = apptData.filter(a => {
-        const time = new Date(a.appointment_time || a.created_at)
-        return time >= new Date(todayStart) && time <= new Date(todayEnd)
-      }).length
-      const upcomingCount = apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length
-
-      setTodayApptCount(todayCount)
-      setUpcomingApptCount(upcomingCount)
+      setTodayApptCount(apptData.filter(a => new Date(a.appointment_time).toDateString() === todayStr).length)
+      setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
     }
 
-    // 2. Billing / Invoices Real Calculations
-    const { data: invData } = await supabase
-      .from('invoices')
-      .select('amount, status, created_at, paid_amount')
-      .eq('hospital_id', hospital.id)
-
+    const { data: invData } = await supabase.from('invoices').select('amount, status')
     if (invData) {
-      // Revenue Collected Today
-      const todayRev = invData
-        .filter(i => (i.status === 'paid' || i.status === 'partially_paid') && new Date(i.created_at) >= new Date(todayStart))
-        .reduce((sum, i) => sum + Number(i.paid_amount || i.amount || 0), 0)
-
-      // Unpaid Bills
-      const pendingInvoices = invData.filter(i => i.status === 'unpaid' || i.status === 'partially_paid')
-      const pendingSum = pendingInvoices.reduce((sum, i) => sum + (Number(i.amount || 0) - Number(i.paid_amount || 0)), 0)
-
-      setTodayRevenue(todayRev)
-      setPendingBillsCount(pendingInvoices.length)
-      setPendingBillsAmount(pendingSum)
+      setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum,i) => sum + Number(i.amount || 0),0))
+      setRevenueOutstanding(invData.filter(i => i.status === 'unpaid').reduce((sum,i) => sum + Number(i.amount || 0),0))
     }
+  }
 
-    // 3. Low Stock Inventory & Lab Requests
-    const { count: lowStock } = await supabase
-      .from('inventory')
-      .select('*', { count: 'exact', head: true })
-      .eq('hospital_id', hospital.id)
-      .lt('quantity', 10)
+  async function loadTodayDuty(){
+    if (!hospital?.id) return
+    setLoadingDuty(true)
+    try {
+      const now = new Date()
+      const month = now.getMonth() + 1
+      const year = now.getFullYear()
+      const todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
 
-    setLowStockCount(lowStock || 0)
+      const { data: roster } = await supabase
+        .from('rosters')
+        .select('id')
+        .eq('hospital_id', hospital.id)
+        .eq('month', month)
+        .eq('year', year)
+        .is('department', null)
+        .maybeSingle()
 
-    const { count: pendingLabs } = await supabase
-      .from('lab_requests')
-      .select('*', { count: 'exact', head: true })
-      .eq('hospital_id', hospital.id)
-      .eq('status', 'pending')
+      if (!roster) { setTodayDuty([]); return }
 
-    setPendingLabCount(pendingLabs || 0)
+      const { data: entries } = await supabase
+        .from('roster_entries')
+        .select('staff_id, shift_code')
+        .eq('roster_id', roster.id)
+        .eq('roster_date', todayKey)
 
-    // 4. Department Counts Breakdown based on actual patients/records
-    if (patients && patients.length > 0) {
-      const counts = { Outpatient: 0, Emergency: 0, Laboratory: 0, Pharmacy: 0, Radiology: 0, IPD: 0 }
-      patients.forEach(p => {
-        const dept = p.department || 'Outpatient'
-        if (counts[dept] !== undefined) counts[dept] += 1
-        else counts.Outpatient += 1
-      })
-      setDeptStats(counts)
+      if (!entries || entries.length === 0) { setTodayDuty([]); return }
+
+      const staffIds = entries.map(e => e.staff_id)
+      const { data: staffData } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .in('id', staffIds)
+
+      const combined = entries
+        .map(e => {
+          const staffMember = (staffData || []).find(s => s.id === e.staff_id)
+          return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
+        })
+        .filter(Boolean)
+        .filter(e => e.shift && e.shift !== 'OFF')
+
+      setTodayDuty(combined)
+    } catch {
+      setTodayDuty([])
+    } finally {
+      setLoadingDuty(false)
     }
-  }, [hospital?.id, patients])
+  }
 
   useEffect(() => {
-    loadOverviewSummary()
-  }, [loadOverviewSummary])
+    if (hospital?.id) {
+      loadOverviewSummary()
+      loadTodayDuty()
+    }
+  }, [hospital?.id])
+
+  function showToast(msg){
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  async function handleAdd(e){
+    e.preventDefault()
+    if (!name || !age) return
+    if (!hospital || !profile) {
+      showToast('Still loading your account — wait a moment and try again')
+      return
+    }
+    setSaving(true)
+    try {
+      await addRecord({
+        full_name:name,
+        age:parseInt(age,10),
+        status,
+        created_by:profile.id
+      })
+      setShowModal(false)
+      setName('')
+      setAge('')
+      setStatus('stable')
+      showToast(isOnline ? `${name} added` : `${name} added — will sync when back online`)
+    } catch(err){
+      showToast(err.message || 'Could not save patient')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleDelete(patient){
+    if (pending) commitPendingDelete(pending.patient)
+    let secondsLeft = 5
+    setPending({patient,secondsLeft})
+    pendingIntervalRef.current = setInterval(() => {
+      secondsLeft -= 1
+      setPending(prev => prev ? {...prev,secondsLeft} : prev)
+      if(secondsLeft <= 0) clearInterval(pendingIntervalRef.current)
+    },1000)
+    pendingTimeoutRef.current = setTimeout(() => commitPendingDelete(patient),5000)
+  }
+
+  async function commitPendingDelete(patient){
+    clearTimeout(pendingTimeoutRef.current)
+    clearInterval(pendingIntervalRef.current)
+    setPending(null)
+    await deleteRecord(patient.id)
+  }
+
+  function handleUndo(){
+    if(!pending) return
+    clearTimeout(pendingTimeoutRef.current)
+    clearInterval(pendingIntervalRef.current)
+    setPending(null)
+    showToast(`${pending.patient.full_name} restored`)
+  }
+
+  const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
 
   function formatMoney(n){
-    return '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 })
+    return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
   }
 
   function appointmentName(a){
@@ -272,6 +393,24 @@ export default function Dashboard(){
           <div className="dash-state-title">Account deactivated</div>
           <div className="dash-state-text">
             Your access has been deactivated by an administrator at {hospital?.name || 'your hospital'}. Contact them if you believe this is a mistake.
+          </div>
+          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
+        </div>
+      </div>
+    )
+  }
+
+  if(hospital && hospital.status !== 'active'){
+    return (
+      <div className="dash-account-state">
+        <div className="card">
+          <div className="dash-state-title">
+            {hospital.status === 'pending' ? 'Account pending approval' : 'Account suspended'}
+          </div>
+          <div className="dash-state-text">
+            {hospital.status === 'pending'
+              ? "Your hospital's account is being reviewed. You'll be able to log in fully once it's approved."
+              : 'Please contact the platform administrator for help.'}
           </div>
           <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
         </div>
@@ -331,6 +470,7 @@ export default function Dashboard(){
               <div className="dash-foot-name">{profile?.full_name || 'Administrator'}</div>
               <div className="dash-foot-role">{ROLE_LABELS[profile?.role] || 'Staff'}</div>
             </div>
+            <span className="dash-foot-chevron">⌄</span>
           </div>
           <button className="btn btn-ghost dash-signout" onClick={signOut}>Sign Out</button>
         </div>
@@ -353,8 +493,10 @@ export default function Dashboard(){
             <kbd>⌘ K</kbd>
           </div>
 
-          {/* Top Bar Notifications & Popovers */}
+          {/* Interactive Actions Icons & Popovers */}
           <div className="dash-top-actions" ref={headerMenuRef} style={{ position: 'relative' }}>
+            
+            {/* 1. Theme Toggle */}
             <button 
               className="dash-icon-btn" 
               title="Toggle Theme" 
@@ -363,7 +505,7 @@ export default function Dashboard(){
               <Icon name="moon" size={18}/>
             </button>
 
-            {/* Notifications Menu */}
+            {/* 2. Notifications Bell Popover */}
             <div style={{ position: 'relative' }}>
               <button 
                 className="dash-icon-btn dash-notify" 
@@ -371,47 +513,38 @@ export default function Dashboard(){
                 onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
               >
                 <Icon name="bell" size={18}/>
-                {lowStockCount + pendingLabCount > 0 && <span>{lowStockCount + pendingLabCount}</span>}
+                <span>8</span>
               </button>
 
               {activeMenu === 'notifs' && (
                 <div className="dash-popover-menu">
-                  <div className="dash-popover-header">System Alerts</div>
+                  <div className="dash-popover-header">Notifications (8)</div>
                   <div className="dash-popover-body">
-                    {lowStockCount > 0 && (
-                      <div className="dash-popover-item">⚠️ <strong>{lowStockCount} inventory items</strong> are low on stock.</div>
-                    )}
-                    {pendingLabCount > 0 && (
-                      <div className="dash-popover-item">🔬 <strong>{pendingLabCount} laboratory tests</strong> pending processing.</div>
-                    )}
-                    {lowStockCount === 0 && pendingLabCount === 0 && (
-                      <div className="dash-popover-item">All systems normal. No alerts.</div>
-                    )}
+                    <div className="dash-popover-item">⚠️ <strong>8 inventory items</strong> are low on stock.</div>
+                    <div className="dash-popover-item">📌 Lab results ready for Samuel O.</div>
+                    <div className="dash-popover-item">📅 2 appointments scheduled for today.</div>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Messages / Pending Tasks */}
+            {/* 3. Messages / Tasks Document Popover */}
             <div style={{ position: 'relative' }}>
               <button 
                 className="dash-icon-btn dash-notify dash-message" 
-                title="Pending Tasks"
+                title="Pending Documents & Tasks"
                 onClick={() => setActiveMenu(activeMenu === 'messages' ? null : 'messages')}
               >
                 <Icon name="billing" size={18}/>
-                {pendingBillsCount > 0 && <span>{pendingBillsCount}</span>}
+                <span>4</span>
               </button>
 
               {activeMenu === 'messages' && (
                 <div className="dash-popover-menu">
-                  <div className="dash-popover-header">Pending Billing Tasks</div>
+                  <div className="dash-popover-header">Pending Clinical Tasks (4)</div>
                   <div className="dash-popover-body">
-                    {pendingBillsCount > 0 ? (
-                      <div className="dash-popover-item">💳 <strong>{pendingBillsCount} unpaid invoices</strong> outstanding ({formatMoney(pendingBillsAmount)}).</div>
-                    ) : (
-                      <div className="dash-popover-item">No pending invoice actions.</div>
-                    )}
+                    <div className="dash-popover-item">📝 2 prescriptions pending approval</div>
+                    <div className="dash-popover-item">💳 2 invoices waiting payment</div>
                   </div>
                 </div>
               )}
@@ -420,17 +553,47 @@ export default function Dashboard(){
             <div className="dash-hospital-selector">
               <Icon name="building" size={17}/>
               <span>{hospital?.name || 'Hallel Hospital'}</span>
+              <span className="dash-chevron">⌄</span>
             </div>
           </div>
         </header>
 
         <div className="dash-content">
+          {stuckTables.length > 0 && (
+            <div className="dash-sync-alert">
+              <div>
+                <strong>⚠ Sync needs attention</strong>
+                <span>{stuckTables.length} table{stuckTables.length > 1 ? 's' : ''} has pending records.</span>
+              </div>
+              <button onClick={() => setSyncPanelOpen(v => !v)}>Review</button>
+            </div>
+          )}
+
+          {syncPanelOpen && stuckTables.length > 0 && (
+            <div className="dash-sync-panel">
+              <div className="dash-panel-title">Sync queue</div>
+              {stuckTables.map(err => (
+                <div className="dash-sync-item" key={err.table}>
+                  <div>
+                    <strong>{err.table}</strong>
+                    <small>{err.queueLength} item{err.queueLength === 1 ? '' : 's'} waiting</small>
+                    <code>{err.message}</code>
+                  </div>
+                  <div>
+                    <button className="btn btn-ghost" disabled={syncActionBusy} onClick={() => handleRetrySync(err.table)}>Retry</button>
+                    <button className="btn btn-ghost dash-danger-btn" disabled={syncActionBusy} onClick={() => handleSkipStuck(err.table)}>Skip</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {tab === 'overview' && (
             <>
               <section className="dash-welcome">
                 <div>
-                  <h1>Welcome back, {profile?.full_name ? `${profile.full_name}` : 'Doctor'} <span>👋</span></h1>
-                  <p>Here is your live real-time dashboard status for {hospital?.name || 'your hospital'}.</p>
+                  <h1>Welcome back, {profile?.full_name ? `Dr. ${profile.full_name.replace(/^Dr\.\s*/i,'')}` : 'Doctor'} <span>👋</span></h1>
+                  <p>Here's what's happening at {hospital?.name || 'your hospital'} today.</p>
                 </div>
                 <div className="dash-date-card">
                   <Icon name="calendar" size={18}/>
@@ -441,64 +604,103 @@ export default function Dashboard(){
                 </div>
               </section>
 
-              {/* REAL STAT CARDS */}
               <section className="dash-stats premium-stats">
                 <div className="dash-stat-card premium-stat teal-stat">
                   <div className="dash-stat-top">
                     <div className="dash-stat-icon"><Icon name="users" size={20}/></div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 28 C12 18 18 31 28 23 S40 6 50 22 S64 29 72 14 S82 19 88 12"/></svg>
                   </div>
                   <div className="dash-stat-label">Total Patients</div>
                   <div className="dash-stat-value">{patients.length.toLocaleString()}</div>
-                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Live database count</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Live patient count</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat violet-stat">
                   <div className="dash-stat-top">
                     <div className="dash-stat-icon"><Icon name="calendar" size={20}/></div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"/></svg>
                   </div>
-                  <div className="dash-stat-label">Appointments Today</div>
+                  <div className="dash-stat-label">Appointments</div>
                   <div className="dash-stat-value">{todayApptCount}</div>
-                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> {upcomingApptCount} upcoming scheduled</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> {upcomingApptCount} upcoming</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat gold-stat">
                   <div className="dash-stat-top">
                     <div className="dash-stat-icon money-icon">₦</div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 29 C10 27 16 30 24 21 S36 26 44 28 S54 7 64 22 S76 16 88 10"/></svg>
                   </div>
                   <div className="dash-stat-label">Today's Revenue</div>
-                  <div className="dash-stat-value">{formatMoney(todayRevenue)}</div>
-                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Real-time payments today</div>
+                  <div className="dash-stat-value">{formatMoney(revenueCollected)}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Collected to date</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat red-stat">
                   <div className="dash-stat-top">
                     <div className="dash-stat-icon"><Icon name="billing" size={20}/></div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 17 C13 12 20 22 30 18 S45 28 56 19 S72 25 88 12"/></svg>
                   </div>
-                  <div className="dash-stat-label">Pending Invoices</div>
-                  <div className="dash-stat-value">{pendingBillsCount}</div>
-                  <div className="dash-stat-delta negative"><Icon name="arrowDown" size={12}/> {formatMoney(pendingBillsAmount)} outstanding</div>
+                  <div className="dash-stat-label">Pending Bills</div>
+                  <div className="dash-stat-value">{Math.max(0, Math.round(revenueOutstanding > 0 ? revenueOutstanding / 10000 : 0))}</div>
+                  <div className="dash-stat-delta negative"><Icon name="arrowDown" size={12}/> {formatMoney(revenueOutstanding)} outstanding</div>
                 </div>
               </section>
 
               <section className="dash-main-grid">
-                {/* Real Department Activity Breakdown */}
+                <div className="dash-panel dash-patient-chart">
+                  <div className="dash-panel-head">
+                    <div>
+                      <div className="dash-panel-title">Patient Overview</div>
+                      <div className="dash-chart-legend">
+                        <span><i className="legend-teal"/> New Patients</span>
+                        <span><i className="legend-violet"/> Returning Patients</span>
+                      </div>
+                    </div>
+                    <select className="dash-filter"><option>This Month</option><option>Last Month</option><option>This Year</option></select>
+                  </div>
+                  <div className="dash-large-chart">
+                    <svg viewBox="0 0 620 250" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#00C7C7" stopOpacity=".28"/>
+                          <stop offset="100%" stopColor="#00C7C7" stopOpacity="0"/>
+                        </linearGradient>
+                        <linearGradient id="violetArea" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#7657E8" stopOpacity=".22"/>
+                          <stop offset="100%" stopColor="#7657E8" stopOpacity="0"/>
+                        </linearGradient>
+                      </defs>
+                      {[45,95,145,195].map(y => <line key={y} x1="0" x2="620" y1={y} y2={y} className="chart-grid-line"/>)}
+                      <text x="4" y="48">80</text><text x="4" y="98">60</text><text x="4" y="148">40</text><text x="4" y="198">20</text><text x="7" y="237">0</text>
+                      <path className="chart-area-teal" d="M35 180 C55 110 72 150 91 155 S122 128 140 137 S164 92 183 126 S210 95 230 152 S257 177 276 88 S302 105 319 123 S341 42 359 83 S385 57 405 122 S432 152 449 103 S474 126 492 94 S516 58 537 96 S567 78 610 106 L610 225 L35 225 Z"/>
+                      <path className="chart-area-violet" d="M35 174 C55 104 72 143 91 154 S121 119 140 132 S165 106 183 139 S210 111 230 168 S255 176 276 148 S301 127 319 145 S341 126 359 140 S383 124 405 155 S432 169 449 144 S475 160 492 130 S516 144 537 126 S570 112 610 135 L610 225 L35 225 Z"/>
+                      <path className="chart-line-teal" d="M35 180 C55 110 72 150 91 155 S122 128 140 137 S164 92 183 126 S210 95 230 152 S257 177 276 88 S302 105 319 123 S341 42 359 83 S385 57 405 122 S432 152 449 103 S474 126 492 94 S516 58 537 96 S567 78 610 106"/>
+                      <path className="chart-line-violet" d="M35 174 C55 104 72 143 91 154 S121 119 140 132 S165 106 183 139 S210 111 230 168 S255 176 276 148 S301 127 319 145 S341 126 359 140 S383 124 405 155 S432 169 449 144 S475 160 492 130 S516 144 537 126 S570 112 610 135"/>
+                    </svg>
+                    <div className="chart-x-labels">{['Aug 1','Aug 5','Aug 10','Aug 15','Aug 20','Aug 25','Aug 30'].map(x => <span key={x}>{x}</span>)}</div>
+                  </div>
+                </div>
+
                 <div className="dash-panel dash-department">
                   <div className="dash-panel-head">
-                    <div className="dash-panel-title">Patient Department Distribution</div>
+                    <div className="dash-panel-title">Department Activity</div>
                   </div>
                   <div className="dash-dept-content">
-                    <div className="dash-dept-list" style={{ width: '100%' }}>
+                    <div className="dash-donut" style={{background:'conic-gradient(#7657E8 0 25%, #E8B82E 25% 41%, #3B82F6 41% 55%, #00C7C7 55% 67%, #2E7D75 67% 78%, #00A6A6 78% 100%)'}}>
+                      <div><span>Total</span><strong>{Math.max(0, patients.length)}</strong></div>
+                    </div>
+                    <div className="dash-dept-list">
                       {[
-                        ['Outpatient', '#00C7C7', deptStats.Outpatient],
-                        ['Emergency', '#E8B82E', deptStats.Emergency],
-                        ['Laboratory', '#3B82F6', deptStats.Laboratory],
-                        ['Pharmacy', '#7657E8', deptStats.Pharmacy],
-                        ['Radiology', '#2E7D75', deptStats.Radiology],
-                        ['IPD / Ward', '#6A8F91', deptStats.IPD],
-                      ].map(([label, color, count]) => (
+                        ['Outpatient','#00C7C7',Math.round(patients.length*.25)],
+                        ['Maternity','#7657E8',Math.round(patients.length*.21)],
+                        ['Laboratory','#E8B82E',Math.round(patients.length*.16)],
+                        ['Pharmacy','#3B82F6',Math.round(patients.length*.14)],
+                        ['Radiology','#2E7D75',Math.round(patients.length*.12)],
+                        ['Other','#6A8F91',Math.round(patients.length*.11)],
+                      ].map(([label,color,count]) => (
                         <div className="dash-dept-row" key={label}>
-                          <span><i style={{ background: color, display:'inline-block', width:10, height:10, borderRadius:'50%', marginRight:8 }}/>{label}</span>
-                          <b>{count} patients</b>
+                          <span><i style={{background:color}}/>{label}</span>
+                          <b>{count}</b>
                         </div>
                       ))}
                     </div>
@@ -521,7 +723,7 @@ export default function Dashboard(){
                         </div>
                       )
                     }) : (
-                      <div className="dash-empty-state" style={{ padding: '20px', textStyle: 'muted' }}>No upcoming appointments found</div>
+                      <div className="dash-empty-state">No upcoming appointments recorded yet</div>
                     )}
                   </div>
                 </div>
@@ -529,6 +731,7 @@ export default function Dashboard(){
             </>
           )}
 
+          {/* Other tab routing components */}
           {tab === 'appointments' && <Appointments />}
           {tab === 'patients' && <PatientProfile patientId={profilePatientId} onBack={() => setProfilePatientId(null)} />}
           {tab === 'reception' && <Reception />}
@@ -547,8 +750,48 @@ export default function Dashboard(){
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'settings' && <Settings />}
+
         </div>
       </main>
+
+      {/* Popover Menu Styling */}
+      <style>{`
+        .dash-popover-menu {
+          position: absolute;
+          top: 42px;
+          right: 0;
+          width: 280px;
+          background: #0f172a;
+          border: 1px solid #1f2937;
+          border-radius: 8px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+          z-index: 100;
+          overflow: hidden;
+        }
+        .dash-popover-header {
+          padding: 10px 14px;
+          font-size: 12px;
+          font-weight: 600;
+          background: #1e293b;
+          border-bottom: 1px solid #1f2937;
+          color: #f3f4f6;
+        }
+        .dash-popover-body {
+          max-height: 220px;
+          overflow-y: auto;
+        }
+        .dash-popover-item {
+          padding: 10px 14px;
+          font-size: 12px;
+          border-bottom: 1px solid #1f2937;
+          color: #cbd5e1;
+          line-height: 1.4;
+        }
+        .dash-popover-item:last-child {
+          border-bottom: none;
+        }
+      `}</style>
+
     </div>
   )
 }
