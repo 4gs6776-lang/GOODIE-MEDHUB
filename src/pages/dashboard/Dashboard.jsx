@@ -71,7 +71,6 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
 
 // Which modules each department can see. Admin/owner always see everything
-// and aren't listed here — handled separately via FULL_ACCESS_ROLES.
 const ROLE_ACCESS = {
   doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
   nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
@@ -83,8 +82,6 @@ const ROLE_ACCESS = {
 const FULL_ACCESS_ROLES = ['admin', 'owner']
 const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
 
-// Same shift styling used in DutyRoster.jsx, kept in sync so the
-// dashboard preview looks consistent with the full roster page.
 const SHIFT_STYLE = {
   M: { background: 'rgba(201,169,97,0.16)', color: 'var(--gold)' },
   N: { background: 'rgba(76,141,255,0.16)', color: 'var(--blue)' },
@@ -144,6 +141,10 @@ export default function Dashboard(){
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [syncActionBusy, setSyncActionBusy] = useState(false)
 
+  // Top header popover states
+  const [activeMenu, setActiveMenu] = useState(null) // 'notifs' | 'messages' | null
+  const headerMenuRef = useRef(null)
+
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
 
   const [profilePatientId, setProfilePatientId] = useState(null)
@@ -165,8 +166,6 @@ export default function Dashboard(){
   const pendingTimeoutRef = useRef(null)
   const pendingIntervalRef = useRef(null)
 
-  // Today's Duty preview — pulled from the same rosters/roster_entries
-  // tables DutyRoster.jsx uses, filtered to just today's date.
   const [todayDuty, setTodayDuty] = useState([])
   const [loadingDuty, setLoadingDuty] = useState(true)
 
@@ -175,6 +174,17 @@ export default function Dashboard(){
   useEffect(() => {
     if (allowedKeys && !allowedKeys.includes(tab)) setTab('overview')
   }, [allowedKeys, tab])
+
+  // Close top header popovers when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) {
+        setActiveMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const stuckTables = Object.values(syncErrors)
 
@@ -350,8 +360,6 @@ export default function Dashboard(){
   }
 
   const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
-  const inReviewCount = patients.filter(p => p.status === 'review').length
-  const maxWeekly = Math.max(...weeklyCounts,1)
 
   function formatMoney(n){
     return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
@@ -372,12 +380,6 @@ export default function Dashboard(){
     })
     .sort((a,b) => new Date(a.appointment_time) - new Date(b.appointment_time))
     .slice(0,5)
-
-  const filteredPatients = displayedPatients.filter(p =>
-    !search.trim() ||
-    String(p.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    String(p.age || '').includes(search)
-  )
 
   if(profile?.role === 'owner'){
     window.location.href = '/owner'
@@ -475,6 +477,7 @@ export default function Dashboard(){
       </aside>
 
       <main className="dash-main">
+        {/* Top Header Bar */}
         <header className="dash-topbar">
           <div className="dash-burger" onClick={() => setDrawerOpen(true)}>
             <Icon name="menu" size={21}/>
@@ -490,10 +493,63 @@ export default function Dashboard(){
             <kbd>⌘ K</kbd>
           </div>
 
-          <div className="dash-top-actions">
-            <button className="dash-icon-btn" title="Dark mode"><Icon name="moon" size={18}/></button>
-            <button className="dash-icon-btn dash-notify" title="Notifications"><Icon name="bell" size={18}/><span>8</span></button>
-            <button className="dash-icon-btn dash-notify dash-message" title="Messages"><Icon name="billing" size={18}/><span>4</span></button>
+          {/* Interactive Actions Icons & Popovers */}
+          <div className="dash-top-actions" ref={headerMenuRef} style={{ position: 'relative' }}>
+            
+            {/* 1. Theme Toggle */}
+            <button 
+              className="dash-icon-btn" 
+              title="Toggle Theme" 
+              onClick={() => document.body.classList.toggle('light-mode')}
+            >
+              <Icon name="moon" size={18}/>
+            </button>
+
+            {/* 2. Notifications Bell Popover */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                className="dash-icon-btn dash-notify" 
+                title="Notifications"
+                onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
+              >
+                <Icon name="bell" size={18}/>
+                <span>8</span>
+              </button>
+
+              {activeMenu === 'notifs' && (
+                <div className="dash-popover-menu">
+                  <div className="dash-popover-header">Notifications (8)</div>
+                  <div className="dash-popover-body">
+                    <div className="dash-popover-item">⚠️ <strong>8 inventory items</strong> are low on stock.</div>
+                    <div className="dash-popover-item">📌 Lab results ready for Samuel O.</div>
+                    <div className="dash-popover-item">📅 2 appointments scheduled for today.</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3. Messages / Tasks Document Popover */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                className="dash-icon-btn dash-notify dash-message" 
+                title="Pending Documents & Tasks"
+                onClick={() => setActiveMenu(activeMenu === 'messages' ? null : 'messages')}
+              >
+                <Icon name="billing" size={18}/>
+                <span>4</span>
+              </button>
+
+              {activeMenu === 'messages' && (
+                <div className="dash-popover-menu">
+                  <div className="dash-popover-header">Pending Clinical Tasks (4)</div>
+                  <div className="dash-popover-body">
+                    <div className="dash-popover-item">📝 2 prescriptions pending approval</div>
+                    <div className="dash-popover-item">💳 2 invoices waiting payment</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="dash-hospital-selector">
               <Icon name="building" size={17}/>
               <span>{hospital?.name || 'Hallel Hospital'}</span>
@@ -663,164 +719,79 @@ export default function Dashboard(){
                         <div className="dash-appt-row" key={a.id || i}>
                           <strong>{d.toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</strong>
                           <div><b>{appointmentName(a)}</b><span>{appointmentReason(a)}</span></div>
-                          <em className={a.status === 'scheduled' || a.status === 'confirmed' ? 'confirmed' : 'pending'}>{a.status || 'Scheduled'}</em>
+                          <em className={a.status || 'scheduled'}>{a.status || 'Scheduled'}</em>
                         </div>
                       )
                     }) : (
-                      <div className="dash-empty">No upcoming appointments found.</div>
+                      <div className="dash-empty-state">No upcoming appointments recorded yet</div>
                     )}
                   </div>
-                </div>
-
-                <div className="dash-panel dash-duty-today">
-                  <div className="dash-panel-head">
-                    <div className="dash-panel-title">Today's Duty</div>
-                    <button className="dash-view-all" onClick={() => setTab('roster')}>View full roster</button>
-                  </div>
-                  {loadingDuty ? (
-                    <div className="dash-empty">Loading…</div>
-                  ) : todayDuty.length === 0 ? (
-                    <div className="dash-empty">No shifts assigned for today yet.</div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {todayDuty.map((d, i) => {
-                        const style = SHIFT_STYLE[d.shift] || { background: 'rgba(255,255,255,0.04)', color: 'var(--muted)' }
-                        return (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: 13 }}>{d.name}</div>
-                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{ROLE_LABELS[d.role] || d.role || 'Staff'}</div>
-                            </div>
-                            <span style={{ ...style, padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800 }}>{d.shift}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="dash-panel dash-recent">
-                  <div className="dash-panel-head">
-                    <div className="dash-panel-title">Recent Patients</div>
-                    <button className="dash-view-all" onClick={() => setTab('patients')}>View all</button>
-                  </div>
-                  <div className="dash-table-wrap">
-                    <table className="dash-patient-table">
-                      <thead>
-                        <tr><th>Patient Name</th><th>Age</th><th>Status</th><th>Department</th><th>Registered</th><th></th></tr>
-                      </thead>
-                      <tbody>
-                        {filteredPatients.slice(0,6).map(p => (
-                          <tr key={p.id}>
-                            <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer' }}><div className="dash-patient-name"><span>{String(p.full_name || 'P').charAt(0).toUpperCase()}</span>{p.full_name}</div></td>
-                            <td>{p.age || '—'}</td>
-                            <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                            <td>{p.department || 'General OPD'}</td>
-                            <td>{p.created_at ? new Date(p.created_at).toLocaleString('en-NG',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—'}</td>
-                            <td><button className="dash-more" onClick={() => setProfilePatientId(p.id)}><Icon name="more" size={17}/></button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {filteredPatients.length === 0 && <div className="dash-empty">No patients yet.</div>}
-                  </div>
-                </div>
-
-                <div className="dash-panel dash-revenue">
-                  <div className="dash-panel-head">
-                    <div>
-                      <div className="dash-panel-title">Revenue Overview</div>
-                      <strong className="dash-revenue-total">{formatMoney(revenueCollected)}</strong>
-                      <span className="dash-revenue-change">↑ Collected</span>
-                    </div>
-                    <select className="dash-filter"><option>This Month</option><option>Last Month</option></select>
-                  </div>
-                  <div className="dash-bars">
-                    {[28,36,42,50,56,68,74,54,47,63,57,71,83,72,61,79,92,76,84,69,88,74,81,66,78,70,85,73,79].map((h,i) => <i key={i} style={{height:`${h}%`}}/>)}
-                  </div>
-                  <div className="dash-bar-labels"><span>Aug 1</span><span>Aug 8</span><span>Aug 15</span><span>Aug 22</span><span>Aug 29</span></div>
                 </div>
               </section>
             </>
           )}
 
-          {tab === 'patients' && (
-            <div className="dash-panel">
-              <div className="dash-panel-head">
-                <div>
-                  <div className="dash-panel-title">All Patients</div>
-                  <div className="dash-panel-sub">Only {hospital?.name || 'your hospital'} can see this list</div>
-                </div>
-                <button className="btn btn-primary" style={{width:'auto'}} onClick={() => setShowModal(true)}>+ Add Patient</button>
-              </div>
-              {loading ? (
-                <div className="dash-empty">Loading…</div>
-              ) : filteredPatients.length === 0 ? (
-                <div className="dash-empty">No patients yet. Add your first one above.</div>
-              ) : (
-                <table className="dash-full-table">
-                  <thead><tr><th>Name</th><th>Age</th><th>Status</th><th></th></tr></thead>
-                  <tbody>
-                    {filteredPatients.map(p => (
-                      <tr key={p.id}>
-                        <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer' }}>{p.full_name}</td>
-                        <td>{p.age}</td>
-                        <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                        <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-
-          {tab === 'billing' && <Billing />}
-          {tab === 'staff' && <Staff />}
+          {/* Other tab routing components */}
           {tab === 'appointments' && <Appointments />}
-          {tab === 'pharmacy' && <Pharmacy />}
+          {tab === 'patients' && <PatientProfile patientId={profilePatientId} onBack={() => setProfilePatientId(null)} />}
+          {tab === 'reception' && <Reception />}
+          {tab === 'billing' && <Billing />}
           {tab === 'laboratory' && <Laboratory />}
-          {tab === 'nursing' && <Nursing />}
-          {tab === 'doctor' && <DoctorWorkbench />}
+          {tab === 'pharmacy' && <Pharmacy />}
           {tab === 'radiology' && <Radiology />}
-          {tab === 'insurance' && <Insurance />}
           {tab === 'inventory' && <Inventory />}
+          {tab === 'staff' && <Staff />}
+          {tab === 'doctor' && <DoctorWorkbench />}
+          {tab === 'nursing' && <Nursing />}
+          {tab === 'ipd' && <IPD />}
+          {tab === 'admissions' && <Admissions />}
+          {tab === 'insurance' && <Insurance />}
           {tab === 'reports' && <Reports />}
           {tab === 'notifications' && <Notifications />}
-          {tab === 'ipd' && <IPD onGoToAdmissions={() => setTab('admissions')} />}
-          {tab === 'admissions' && <Admissions />}
           {tab === 'roster' && <DutyRoster />}
-          {tab === 'reception' && <Reception />}
           {tab === 'settings' && <Settings />}
+
         </div>
       </main>
 
-      {showModal && (
-        <div className="dash-modal-backdrop">
-          <div className="card dash-modal">
-            <div className="dash-modal-title">Register Patient</div>
-            <form onSubmit={handleAdd}>
-              <div className="field"><label>Full Name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Chinedu Okafor"/></div>
-              <div className="field"><label>Age</label><input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 34"/></div>
-              <div className="field"><label>Status</label><select value={status} onChange={e => setStatus(e.target.value)}><option value="stable">Stable</option><option value="review">In Review</option></select></div>
-              <div className="dash-modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Patient'}</button></div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Popover Menu Styling */}
+      <style>{`
+        .dash-popover-menu {
+          position: absolute;
+          top: 42px;
+          right: 0;
+          width: 280px;
+          background: #0f172a;
+          border: 1px solid #1f2937;
+          border-radius: 8px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+          z-index: 100;
+          overflow: hidden;
+        }
+        .dash-popover-header {
+          padding: 10px 14px;
+          font-size: 12px;
+          font-weight: 600;
+          background: #1e293b;
+          border-bottom: 1px solid #1f2937;
+          color: #f3f4f6;
+        }
+        .dash-popover-body {
+          max-height: 220px;
+          overflow-y: auto;
+        }
+        .dash-popover-item {
+          padding: 10px 14px;
+          font-size: 12px;
+          border-bottom: 1px solid #1f2937;
+          color: #cbd5e1;
+          line-height: 1.4;
+        }
+        .dash-popover-item:last-child {
+          border-bottom: none;
+        }
+      `}</style>
 
-      {pending ? (
-        <div className="dash-toast dash-undo-toast">
-          <span>{pending.patient.full_name} removed ({pending.secondsLeft}s)</span>
-          <button onClick={handleUndo}>Undo</button>
-        </div>
-      ) : toast && (
-        <div className="dash-toast">{toast}</div>
-      )}
-
-      {profilePatientId && (
-        <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
-      )}
     </div>
   )
 }
