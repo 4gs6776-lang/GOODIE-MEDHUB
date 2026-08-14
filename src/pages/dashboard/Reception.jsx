@@ -16,100 +16,23 @@ const CATEGORIES = [
 ]
 
 const NIGERIAN_STATES = [
-  'Abia',
-  'Adamawa',
-  'Akwa Ibom',
-  'Anambra',
-  'Bauchi',
-  'Bayelsa',
-  'Benue',
-  'Borno',
-  'Cross River',
-  'Delta',
-  'Ebonyi',
-  'Edo',
-  'Ekiti',
-  'Enugu',
-  'FCT (Abuja)',
-  'Gombe',
-  'Imo',
-  'Jigawa',
-  'Kaduna',
-  'Kano',
-  'Katsina',
-  'Kebbi',
-  'Kogi',
-  'Kwara',
-  'Lagos',
-  'Nasarawa',
-  'Niger',
-  'Ogun',
-  'Ondo',
-  'Osun',
-  'Oyo',
-  'Plateau',
-  'Rivers',
-  'Sokoto',
-  'Taraba',
-  'Yobe',
-  'Zamfara',
+  'Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
+  'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)',
+  'Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara',
+  'Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers',
+  'Sokoto','Taraba','Yobe','Zamfara',
 ]
 
 const AFRICAN_COUNTRIES = [
-  'Algeria',
-  'Angola',
-  'Benin',
-  'Botswana',
-  'Burkina Faso',
-  'Burundi',
-  'Cabo Verde',
-  'Cameroon',
-  'Central African Republic',
-  'Chad',
-  'Comoros',
-  'Congo (Republic)',
-  'Congo (DRC)',
-  'Djibouti',
-  'Egypt',
-  'Equatorial Guinea',
-  'Eritrea',
-  'Eswatini',
-  'Ethiopia',
-  'Gabon',
-  'Gambia',
-  'Ghana',
-  'Guinea',
-  'Guinea-Bissau',
-  'Ivory Coast',
-  'Kenya',
-  'Lesotho',
-  'Liberia',
-  'Libya',
-  'Madagascar',
-  'Malawi',
-  'Mali',
-  'Mauritania',
-  'Mauritius',
-  'Morocco',
-  'Mozambique',
-  'Namibia',
-  'Niger',
-  'Nigeria',
-  'Rwanda',
-  'Sao Tome and Principe',
-  'Senegal',
-  'Seychelles',
-  'Sierra Leone',
-  'Somalia',
-  'South Africa',
-  'South Sudan',
-  'Sudan',
-  'Tanzania',
-  'Togo',
-  'Tunisia',
-  'Uganda',
-  'Zambia',
-  'Zimbabwe',
+  'Algeria','Angola','Benin','Botswana','Burkina Faso','Burundi','Cabo Verde',
+  'Cameroon','Central African Republic','Chad','Comoros','Congo (Republic)',
+  'Congo (DRC)','Djibouti','Egypt','Equatorial Guinea','Eritrea','Eswatini',
+  'Ethiopia','Gabon','Gambia','Ghana','Guinea','Guinea-Bissau','Ivory Coast',
+  'Kenya','Lesotho','Liberia','Libya','Madagascar','Malawi','Mali',
+  'Mauritania','Mauritius','Morocco','Mozambique','Namibia','Niger',
+  'Nigeria','Rwanda','Sao Tome and Principe','Senegal','Seychelles',
+  'Sierra Leone','Somalia','South Africa','South Sudan','Sudan','Tanzania',
+  'Togo','Tunisia','Uganda','Zambia','Zimbabwe',
 ]
 
 const QUEUE_STAGES = [
@@ -184,9 +107,8 @@ function compressImage(file, maxWidth = 240) {
         const scale = Math.min(1, maxWidth / img.width)
 
         const canvas = document.createElement('canvas')
-
-        canvas.width = img.width * scale
-        canvas.height = img.height * scale
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
 
         const ctx = canvas.getContext('2d')
 
@@ -209,14 +131,14 @@ function compressImage(file, maxWidth = 240) {
       }
 
       img.onerror = () => {
-        reject(new Error('Could not load image'))
+        reject(new Error('Could not read image'))
       }
 
       img.src = reader.result
     }
 
     reader.onerror = () => {
-      reject(new Error('Could not read image'))
+      reject(new Error('Could not read selected file'))
     }
 
     reader.readAsDataURL(file)
@@ -226,8 +148,14 @@ function compressImage(file, maxWidth = 240) {
 function timeSince(iso) {
   if (!iso) return ''
 
+  const date = new Date(iso)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
   const mins = Math.floor(
-    (Date.now() - new Date(iso).getTime()) / 60000
+    (Date.now() - date.getTime()) / 60000
   )
 
   if (mins < 1) return 'just now'
@@ -254,14 +182,16 @@ function calculateAge(dobStr) {
     today.getFullYear() -
     dob.getFullYear()
 
-  const m =
+  const month =
     today.getMonth() -
     dob.getMonth()
 
   if (
-    m < 0 ||
-    (m === 0 &&
-      today.getDate() < dob.getDate())
+    month < 0 ||
+    (
+      month === 0 &&
+      today.getDate() < dob.getDate()
+    )
   ) {
     age--
   }
@@ -301,47 +231,46 @@ export default function Reception() {
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
-
-  const fileInputRef = useRef(null)
-
   const [form, setForm] = useState(EMPTY_FORM)
   const [photoData, setPhotoData] = useState(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
+  const fileInputRef = useRef(null)
+
   function set(key, value) {
-    setForm(f => ({
-      ...f,
+    setForm(current => ({
+      ...current,
       [key]: value,
     }))
   }
 
   function handleDobChange(value) {
-    setForm(f => ({
-      ...f,
+    setForm(current => ({
+      ...current,
       dateOfBirth: value,
       age: calculateAge(value),
     }))
   }
 
   function handleLmpChange(value) {
-    setForm(f => ({
-      ...f,
+    setForm(current => ({
+      ...current,
       ancLmp: value,
       ancEdd: calculateEdd(value),
     }))
   }
 
-  function showToast(msg) {
-    setToast(msg)
+  function showToast(message) {
+    setToast(message)
 
     setTimeout(() => {
       setToast(null)
     }, 3000)
   }
 
-  async function handlePhotoSelect(e) {
-    const file = e.target.files?.[0]
+  async function handlePhotoSelect(event) {
+    const file = event.target.files?.[0]
 
     if (!file) return
 
@@ -349,30 +278,21 @@ export default function Reception() {
       const compressed = await compressImage(file)
 
       setPhotoData(compressed)
-    } catch (err) {
-      console.error('Photo processing error:', err)
+    } catch (error) {
+      console.error(error)
       showToast('Could not process photo')
     }
   }
 
-  /*
-   * ============================================================
-   * REGISTER PATIENT
-   * ============================================================
-   *
-   * Important:
-   * full_name is required by the patients table.
-   *
-   * We therefore build and validate full_name BEFORE sending
-   * anything to Supabase.
-   */
-
-  async function handleRegister(e) {
-    e.preventDefault()
+  async function handleRegister(event) {
+    event.preventDefault()
 
     setFormError('')
 
-    // Clean the two name fields
+    /*
+     * IMPORTANT:
+     * Build the patient's name here explicitly.
+     */
     const surname = String(
       form.surname || ''
     ).trim()
@@ -381,29 +301,37 @@ export default function Reception() {
       form.otherNames || ''
     ).trim()
 
-    // Build the required full name
     const fullName = `${surname} ${otherNames}`.trim()
 
-    // Validate names
-    if (!surname || !otherNames) {
-      setFormError(
-        'Surname and other names are required.'
-      )
+    /*
+     * Validate the actual value that will be
+     * sent to Supabase.
+     */
+    if (!surname) {
+      setFormError('Surname is required.')
       return
     }
 
-    // Extra protection against null/empty full_name
+    if (!otherNames) {
+      setFormError('Other names are required.')
+      return
+    }
+
     if (!fullName) {
+      setFormError('Patient full name could not be created.')
+      return
+    }
+
+    if (!hospital?.id) {
       setFormError(
-        'Patient full name is required.'
+        'Hospital information is not ready. Please wait a moment and try again.'
       )
       return
     }
 
-    // Make sure authentication data is ready
-    if (!hospital?.id || !profile?.id) {
+    if (!profile?.id) {
       setFormError(
-        'Still loading your account — try again in a moment.'
+        'Your account information is not ready. Please wait a moment and try again.'
       )
       return
     }
@@ -415,13 +343,21 @@ export default function Reception() {
         form.category === 'anc'
 
       /*
-       * This is the exact patient object that will be stored.
+       * This is the exact patient object.
+       *
+       * full_name is deliberately created
+       * immediately before addRecord().
        */
       const patientData = {
-        // REQUIRED
         full_name: fullName,
 
-        // Basic patient information
+        /*
+         * Keep these too if the database contains
+         * the columns.
+         */
+        surname: surname,
+        other_names: otherNames,
+
         age: form.age
           ? parseInt(form.age, 10)
           : null,
@@ -430,10 +366,10 @@ export default function Reception() {
           form.gender || null,
 
         phone:
-          form.phone || null,
+          form.phone?.trim() || null,
 
         email:
-          form.email || null,
+          form.email?.trim() || null,
 
         marital_status:
           form.maritalStatus || null,
@@ -448,13 +384,13 @@ export default function Reception() {
           form.genotype || null,
 
         nationality:
-          form.nationality || null,
+          form.nationality?.trim() || null,
 
         state_of_origin:
           form.stateOfOrigin || null,
 
         occupation:
-          form.occupation || null,
+          form.occupation?.trim() || null,
 
         religion:
           form.religion || null,
@@ -463,78 +399,68 @@ export default function Reception() {
           form.category || null,
 
         address:
-          form.homeAddress || null,
+          form.homeAddress?.trim() || null,
 
         /*
-         * ======================================================
-         * ANC INFORMATION
-         * ======================================================
+         * ANC
          */
+        anc_special_point:
+          isAnc
+            ? form.ancSpecialPoint?.trim() || null
+            : null,
 
-        anc_special_point: isAnc
-          ? form.ancSpecialPoint || null
-          : null,
+        anc_date_of_booking:
+          isAnc
+            ? form.ancDateOfBooking || null
+            : null,
 
-        anc_date_of_booking: isAnc
-          ? form.ancDateOfBooking || null
-          : null,
+        anc_indication:
+          isAnc
+            ? form.ancIndication?.trim() || null
+            : null,
 
-        anc_indication: isAnc
-          ? form.ancIndication || null
-          : null,
+        anc_lmp:
+          isAnc
+            ? form.ancLmp || null
+            : null,
 
-        anc_lmp: isAnc
-          ? form.ancLmp || null
-          : null,
+        anc_edd:
+          isAnc
+            ? form.ancEdd || null
+            : null,
 
-        anc_edd: isAnc
-          ? form.ancEdd || null
-          : null,
+        anc_husband_name:
+          isAnc
+            ? form.ancHusbandName?.trim() || null
+            : null,
 
-        anc_husband_name: isAnc
-          ? form.ancHusbandName || null
-          : null,
+        anc_husband_occupation:
+          isAnc
+            ? form.ancHusbandOccupation?.trim() || null
+            : null,
 
-        anc_husband_occupation: isAnc
-          ? form.ancHusbandOccupation || null
-          : null,
-
-        anc_employer: isAnc
-          ? form.ancEmployer || null
-          : null,
+        anc_employer:
+          isAnc
+            ? form.ancEmployer?.trim() || null
+            : null,
 
         /*
-         * ======================================================
-         * NEXT OF KIN
-         * ======================================================
+         * Next of kin
          */
-
         emergency_contact_name:
-          form.nokName || null,
+          form.nokName?.trim() || null,
 
         emergency_contact_phone:
-          form.nokPhone || null,
+          form.nokPhone?.trim() || null,
 
         next_of_kin_relationship:
-          form.nokRelationship || null,
+          form.nokRelationship?.trim() || null,
 
         next_of_kin_address:
-          form.nokAddress || null,
-
-        /*
-         * ======================================================
-         * PHOTO
-         * ======================================================
-         */
+          form.nokAddress?.trim() || null,
 
         photo_data:
           photoData || null,
-
-        /*
-         * ======================================================
-         * QUEUE
-         * ======================================================
-         */
 
         status: 'stable',
 
@@ -543,35 +469,29 @@ export default function Reception() {
         queue_updated_at:
           new Date().toISOString(),
 
-        /*
-         * ======================================================
-         * USER / HOSPITAL
-         * ======================================================
-         */
-
-        created_by: profile.id,
-
-        hospital_id: hospital.id,
+        created_by:
+          profile.id,
       }
 
       /*
-       * Useful while testing.
-       * You will see the exact object in the browser console.
+       * Final safety check.
        */
       console.log(
-        'Registering patient:',
+        'PATIENT BEING SAVED:',
         patientData
       )
 
-      /*
-       * Save patient through the offline table.
-       * It will save locally and sync to Supabase.
-       */
+      if (
+        !patientData.full_name ||
+        patientData.full_name === 'null'
+      ) {
+        throw new Error(
+          'Patient full name is empty. Registration was stopped.'
+        )
+      }
+
       await addRecord(patientData)
 
-      /*
-       * Success
-       */
       setShowModal(false)
 
       resetForm()
@@ -581,26 +501,25 @@ export default function Reception() {
           ? `${fullName} registered and checked in`
           : `${fullName} registered — will sync when back online`
       )
-
-    } catch (err) {
+    } catch (error) {
       console.error(
-        'Patient registration failed:',
-        err
+        'PATIENT REGISTRATION ERROR:',
+        error
       )
 
       setFormError(
-        err?.message ||
-        err?.error_description ||
+        error?.message ||
         'Could not register patient'
       )
-
     } finally {
       setSaving(false)
     }
   }
 
   function resetForm() {
-    setForm(EMPTY_FORM)
+    setForm({
+      ...EMPTY_FORM,
+    })
 
     setPhotoData(null)
 
@@ -622,15 +541,10 @@ export default function Reception() {
             new Date().toISOString(),
         }
       )
-    } catch (err) {
-      console.error(
-        'Could not move patient:',
-        err
-      )
-
+    } catch (error) {
       showToast(
-        err?.message ||
-        'Could not update patient queue'
+        error?.message ||
+        'Could not update queue'
       )
     }
   }
@@ -647,22 +561,16 @@ export default function Reception() {
       showToast(
         `${patient.full_name} removed from queue`
       )
-
-    } catch (err) {
-      console.error(
-        'Could not remove patient:',
-        err
-      )
-
+    } catch (error) {
       showToast(
-        err?.message ||
-        'Could not remove patient from queue'
+        error?.message ||
+        'Could not remove patient'
       )
     }
   }
 
   const inQueue = patients.filter(
-    p => p.queue_status
+    patient => patient.queue_status
   )
 
   const queueSearch =
@@ -670,13 +578,13 @@ export default function Reception() {
 
   const visibleQueue =
     queueSearch
-      ? inQueue.filter(p =>
+      ? inQueue.filter(patient =>
           [
-            p.full_name,
-            p.patient_id,
-            p.phone,
-          ].some(v =>
-            String(v || '')
+            patient.full_name,
+            patient.patient_id,
+            patient.phone,
+          ].some(value =>
+            String(value || '')
               .toLowerCase()
               .includes(queueSearch)
           )
@@ -685,9 +593,7 @@ export default function Reception() {
 
   return (
     <>
-      {/* ======================================================
-          RECEPTION HEADER
-          ====================================================== */}
+      {/* ================= HEADER ================= */}
 
       <div
         className="dash-panel"
@@ -696,6 +602,7 @@ export default function Reception() {
         }}
       >
         <div className="dash-panel-head">
+
           <div>
             <div className="dash-panel-title">
               Reception
@@ -753,6 +660,7 @@ export default function Reception() {
           >
             + Register &amp; Check In
           </button>
+
         </div>
 
         <div
@@ -766,9 +674,7 @@ export default function Reception() {
         </div>
       </div>
 
-      {/* ======================================================
-          QUEUE
-          ====================================================== */}
+      {/* ================= QUEUE ================= */}
 
       {loading ? (
         <div
@@ -783,11 +689,13 @@ export default function Reception() {
         </div>
       ) : (
         <div className="dash-row dash-row-2b">
+
           {QUEUE_STAGES.map(stage => {
+
             const stagePatients =
               visibleQueue.filter(
-                p =>
-                  p.queue_status ===
+                patient =>
+                  patient.queue_status ===
                   stage.key
               )
 
@@ -796,6 +704,7 @@ export default function Reception() {
                 className="dash-panel"
                 key={stage.key}
               >
+
                 <div
                   style={{
                     display: 'flex',
@@ -804,6 +713,7 @@ export default function Reception() {
                     marginBottom: 14,
                   }}
                 >
+
                   <span
                     style={{
                       width: 8,
@@ -835,9 +745,11 @@ export default function Reception() {
                   >
                     {stagePatients.length}
                   </span>
+
                 </div>
 
                 {stagePatients.length === 0 ? (
+
                   <div
                     style={{
                       color: 'var(--muted)',
@@ -847,7 +759,9 @@ export default function Reception() {
                   >
                     No patients here
                   </div>
+
                 ) : (
+
                   <div
                     style={{
                       display: 'flex',
@@ -855,9 +769,11 @@ export default function Reception() {
                       gap: 8,
                     }}
                   >
-                    {stagePatients.map(p => (
+
+                    {stagePatients.map(patient => (
+
                       <div
-                        key={p.id}
+                        key={patient.id}
                         style={{
                           border:
                             '1px solid var(--line)',
@@ -868,9 +784,11 @@ export default function Reception() {
                           gap: 10,
                         }}
                       >
-                        {p.photo_data ? (
+
+                        {patient.photo_data ? (
+
                           <img
-                            src={p.photo_data}
+                            src={patient.photo_data}
                             alt=""
                             style={{
                               width: 32,
@@ -880,7 +798,9 @@ export default function Reception() {
                               flexShrink: 0,
                             }}
                           />
+
                         ) : (
+
                           <div
                             style={{
                               width: 32,
@@ -899,11 +819,11 @@ export default function Reception() {
                                 stage.color,
                             }}
                           >
-                            {p.full_name
-                              ?.trim()
+                            {patient.full_name
                               ?.charAt(0)
                               ?.toUpperCase()}
                           </div>
+
                         )}
 
                         <div
@@ -912,6 +832,7 @@ export default function Reception() {
                             minWidth: 0,
                           }}
                         >
+
                           <div
                             style={{
                               fontSize: 12.5,
@@ -924,7 +845,7 @@ export default function Reception() {
                                 'ellipsis',
                             }}
                           >
-                            {p.full_name}
+                            {patient.full_name}
                           </div>
 
                           <div
@@ -935,17 +856,18 @@ export default function Reception() {
                             }}
                           >
                             {timeSince(
-                              p.queue_updated_at
+                              patient.queue_updated_at
                             )}
                           </div>
+
                         </div>
 
                         <select
                           value={stage.key}
-                          onChange={e =>
+                          onChange={event =>
                             moveStage(
-                              p,
-                              e.target.value
+                              patient,
+                              event.target.value
                             )
                           }
                           style={{
@@ -963,12 +885,18 @@ export default function Reception() {
                           }}
                         >
                           {QUEUE_STAGES.map(
-                            s => (
+                            queueStage => (
                               <option
-                                key={s.key}
-                                value={s.key}
+                                key={
+                                  queueStage.key
+                                }
+                                value={
+                                  queueStage.key
+                                }
                               >
-                                {s.label}
+                                {
+                                  queueStage.label
+                                }
                               </option>
                             )
                           )}
@@ -976,7 +904,9 @@ export default function Reception() {
 
                         <button
                           onClick={() =>
-                            removeFromQueue(p)
+                            removeFromQueue(
+                              patient
+                            )
                           }
                           style={{
                             background:
@@ -997,21 +927,26 @@ export default function Reception() {
                         >
                           ✕
                         </button>
+
                       </div>
+
                     ))}
+
                   </div>
+
                 )}
+
               </div>
             )
           })}
+
         </div>
       )}
 
-      {/* ======================================================
-          REGISTER MODAL
-          ====================================================== */}
+      {/* ================= REGISTER MODAL ================= */}
 
       {showModal && (
+
         <div
           style={{
             position: 'fixed',
@@ -1020,11 +955,13 @@ export default function Reception() {
               'rgba(0,3,26,0.72)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent:
+              'center',
             zIndex: 50,
             padding: 20,
           }}
         >
+
           <div
             className="card"
             style={{
@@ -1034,6 +971,7 @@ export default function Reception() {
               overflowY: 'auto',
             }}
           >
+
             <div
               style={{
                 fontFamily:
@@ -1046,15 +984,16 @@ export default function Reception() {
             </div>
 
             {formError && (
+
               <div className="error-box">
                 {formError}
               </div>
+
             )}
 
             <form onSubmit={handleRegister}>
-              {/* ==================================================
-                  PHOTO
-                  ================================================== */}
+
+              {/* PHOTO */}
 
               <div
                 style={{
@@ -1064,6 +1003,7 @@ export default function Reception() {
                   marginBottom: 16,
                 }}
               >
+
                 <div
                   onClick={() =>
                     fileInputRef.current?.click()
@@ -1075,7 +1015,8 @@ export default function Reception() {
                     border:
                       '1px dashed var(--line)',
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems:
+                      'center',
                     justifyContent:
                       'center',
                     cursor: 'pointer',
@@ -1085,7 +1026,9 @@ export default function Reception() {
                     overflow: 'hidden',
                   }}
                 >
+
                   {photoData ? (
+
                     <img
                       src={photoData}
                       alt=""
@@ -1095,7 +1038,9 @@ export default function Reception() {
                         objectFit: 'cover',
                       }}
                     />
+
                   ) : (
+
                     <svg
                       width="22"
                       height="22"
@@ -1111,10 +1056,13 @@ export default function Reception() {
                         r="4"
                       />
                     </svg>
+
                   )}
+
                 </div>
 
                 <div>
+
                   <div
                     style={{
                       fontSize: 12.5,
@@ -1135,9 +1083,9 @@ export default function Reception() {
                         'var(--muted)',
                     }}
                   >
-                    Tap the circle to use
-                    your camera
+                    Tap the circle to use your camera
                   </div>
+
                 </div>
 
                 <input
@@ -1152,11 +1100,10 @@ export default function Reception() {
                     display: 'none',
                   }}
                 />
+
               </div>
 
-              {/* ==================================================
-                  SECTION 1: BIODATA
-                  ================================================== */}
+              {/* BIODATA */}
 
               <div
                 style={{
@@ -1183,6 +1130,7 @@ export default function Reception() {
                   gap: 10,
                 }}
               >
+
                 <div className="field">
                   <label>
                     Surname
@@ -1190,13 +1138,14 @@ export default function Reception() {
 
                   <input
                     value={form.surname}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'surname',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. Okafor"
+                    required
                   />
                 </div>
 
@@ -1206,26 +1155,31 @@ export default function Reception() {
                   </label>
 
                   <input
-                    value={form.otherNames}
-                    onChange={e =>
+                    value={
+                      form.otherNames
+                    }
+                    onChange={event =>
                       set(
                         'otherNames',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. Chinedu"
+                    required
                   />
                 </div>
 
                 <div className="field">
-                  <label>Tel</label>
+                  <label>
+                    Tel
+                  </label>
 
                   <input
                     value={form.phone}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'phone',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. 0803 000 0000"
@@ -1233,15 +1187,17 @@ export default function Reception() {
                 </div>
 
                 <div className="field">
-                  <label>Email</label>
+                  <label>
+                    Email
+                  </label>
 
                   <input
                     type="email"
                     value={form.email}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'email',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. name@email.com"
@@ -1249,14 +1205,16 @@ export default function Reception() {
                 </div>
 
                 <div className="field">
-                  <label>Gender</label>
+                  <label>
+                    Gender
+                  </label>
 
                   <select
                     value={form.gender}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'gender',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1283,10 +1241,10 @@ export default function Reception() {
                     value={
                       form.maritalStatus
                     }
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'maritalStatus',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1295,12 +1253,12 @@ export default function Reception() {
                     </option>
 
                     {MARITAL_STATUSES.map(
-                      m => (
+                      status => (
                         <option
-                          key={m}
-                          value={m}
+                          key={status}
+                          value={status}
                         >
-                          {m}
+                          {status}
                         </option>
                       )
                     )}
@@ -1317,16 +1275,18 @@ export default function Reception() {
                     value={
                       form.dateOfBirth
                     }
-                    onChange={e =>
+                    onChange={event =>
                       handleDobChange(
-                        e.target.value
+                        event.target.value
                       )
                     }
                   />
                 </div>
 
                 <div className="field">
-                  <label>Age</label>
+                  <label>
+                    Age
+                  </label>
 
                   <input
                     value={form.age}
@@ -1347,10 +1307,10 @@ export default function Reception() {
                     value={
                       form.bloodGroup
                     }
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'bloodGroup',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1359,12 +1319,12 @@ export default function Reception() {
                     </option>
 
                     {BLOOD_GROUPS.map(
-                      bg => (
+                      group => (
                         <option
-                          key={bg}
-                          value={bg}
+                          key={group}
+                          value={group}
                         >
-                          {bg}
+                          {group}
                         </option>
                       )
                     )}
@@ -1378,10 +1338,10 @@ export default function Reception() {
 
                   <select
                     value={form.genotype}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'genotype',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1389,14 +1349,18 @@ export default function Reception() {
                       —
                     </option>
 
-                    {GENOTYPES.map(g => (
-                      <option
-                        key={g}
-                        value={g}
-                      >
-                        {g}
-                      </option>
-                    ))}
+                    {GENOTYPES.map(
+                      genotype => (
+                        <option
+                          key={genotype}
+                          value={
+                            genotype
+                          }
+                        >
+                          {genotype}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
 
@@ -1410,10 +1374,10 @@ export default function Reception() {
                     value={
                       form.nationality
                     }
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'nationality',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="Start typing…"
@@ -1421,10 +1385,10 @@ export default function Reception() {
 
                   <datalist id="african-countries">
                     {AFRICAN_COUNTRIES.map(
-                      c => (
+                      country => (
                         <option
-                          key={c}
-                          value={c}
+                          key={country}
+                          value={country}
                         />
                       )
                     )}
@@ -1440,10 +1404,10 @@ export default function Reception() {
                     value={
                       form.stateOfOrigin
                     }
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'stateOfOrigin',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1452,12 +1416,12 @@ export default function Reception() {
                     </option>
 
                     {NIGERIAN_STATES.map(
-                      s => (
+                      state => (
                         <option
-                          key={s}
-                          value={s}
+                          key={state}
+                          value={state}
                         >
-                          {s}
+                          {state}
                         </option>
                       )
                     )}
@@ -1473,10 +1437,10 @@ export default function Reception() {
                     value={
                       form.occupation
                     }
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'occupation',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. Trader"
@@ -1490,10 +1454,10 @@ export default function Reception() {
 
                   <select
                     value={form.religion}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'religion',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1501,14 +1465,16 @@ export default function Reception() {
                       —
                     </option>
 
-                    {RELIGIONS.map(r => (
-                      <option
-                        key={r}
-                        value={r}
-                      >
-                        {r}
-                      </option>
-                    ))}
+                    {RELIGIONS.map(
+                      religion => (
+                        <option
+                          key={religion}
+                          value={religion}
+                        >
+                          {religion}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
 
@@ -1519,10 +1485,10 @@ export default function Reception() {
 
                   <select
                     value={form.category}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'category',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   >
@@ -1530,19 +1496,27 @@ export default function Reception() {
                       —
                     </option>
 
-                    {CATEGORIES.map(c => (
-                      <option
-                        key={c.value}
-                        value={c.value}
-                      >
-                        {c.label}
-                      </option>
-                    ))}
+                    {CATEGORIES.map(
+                      category => (
+                        <option
+                          key={
+                            category.value
+                          }
+                          value={
+                            category.value
+                          }
+                        >
+                          {category.label}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
+
               </div>
 
               <div className="field">
+
                 <label>
                   Home Address
                 </label>
@@ -1551,22 +1525,23 @@ export default function Reception() {
                   value={
                     form.homeAddress
                   }
-                  onChange={e =>
+                  onChange={event =>
                     set(
                       'homeAddress',
-                      e.target.value
+                      event.target.value
                     )
                   }
                   placeholder="e.g. 12 Ada George Road, Port Harcourt"
                 />
+
               </div>
 
-              {/* ==================================================
-                  SECTION 2: ANC
-                  ================================================== */}
+              {/* ANC */}
 
               {form.category === 'anc' && (
+
                 <>
+
                   <div
                     style={{
                       fontSize: 11,
@@ -1587,6 +1562,7 @@ export default function Reception() {
                   </div>
 
                   <div className="field">
+
                     <label>
                       Special Point
                     </label>
@@ -1595,14 +1571,15 @@ export default function Reception() {
                       value={
                         form.ancSpecialPoint
                       }
-                      onChange={e =>
+                      onChange={event =>
                         set(
                           'ancSpecialPoint',
-                          e.target.value
+                          event.target.value
                         )
                       }
                       placeholder="e.g. First pregnancy"
                     />
+
                   </div>
 
                   <div
@@ -1613,7 +1590,9 @@ export default function Reception() {
                       gap: 10,
                     }}
                   >
+
                     <div className="field">
+
                       <label>
                         Date of Booking
                       </label>
@@ -1623,16 +1602,18 @@ export default function Reception() {
                         value={
                           form.ancDateOfBooking
                         }
-                        onChange={e =>
+                        onChange={event =>
                           set(
                             'ancDateOfBooking',
-                            e.target.value
+                            event.target.value
                           )
                         }
                       />
+
                     </div>
 
                     <div className="field">
+
                       <label>
                         Indication for Booking
                       </label>
@@ -1641,17 +1622,19 @@ export default function Reception() {
                         value={
                           form.ancIndication
                         }
-                        onChange={e =>
+                        onChange={event =>
                           set(
                             'ancIndication',
-                            e.target.value
+                            event.target.value
                           )
                         }
                         placeholder="e.g. Routine ANC"
                       />
+
                     </div>
 
                     <div className="field">
+
                       <label>
                         Last Menstrual Period (LMP)
                       </label>
@@ -1661,15 +1644,17 @@ export default function Reception() {
                         value={
                           form.ancLmp
                         }
-                        onChange={e =>
+                        onChange={event =>
                           handleLmpChange(
-                            e.target.value
+                            event.target.value
                           )
                         }
                       />
+
                     </div>
 
                     <div className="field">
+
                       <label>
                         Estimated Date of Delivery (EDD)
                       </label>
@@ -1684,9 +1669,11 @@ export default function Reception() {
                           opacity: 0.75,
                         }}
                       />
+
                     </div>
 
                     <div className="field">
+
                       <label>
                         Husband's Name
                       </label>
@@ -1695,16 +1682,18 @@ export default function Reception() {
                         value={
                           form.ancHusbandName
                         }
-                        onChange={e =>
+                        onChange={event =>
                           set(
                             'ancHusbandName',
-                            e.target.value
+                            event.target.value
                           )
                         }
                       />
+
                     </div>
 
                     <div className="field">
+
                       <label>
                         Husband's Occupation
                       </label>
@@ -1713,17 +1702,20 @@ export default function Reception() {
                         value={
                           form.ancHusbandOccupation
                         }
-                        onChange={e =>
+                        onChange={event =>
                           set(
                             'ancHusbandOccupation',
-                            e.target.value
+                            event.target.value
                           )
                         }
                       />
+
                     </div>
+
                   </div>
 
                   <div className="field">
+
                     <label>
                       Employer
                     </label>
@@ -1732,20 +1724,21 @@ export default function Reception() {
                       value={
                         form.ancEmployer
                       }
-                      onChange={e =>
+                      onChange={event =>
                         set(
                           'ancEmployer',
-                          e.target.value
+                          event.target.value
                         )
                       }
                     />
+
                   </div>
+
                 </>
+
               )}
 
-              {/* ==================================================
-                  SECTION 3: NEXT OF KIN
-                  ================================================== */}
+              {/* NEXT OF KIN */}
 
               <div
                 style={{
@@ -1773,22 +1766,28 @@ export default function Reception() {
                   gap: 10,
                 }}
               >
+
                 <div className="field">
-                  <label>Name</label>
+
+                  <label>
+                    Name
+                  </label>
 
                   <input
                     value={form.nokName}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'nokName',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. Ngozi Okafor"
                   />
+
                 </div>
 
                 <div className="field">
+
                   <label>
                     Relationship
                   </label>
@@ -1797,53 +1796,57 @@ export default function Reception() {
                     value={
                       form.nokRelationship
                     }
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'nokRelationship',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. Spouse"
                   />
+
                 </div>
 
                 <div className="field">
-                  <label>Tel</label>
+
+                  <label>
+                    Tel
+                  </label>
 
                   <input
                     value={form.nokPhone}
-                    onChange={e =>
+                    onChange={event =>
                       set(
                         'nokPhone',
-                        e.target.value
+                        event.target.value
                       )
                     }
                     placeholder="e.g. 0803 000 0000"
                   />
+
                 </div>
 
                 <div className="field">
+
                   <label>
                     Address
                   </label>
 
                   <input
-                    value={
-                      form.nokAddress
-                    }
-                    onChange={e =>
+                    value={form.nokAddress}
+                    onChange={event =>
                       set(
                         'nokAddress',
-                        e.target.value
+                        event.target.value
                       )
                     }
                   />
+
                 </div>
+
               </div>
 
-              {/* ==================================================
-                  BUTTONS
-                  ================================================== */}
+              {/* BUTTONS */}
 
               <div
                 style={{
@@ -1852,12 +1855,14 @@ export default function Reception() {
                   marginTop: 22,
                 }}
               >
+
                 <button
                   type="button"
                   className="btn btn-ghost"
                   onClick={() => {
                     setShowModal(false)
                     resetForm()
+                    setFormError('')
                   }}
                 >
                   Cancel
@@ -1872,17 +1877,21 @@ export default function Reception() {
                     ? 'Registering…'
                     : 'Register & Check In'}
                 </button>
+
               </div>
+
             </form>
+
           </div>
+
         </div>
+
       )}
 
-      {/* ======================================================
-          TOAST
-          ====================================================== */}
+      {/* TOAST */}
 
       {toast && (
+
         <div
           style={{
             position: 'fixed',
@@ -1895,7 +1904,8 @@ export default function Reception() {
             border:
               '1px solid var(--teal)',
             color: 'var(--teal)',
-            padding: '12px 20px',
+            padding:
+              '12px 20px',
             borderRadius: 10,
             fontSize: 13,
             fontWeight: 700,
@@ -1906,6 +1916,7 @@ export default function Reception() {
         >
           {toast}
         </div>
+
       )}
     </>
   )
