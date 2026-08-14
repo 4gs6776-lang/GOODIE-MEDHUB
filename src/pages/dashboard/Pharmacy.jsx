@@ -311,200 +311,335 @@ export default function Pharmacy() {
   return (
     <>
       {/* =========================
-          STATISTICS
-      ========================== */}
+    STATISTICS
+========================== */}
+<div
+  style={{
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: 16,
+    marginBottom: 20,
+    width: '100%',
+  }}
+>
+  {/* TOTAL DRUGS */}
+  <div
+    style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--line)',
+      borderRadius: 14,
+      padding: 18,
+      minHeight: 110,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+      boxSizing: 'border-box',
+    }}
+  >
+    <div
+      style={{
+        width: 58,
+        height: 58,
+        minWidth: 58,
+        minHeight: 58,
+        flexShrink: 0,
+        borderRadius: 14,
+        background: 'var(--teal-soft)',
+        color: 'var(--teal)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        width="30"
+        height="30"
+      >
+        <path d="M9 3h6l1 4H8l1-4Z" />
+        <path d="M6 7h12l-1 14H7L6 7Z" />
+      </svg>
+    </div>
+
+    <div style={{ minWidth: 0 }}>
       <div
-        className="dash-stats"
         style={{
-          gridTemplateColumns:
-            'repeat(4, 1fr)',
-          marginBottom: 20
+          fontSize: 12,
+          color: 'var(--muted)',
+          fontWeight: 600,
+          marginBottom: 5,
         }}
       >
-
-        {/* Total Drugs */}
-        <div className="dash-stat-card">
-          <div
-            className="dash-stat-icon"
-            style={{
-              background: 'var(--teal-soft)',
-              color: 'var(--teal)'
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M9 3h6l1 4H8l1-4Z" />
-              <path d="M6 7h12l-1 14H7L6 7Z" />
-            </svg>
-          </div>
-
-          <div>
-            <div className="dash-stat-label">
-              Total Drugs
-            </div>
-
-            <div className="dash-stat-value">
-              {drugs.length}
-            </div>
-
-            <div className="dash-stat-delta">
-              from inventory
-            </div>
-          </div>
-        </div>
-
-        {/* Low Stock */}
-        <div className="dash-stat-card">
-          <div
-            className="dash-stat-icon"
-            style={{
-              background: 'var(--danger-soft)',
-              color: 'var(--danger)'
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M12 9v4M12 17h.01" />
-              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-            </svg>
-          </div>
-
-          <div>
-            <div className="dash-stat-label">
-              Low Stock
-            </div>
-
-            <div
-              className="dash-stat-value"
-              style={{
-                color:
-                  lowStockCount > 0
-                    ? 'var(--danger)'
-                    : undefined
-              }}
-            >
-              {lowStockCount}
-            </div>
-
-            <div
-              className="dash-stat-delta"
-              style={{
-                color:
-                  lowStockCount > 0
-                    ? 'var(--danger)'
-                    : 'var(--teal)'
-              }}
-            >
-              {lowStockCount > 0
-                ? 'needs reorder'
-                : 'all stocked'}
-            </div>
-          </div>
-        </div>
-
-        {/* Expired */}
-        <div className="dash-stat-card">
-          <div
-            className="dash-stat-icon"
-            style={{
-              background:
-                'rgba(225,104,94,0.14)',
-              color: 'var(--danger)'
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="9"
-              />
-              <path d="M12 7v5l3 2" />
-            </svg>
-          </div>
-
-          <div>
-            <div className="dash-stat-label">
-              Expired
-            </div>
-
-            <div
-              className="dash-stat-value"
-              style={{
-                color:
-                  expiredCount > 0
-                    ? 'var(--danger)'
-                    : undefined
-              }}
-            >
-              {expiredCount}
-            </div>
-
-            <div className="dash-stat-delta">
-              expired drugs
-            </div>
-          </div>
-        </div>
-
-        {/* Expiring Soon */}
-        <div className="dash-stat-card">
-          <div
-            className="dash-stat-icon"
-            style={{
-              background:
-                'rgba(212,175,55,0.14)',
-              color: 'var(--gold)'
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="9"
-              />
-              <path d="M12 7v5" />
-              <path d="M12 16h.01" />
-            </svg>
-          </div>
-
-          <div>
-            <div className="dash-stat-label">
-              Expiring Soon
-            </div>
-
-            <div className="dash-stat-value">
-              {expiringSoonCount}
-            </div>
-
-            <div
-              className="dash-stat-delta"
-              style={{
-                color: 'var(--gold)'
-              }}
-            >
-              within 30 days
-            </div>
-          </div>
-        </div>
+        Total Drugs
       </div>
 
+      <div
+        style={{
+          fontSize: 28,
+          lineHeight: 1,
+          fontWeight: 700,
+          color: 'var(--text)',
+          marginBottom: 5,
+        }}
+      >
+        {drugs.length}
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--muted)',
+        }}
+      >
+        from inventory
+      </div>
+    </div>
+  </div>
+
+  {/* LOW STOCK */}
+  <div
+    style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--line)',
+      borderRadius: 14,
+      padding: 18,
+      minHeight: 110,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+      boxSizing: 'border-box',
+    }}
+  >
+    <div
+      style={{
+        width: 58,
+        height: 58,
+        minWidth: 58,
+        minHeight: 58,
+        flexShrink: 0,
+        borderRadius: 14,
+        background: 'var(--danger-soft)',
+        color: 'var(--danger)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        width="30"
+        height="30"
+      >
+        <path d="M12 9v4M12 17h.01" />
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      </svg>
+    </div>
+
+    <div style={{ minWidth: 0 }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--muted)',
+          fontWeight: 600,
+          marginBottom: 5,
+        }}
+      >
+        Low Stock
+      </div>
+
+      <div
+        style={{
+          fontSize: 28,
+          lineHeight: 1,
+          fontWeight: 700,
+          color:
+            lowStockCount > 0
+              ? 'var(--danger)'
+              : 'var(--text)',
+          marginBottom: 5,
+        }}
+      >
+        {lowStockCount}
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          color:
+            lowStockCount > 0
+              ? 'var(--danger)'
+              : 'var(--teal)',
+        }}
+      >
+        {lowStockCount > 0 ? 'needs reorder' : 'all stocked'}
+      </div>
+    </div>
+  </div>
+
+  {/* EXPIRED */}
+  <div
+    style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--line)',
+      borderRadius: 14,
+      padding: 18,
+      minHeight: 110,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+      boxSizing: 'border-box',
+    }}
+  >
+    <div
+      style={{
+        width: 58,
+        height: 58,
+        minWidth: 58,
+        minHeight: 58,
+        flexShrink: 0,
+        borderRadius: 14,
+        background: 'rgba(225,104,94,0.14)',
+        color: 'var(--danger)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        width="30"
+        height="30"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+    </div>
+
+    <div style={{ minWidth: 0 }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--muted)',
+          fontWeight: 600,
+          marginBottom: 5,
+        }}
+      >
+        Expired
+      </div>
+
+      <div
+        style={{
+          fontSize: 28,
+          lineHeight: 1,
+          fontWeight: 700,
+          color:
+            expiredCount > 0
+              ? 'var(--danger)'
+              : 'var(--text)',
+          marginBottom: 5,
+        }}
+      >
+        {expiredCount}
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--muted)',
+        }}
+      >
+        expired drugs
+      </div>
+    </div>
+  </div>
+
+  {/* EXPIRING SOON */}
+  <div
+    style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--line)',
+      borderRadius: 14,
+      padding: 18,
+      minHeight: 110,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+      boxSizing: 'border-box',
+    }}
+  >
+    <div
+      style={{
+        width: 58,
+        height: 58,
+        minWidth: 58,
+        minHeight: 58,
+        flexShrink: 0,
+        borderRadius: 14,
+        background: 'rgba(212,175,55,0.14)',
+        color: 'var(--gold)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        width="30"
+        height="30"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5" />
+        <path d="M12 16h.01" />
+      </svg>
+    </div>
+
+    <div style={{ minWidth: 0 }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--muted)',
+          fontWeight: 600,
+          marginBottom: 5,
+        }}
+      >
+        Expiring Soon
+      </div>
+
+      <div
+        style={{
+          fontSize: 28,
+          lineHeight: 1,
+          fontWeight: 700,
+          color: 'var(--text)',
+          marginBottom: 5,
+        }}
+      >
+        {expiringSoonCount}
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--gold)',
+        }}
+      >
+        within 30 days
+      </div>
+    </div>
+  </div>
+</div>
       {/* =========================
           PHARMACY TABLE
       ========================== */}
