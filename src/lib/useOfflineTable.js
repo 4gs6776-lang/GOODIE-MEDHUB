@@ -4,125 +4,106 @@ import { supabase } from './supabaseClient';
 const DB_NAME = 'HospitalOfflineDB';
 const DB_VERSION = 3;
 
-// ============================================================
-// IndexedDB
-// ============================================================
+/*
+  ============================================================
+  IndexedDB
+  ============================================================
+*/
 
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
 
       if (!db.objectStoreNames.contains('offline_records')) {
         const store = db.createObjectStore('offline_records', {
-          keyPath: 'id'
+          keyPath: 'id',
         });
 
         store.createIndex('table_name', 'table_name', {
-          unique: false
+          unique: false,
         });
 
         store.createIndex('hospital_id', 'hospital_id', {
-          unique: false
+          unique: false,
         });
 
-        store.createIndex('sync_status', '_synced', {
-          unique: false
+        store.createIndex('_synced', '_synced', {
+          unique: false,
         });
-      } else {
-        const transaction = e.target.transaction;
-        const store = transaction.objectStore('offline_records');
-
-        if (!store.indexNames.contains('sync_status')) {
-          store.createIndex('sync_status', '_synced', {
-            unique: false
-          });
-        }
       }
     };
 
     request.onsuccess = () => {
-      const db = request.result;
-
-      db.onversionchange = () => {
-        db.close();
-      };
-
-      resolve(db);
+      resolve(request.result);
     };
 
-    request.onerror = (e) => {
-      reject(e.target.error);
+    request.onerror = () => {
+      reject(request.error);
     };
   });
 }
 
-// ============================================================
-// Helpers
-// ============================================================
+/*
+  ============================================================
+  Utility
+  ============================================================
+*/
 
-function createLocalId() {
-  return `local_${Date.now()}_${Math.random()
-    .toString(36)
-    .substring(2, 11)}`;
-}
-
-function isLocalId(id) {
-  return typeof id === 'string' && id.startsWith('local_');
-}
-
-function removeLocalOnlyFields(record) {
-  const {
-    _synced,
-    _deleted,
-    _syncError,
-    _syncErrorMessage,
-    table_name,
-    ...payload
-  } = record;
-
-  return payload;
-}
-
-function cleanPayload(payload) {
-  const cleaned = { ...payload };
-
-  // Never send local-only IndexedDB fields
-  delete cleaned._synced;
-  delete cleaned._deleted;
-  delete cleaned._syncError;
-  delete cleaned._syncErrorMessage;
-  delete cleaned.table_name;
-
-  // Do not send empty foreign keys
-  if (!cleaned.hospital_id) {
-    delete cleaned.hospital_id;
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
   }
 
-  if (!cleaned.created_by) {
-    delete cleaned.created_by;
-  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(
+    /[xy]/g,
+    function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x'
+        ? r
+        : (r & 0x3) | 0x8;
 
-  // Remove local IDs so Supabase can generate UUIDs
-  if (isLocalId(cleaned.id)) {
-    delete cleaned.id;
-  }
-
-  return cleaned;
+      return v.toString(16);
+    }
+  );
 }
 
-async function getAllOfflineRecords() {
+/*
+  ============================================================
+  Load local records
+  ============================================================
+*/
+
+async function getLocalRecords(tableName, hospitalId) {
+  if (!hospitalId) return [];
+
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('offline_records', 'readonly');
-    const store = tx.objectStore('offline_records');
+    const tx = db.transaction(
+      'offline_records',
+      'readonly'
+    );
+
+    const store = tx.objectStore(
+      'offline_records'
+    );
+
     const request = store.getAll();
 
     request.onsuccess = () => {
-      resolve(request.result || []);
+      const all = request.result || [];
+
+      const filtered = all.filter(
+        (record) =>
+          record.table_name === tableName &&
+          record.hospital_id === hospitalId &&
+          !record._deleted
+      );
+
+      resolve(filtered);
     };
 
     request.onerror = () => {
@@ -131,67 +112,93 @@ async function getAllOfflineRecords() {
   });
 }
 
-async function putOfflineRecord(record) {
+/*
+  ============================================================
+  Save local record
+  ============================================================
+*/
+
+async function saveLocalRecord(record) {
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('offline_records', 'readwrite');
-    const store = tx.objectStore('offline_records');
+    const tx = db.transaction(
+      'offline_records',
+      'readwrite'
+    );
+
+    const store = tx.objectStore(
+      'offline_records'
+    );
 
     store.put(record);
 
-    tx.oncomplete = () => resolve(record);
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      resolve(record);
+    };
+
+    tx.onerror = () => {
+      reject(tx.error);
+    };
   });
 }
 
-async function deleteOfflineRecord(id) {
+/*
+  ============================================================
+  Delete local record
+  ============================================================
+*/
+
+async function deleteLocalRecord(id) {
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('offline_records', 'readwrite');
-    const store = tx.objectStore('offline_records');
+    const tx = db.transaction(
+      'offline_records',
+      'readwrite'
+    );
+
+    const store = tx.objectStore(
+      'offline_records'
+    );
 
     store.delete(id);
 
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function getOfflineRecord(id) {
-  const db = await openDB();
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('offline_records', 'readonly');
-    const store = tx.objectStore('offline_records');
-    const request = store.get(id);
-
-    request.onsuccess = () => {
-      resolve(request.result || null);
+    tx.oncomplete = () => {
+      resolve();
     };
 
-    request.onerror = () => {
-      reject(request.error);
+    tx.onerror = () => {
+      reject(tx.error);
     };
   });
 }
 
-// ============================================================
-// Main Hook
-// ============================================================
+/*
+  ============================================================
+  useOfflineTable
+  ============================================================
+*/
 
-export function useOfflineTable(tableName, hospitalId) {
+export function useOfflineTable(
+  tableName,
+  hospitalId
+) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
+    typeof navigator !== 'undefined'
+      ? navigator.onLine
+      : true
   );
+
   const [pendingCount, setPendingCount] = useState(0);
 
-  // ==========================================================
-  // Load local records
-  // ==========================================================
+  /*
+    ----------------------------------------------------------
+    Load local records
+    ----------------------------------------------------------
+  */
 
   const loadLocalRecords = useCallback(async () => {
     if (!hospitalId) {
@@ -201,39 +208,64 @@ export function useOfflineTable(tableName, hospitalId) {
     }
 
     try {
-      const all = await getAllOfflineRecords();
+      const db = await openDB();
 
-      const filtered = all.filter(
-        (record) =>
-          record.table_name === tableName &&
-          record.hospital_id === hospitalId &&
-          !record._deleted
+      const tx = db.transaction(
+        'offline_records',
+        'readonly'
       );
 
-      setRecords(filtered);
-
-      const pending = all.filter(
-        (record) =>
-          record._synced === false &&
-          !record._deleted
+      const store = tx.objectStore(
+        'offline_records'
       );
 
-      setPendingCount(pending.length);
+      const request = store.getAll();
 
-      setLoading(false);
-    } catch (err) {
+      request.onsuccess = () => {
+        const all = request.result || [];
+
+        const filtered = all.filter(
+          (record) =>
+            record.table_name === tableName &&
+            record.hospital_id === hospitalId &&
+            !record._deleted
+        );
+
+        const pending = all.filter(
+          (record) =>
+            record.table_name === tableName &&
+            record.hospital_id === hospitalId &&
+            record._synced === false
+        );
+
+        setRecords(filtered);
+        setPendingCount(pending.length);
+        setLoading(false);
+      };
+
+      request.onerror = () => {
+        console.error(
+          'Failed to load IndexedDB records:',
+          request.error
+        );
+
+        setLoading(false);
+      };
+    } catch (error) {
       console.error(
         'Error reading offline storage:',
-        err
+        error
       );
 
       setLoading(false);
     }
   }, [tableName, hospitalId]);
 
-  // ==========================================================
-  // Initial load + online/offline listeners
-  // ==========================================================
+  /*
+    ----------------------------------------------------------
+    Online / Offline listener
+    ----------------------------------------------------------
+  */
 
   useEffect(() => {
     loadLocalRecords();
@@ -241,10 +273,15 @@ export function useOfflineTable(tableName, hospitalId) {
     const handleOnline = async () => {
       setIsOnline(true);
 
-      // Try to synchronize pending records
-      await flushTableQueue(tableName);
-
-      await loadLocalRecords();
+      try {
+        await flushTableQueue(tableName);
+        await loadLocalRecords();
+      } catch (error) {
+        console.error(
+          'Automatic sync failed:',
+          error
+        );
+      }
     };
 
     const handleOffline = () => {
@@ -272,70 +309,100 @@ export function useOfflineTable(tableName, hospitalId) {
         handleOffline
       );
     };
-  }, [loadLocalRecords, tableName]);
+  }, [
+    loadLocalRecords,
+    tableName,
+  ]);
 
-  // ==========================================================
-  // ADD RECORD
-  // ==========================================================
+  /*
+    ==========================================================
+    ADD RECORD
+    ==========================================================
+  */
 
   const addRecord = async (data) => {
-    const localId =
-      data.id && !isLocalId(data.id)
+    /*
+      IMPORTANT:
+      Database ID is UUID.
+      Never generate IDs such as "local_123".
+    */
+
+    const id =
+      data.id && !String(data.id).startsWith('local_')
         ? data.id
-        : createLocalId();
+        : generateUUID();
 
     const now = new Date().toISOString();
 
     const newRecord = {
       ...data,
 
-      id: localId,
+      id,
 
       table_name: tableName,
 
       hospital_id:
         data.hospital_id || hospitalId,
 
-      _synced: false,
-
-      _deleted: false,
-
-      _syncError: false,
-
       created_at:
         data.created_at || now,
 
-      updated_at: now
+      updated_at: now,
+
+      _synced: false,
+
+      _deleted: false,
     };
 
-    // --------------------------------------------------------
-    // Always save locally first
-    // --------------------------------------------------------
+    /*
+      Save locally first.
+      This makes the application offline-first.
+    */
 
-    await putOfflineRecord(newRecord);
+    await saveLocalRecord(newRecord);
 
-    // --------------------------------------------------------
-    // If online, immediately write to Supabase
-    // --------------------------------------------------------
+    /*
+      --------------------------------------------------------
+      Try Supabase when online
+      --------------------------------------------------------
+    */
 
     if (
       navigator.onLine &&
-      supabase?.from
+      supabase &&
+      supabase.from
     ) {
       try {
-        const payload = cleanPayload(newRecord);
+        /*
+          Remove local-only properties.
+        */
 
-        // IMPORTANT:
-        // Local IDs are never sent to Supabase.
-        // Supabase generates the real UUID.
-        delete payload.id;
+        const {
+          table_name,
+          _synced,
+          _deleted,
+          _syncError,
+          ...payload
+        } = newRecord;
+
+        /*
+          Do not send undefined foreign keys.
+        */
+
+        if (!payload.hospital_id) {
+          delete payload.hospital_id;
+        }
+
+        if (!payload.created_by) {
+          delete payload.created_by;
+        }
 
         const {
           data: remoteData,
-          error
+          error,
         } = await supabase
           .from(tableName)
-          .insert([payload])
+          .insert(payload)
           .select()
           .single();
 
@@ -345,13 +412,14 @@ export function useOfflineTable(tableName, hospitalId) {
             error
           );
 
-          await putOfflineRecord({
+          /*
+            Keep local record but mark sync error.
+          */
+
+          await saveLocalRecord({
             ...newRecord,
             _synced: false,
-            _syncError: true,
-            _syncErrorMessage:
-              error.message ||
-              'Database rejected insertion'
+            _syncError: error.message,
           });
 
           throw new Error(
@@ -361,122 +429,149 @@ export function useOfflineTable(tableName, hospitalId) {
           );
         }
 
-        // ----------------------------------------------------
-        // Replace local record with Supabase record
-        // ----------------------------------------------------
+        /*
+          Replace local record with remote record.
+        */
 
-        await deleteOfflineRecord(localId);
+        if (remoteData) {
+          await saveLocalRecord({
+            ...remoteData,
 
-        const syncedRecord = {
-          ...remoteData,
+            table_name: tableName,
 
-          table_name: tableName,
+            hospital_id:
+              remoteData.hospital_id ||
+              hospitalId,
 
-          hospital_id:
-            hospitalId ||
-            remoteData.hospital_id,
+            _synced: true,
 
-          _synced: true,
+            _deleted: false,
 
-          _deleted: false,
+            _syncError: null,
+          });
+        }
 
-          _syncError: false
-        };
-
-        await putOfflineRecord(syncedRecord);
-
-        await loadLocalRecords();
-
-        return syncedRecord;
-      } catch (err) {
+      } catch (error) {
         console.warn(
-          'Network/database write failed. Record remains offline:',
-          err
+          'Network write failed. Record remains locally:',
+          error
         );
 
-        await loadLocalRecords();
+        /*
+          We throw so the ImportExcelModal can
+          correctly count the failure.
+        */
 
-        throw err;
+        throw error;
       }
     }
-
-    // --------------------------------------------------------
-    // Offline: record remains pending
-    // --------------------------------------------------------
 
     await loadLocalRecords();
 
     return newRecord;
   };
 
-  // ==========================================================
-  // UPDATE RECORD
-  // ==========================================================
+  /*
+    ==========================================================
+    UPDATE RECORD
+    ==========================================================
+  */
 
   const updateRecord = async (
     id,
     updates
   ) => {
-    const existing =
-      await getOfflineRecord(id);
+    const db = await openDB();
 
-    const updatedRecord = {
-      ...(existing || {}),
+    let updatedRecord = null;
 
-      id,
+    /*
+      Get existing local record
+    */
 
-      ...updates,
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        'offline_records',
+        'readwrite'
+      );
 
-      table_name:
-        tableName,
+      const store =
+        tx.objectStore(
+          'offline_records'
+        );
 
-      hospital_id:
-        existing?.hospital_id ||
-        hospitalId,
+      const request =
+        store.get(id);
 
-      _synced: false,
+      request.onsuccess = () => {
+        const existing =
+          request.result || {
+            id,
+            table_name: tableName,
+            hospital_id: hospitalId,
+          };
 
-      _deleted: false,
+        updatedRecord = {
+          ...existing,
 
-      _syncError: false,
+          ...updates,
 
-      updated_at:
-        new Date().toISOString()
-    };
+          table_name: tableName,
 
-    // --------------------------------------------------------
-    // Save locally first
-    // --------------------------------------------------------
+          hospital_id:
+            existing.hospital_id ||
+            hospitalId,
 
-    await putOfflineRecord(
-      updatedRecord
-    );
+          updated_at:
+            new Date().toISOString(),
 
-    // --------------------------------------------------------
-    // Online update
-    // --------------------------------------------------------
+          _synced: false,
+
+          _deleted: false,
+        };
+
+        store.put(updatedRecord);
+      };
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+
+      tx.oncomplete = () => {
+        resolve();
+      };
+
+      tx.onerror = () => {
+        reject(tx.error);
+      };
+    });
+
+    /*
+      --------------------------------------------------------
+      Send update to Supabase
+      --------------------------------------------------------
+    */
 
     if (
       navigator.onLine &&
-      supabase?.from
+      supabase &&
+      supabase.from
     ) {
       try {
-        const payload =
-          cleanPayload(
-            updatedRecord
-          );
-
-        // Never send local-only IDs
-        // in an UPDATE.
         const {
-          data: remoteData,
-          error
+          table_name,
+          _synced,
+          _deleted,
+          _syncError,
+          ...payload
+        } = updatedRecord;
+
+        const {
+          error,
         } = await supabase
           .from(tableName)
           .update(payload)
-          .eq('id', id)
-          .select()
-          .single();
+          .eq('id', id);
 
         if (error) {
           console.error(
@@ -484,56 +579,35 @@ export function useOfflineTable(tableName, hospitalId) {
             error
           );
 
-          await putOfflineRecord({
+          await saveLocalRecord({
             ...updatedRecord,
-
             _synced: false,
-
-            _syncError: true,
-
-            _syncErrorMessage:
-              error.message
+            _syncError: error.message,
           });
 
           throw new Error(
             error.message ||
-            'Database update failed'
+            'Database rejected update'
           );
         }
 
-        const syncedRecord = {
-          ...remoteData,
+        /*
+          Mark locally synced.
+        */
 
-          table_name:
-            tableName,
-
-          hospital_id:
-            hospitalId ||
-            remoteData.hospital_id,
-
+        await saveLocalRecord({
+          ...updatedRecord,
           _synced: true,
+          _syncError: null,
+        });
 
-          _deleted: false,
-
-          _syncError: false
-        };
-
-        await putOfflineRecord(
-          syncedRecord
-        );
-
-        await loadLocalRecords();
-
-        return syncedRecord;
-      } catch (err) {
+      } catch (error) {
         console.warn(
-          'Network update failed. Saved locally:',
-          err
+          'Network update failed:',
+          error
         );
 
-        await loadLocalRecords();
-
-        throw err;
+        throw error;
       }
     }
 
@@ -542,101 +616,102 @@ export function useOfflineTable(tableName, hospitalId) {
     return updatedRecord;
   };
 
-  // ==========================================================
-  // DELETE RECORD
-  // ==========================================================
+  /*
+    ==========================================================
+    DELETE RECORD
+    ==========================================================
+  */
 
   const deleteRecord = async (id) => {
-    const existing =
-      await getOfflineRecord(id);
+    const db = await openDB();
 
-    if (!existing) {
-      return;
-    }
+    let existing = null;
 
-    // --------------------------------------------------------
-    // If this is only a local record, simply remove it
-    // --------------------------------------------------------
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(
+        'offline_records',
+        'readwrite'
+      );
 
-    if (isLocalId(id)) {
-      await deleteOfflineRecord(id);
+      const store =
+        tx.objectStore(
+          'offline_records'
+        );
 
-      await loadLocalRecords();
+      const request =
+        store.get(id);
 
-      return;
-    }
+      request.onsuccess = () => {
+        existing = request.result;
 
-    // --------------------------------------------------------
-    // Mark as deleted locally first
-    // --------------------------------------------------------
+        if (existing) {
+          store.put({
+            ...existing,
 
-    const deletedRecord = {
-      ...existing,
+            _deleted: true,
 
-      _deleted: true,
+            _synced: false,
 
-      _synced: false,
+            updated_at:
+              new Date().toISOString(),
+          });
+        }
+      };
 
-      _syncError: false,
+      request.onerror = () => {
+        reject(request.error);
+      };
 
-      updated_at:
-        new Date().toISOString()
-    };
+      tx.oncomplete = () => {
+        resolve();
+      };
 
-    await putOfflineRecord(
-      deletedRecord
-    );
+      tx.onerror = () => {
+        reject(tx.error);
+      };
+    });
 
-    // --------------------------------------------------------
-    // Online delete
-    // --------------------------------------------------------
+    /*
+      --------------------------------------------------------
+      Delete remotely when online
+      --------------------------------------------------------
+    */
 
     if (
       navigator.onLine &&
-      supabase?.from
+      supabase &&
+      supabase.from
     ) {
       try {
-        const { error } =
-          await supabase
-            .from(tableName)
-            .delete()
-            .eq('id', id);
+        const {
+          error,
+        } = await supabase
+          .from(tableName)
+          .delete()
+          .eq('id', id);
 
         if (error) {
-          throw new Error(
-            error.message ||
-            'Database delete failed'
-          );
+          throw new Error(error.message);
         }
 
-        await deleteOfflineRecord(id);
+        await deleteLocalRecord(id);
 
-        await loadLocalRecords();
-
-        return;
-      } catch (err) {
+      } catch (error) {
         console.warn(
-          'Network delete failed. Keeping deletion pending:',
-          err
+          'Remote delete failed. Keeping delete queued:',
+          error
         );
-
-        await putOfflineRecord({
-          ...deletedRecord,
-
-          _syncError: true,
-
-          _syncErrorMessage:
-            err.message
-        });
       }
     }
 
     await loadLocalRecords();
   };
 
-  // ==========================================================
-  // Return hook
-  // ==========================================================
+  /*
+    ==========================================================
+    RETURN
+    ==========================================================
+  */
 
   return {
     records,
@@ -654,43 +729,74 @@ export function useOfflineTable(tableName, hospitalId) {
     deleteRecord,
 
     refreshTable:
-      loadLocalRecords
+      loadLocalRecords,
   };
 }
 
-// ============================================================
-// SYNC ERRORS
-// ============================================================
+/*
+  ============================================================
+  SYNC ERRORS
+  ============================================================
+*/
 
 export async function getAllSyncErrors() {
   try {
-    const all =
-      await getAllOfflineRecords();
+    const db = await openDB();
 
-    return all.filter(
-      (record) =>
-        record._syncError === true
-    );
-  } catch (err) {
+    return new Promise((resolve) => {
+      const tx = db.transaction(
+        'offline_records',
+        'readonly'
+      );
+
+      const store =
+        tx.objectStore(
+          'offline_records'
+        );
+
+      const request =
+        store.getAll();
+
+      request.onsuccess = () => {
+        const all =
+          request.result || [];
+
+        resolve(
+          all.filter(
+            (record) =>
+              record._syncError
+          )
+        );
+      };
+
+      request.onerror = () => {
+        resolve([]);
+      };
+    });
+
+  } catch (error) {
     console.error(
-      'Could not get sync errors:',
-      err
+      'Could not read sync errors:',
+      error
     );
 
     return [];
   }
 }
 
-// ============================================================
-// SUBSCRIBE TO SYNC ERRORS
-// ============================================================
+/*
+  ============================================================
+  SYNC ERROR SUBSCRIPTION
+  ============================================================
+*/
 
 export function subscribeSyncErrors(
   callback
 ) {
   const handler = async () => {
     if (
-      typeof callback === 'function'
+      typeof callback ===
+      'function'
     ) {
       const errors =
         await getAllSyncErrors();
@@ -722,9 +828,11 @@ export function subscribeSyncErrors(
   };
 }
 
-// ============================================================
-// FLUSH OFFLINE QUEUE
-// ============================================================
+/*
+  ============================================================
+  FLUSH OFFLINE QUEUE
+  ============================================================
+*/
 
 export async function flushTableQueue(
   tableName
@@ -737,200 +845,136 @@ export async function flushTableQueue(
   }
 
   try {
-    const all =
-      await getAllOfflineRecords();
+    const db = await openDB();
+
+    const all = await new Promise(
+      (resolve, reject) => {
+        const tx =
+          db.transaction(
+            'offline_records',
+            'readonly'
+          );
+
+        const store =
+          tx.objectStore(
+            'offline_records'
+          );
+
+        const request =
+          store.getAll();
+
+        request.onsuccess =
+          () => {
+            resolve(
+              request.result || []
+            );
+          };
+
+        request.onerror =
+          () => {
+            reject(
+              request.error
+            );
+          };
+      }
+    );
 
     const pending =
       all.filter(
         (record) =>
-          (!tableName ||
+          record._synced === false &&
+          (
+            !tableName ||
             record.table_name ===
-              tableName) &&
-          record._synced === false
+              tableName
+          )
       );
 
     for (const record of pending) {
       try {
-        // ====================================================
-        // DELETE QUEUE
-        // ====================================================
+        /*
+          ----------------------------------------------------
+          DELETE
+          ----------------------------------------------------
+        */
 
         if (record._deleted) {
-          // Local-only record never reached Supabase
-          if (isLocalId(record.id)) {
-            await deleteOfflineRecord(
-              record.id
-            );
-
-            continue;
-          }
-
           const {
-            error
+            error,
           } = await supabase
             .from(record.table_name)
             .delete()
-            .eq('id', record.id);
+            .eq(
+              'id',
+              record.id
+            );
 
           if (error) {
-            throw new Error(
-              error.message ||
-              'Delete synchronization failed'
-            );
+            throw error;
           }
 
-          await deleteOfflineRecord(
+          await deleteLocalRecord(
             record.id
           );
 
           continue;
         }
 
-        // ====================================================
-        // INSERT QUEUE
-        // ====================================================
-
-        if (isLocalId(record.id)) {
-          const payload =
-            cleanPayload(record);
-
-          // Let Supabase create UUID
-          delete payload.id;
-
-          const {
-            data: remoteData,
-            error
-          } = await supabase
-            .from(record.table_name)
-            .insert([payload])
-            .select()
-            .single();
-
-          if (error) {
-            throw new Error(
-              error.message ||
-              'Insert synchronization failed'
-            );
-          }
-
-          await deleteOfflineRecord(
-            record.id
-          );
-
-          await putOfflineRecord({
-            ...remoteData,
-
-            table_name:
-              record.table_name,
-
-            hospital_id:
-              record.hospital_id ||
-              remoteData.hospital_id,
-
-            _synced: true,
-
-            _deleted: false,
-
-            _syncError: false
-          });
-
-          continue;
-        }
-
-        // ====================================================
-        // UPDATE QUEUE
-        // ====================================================
-
-        const payload =
-          cleanPayload(record);
+        /*
+          ----------------------------------------------------
+          UPSERT
+          ----------------------------------------------------
+        */
 
         const {
-          data: remoteData,
-          error
+          table_name,
+          _synced,
+          _deleted,
+          _syncError,
+          ...payload
+        } = record;
+
+        const {
+          error,
         } = await supabase
-          .from(record.table_name)
-          .upsert(payload)
-          .select()
-          .single();
+          .from(table_name)
+          .upsert(payload);
 
         if (error) {
-          throw new Error(
-            error.message ||
-            'Synchronization failed'
-          );
+          throw error;
         }
 
-        await putOfflineRecord({
-          ...remoteData,
-
-          table_name:
-            record.table_name,
-
-          hospital_id:
-            record.hospital_id ||
-            remoteData.hospital_id,
+        await saveLocalRecord({
+          ...record,
 
           _synced: true,
 
-          _deleted: false,
-
-          _syncError: false
+          _syncError: null,
         });
-      } catch (err) {
+
+      } catch (error) {
         console.warn(
-          `Failed to sync record ${record.id}:`,
-          err
+          'Failed to sync record:',
+          record.id,
+          error
         );
 
-        await putOfflineRecord({
+        await saveLocalRecord({
           ...record,
 
-          _syncError: true,
+          _synced: false,
 
-          _syncErrorMessage:
-            err.message ||
-            'Synchronization failed'
+          _syncError:
+            error.message ||
+            'Sync failed',
         });
       }
     }
-  } catch (err) {
+
+  } catch (error) {
     console.error(
       'Error flushing offline queue:',
-      err
+      error
     );
-  }
-}
-
-// ============================================================
-// SKIP STUCK SYNC ITEM
-// ============================================================
-
-export async function skipStuckSyncItem(
-  id
-) {
-  try {
-    const record =
-      await getOfflineRecord(id);
-
-    if (!record) {
-      return false;
-    }
-
-    await putOfflineRecord({
-      ...record,
-
-      _syncError: false,
-
-      _syncErrorMessage: null
-    });
-
-    return true;
-  } catch (err) {
-    console.error(
-      'Could not skip sync item:',
-      err
-    );
-
-    return false;
   }
 }
