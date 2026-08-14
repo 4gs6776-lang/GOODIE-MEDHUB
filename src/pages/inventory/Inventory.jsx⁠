@@ -608,110 +608,152 @@ export default function Inventory() {
       ===================================================== */}
 
       <div
-        className="dash-stats"
+  className="dash-stats"
+  style={{
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 16,
+    marginBottom: 20,
+  }}
+>
+  {/* TOTAL ITEMS */}
+  <div
+    className="dash-stat-card"
+    style={{
+      minHeight: 120,
+      padding: 18,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+    }}
+  >
+    <div
+      className="dash-stat-icon"
+      style={{
+        width: 58,
+        height: 58,
+        minWidth: 58,
+        borderRadius: 14,
+        background: 'var(--teal-soft)',
+        color: 'var(--teal)',
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        style={{ width: 30, height: 30 }}
+      >
+        <rect x="3" y="7" width="18" height="13" rx="2" />
+        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      </svg>
+    </div>
+
+    <div>
+      <div
+        className="dash-stat-label"
         style={{
-          gridTemplateColumns:
-            'repeat(2, 1fr)',
-          marginBottom: 20
+          fontSize: 12,
+          marginBottom: 4,
         }}
       >
-        <div className="dash-stat-card">
-          <div
-            className="dash-stat-icon"
-            style={{
-              background:
-                'var(--teal-soft)',
-              color:
-                'var(--teal)'
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <rect
-                x="3"
-                y="7"
-                width="18"
-                height="13"
-                rx="2"
-              />
-              <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </svg>
-          </div>
-
-          <div>
-            <div className="dash-stat-label">
-              Total Items Tracked
-            </div>
-
-            <div className="dash-stat-value">
-              {totalItems}
-            </div>
-
-            <div className="dash-stat-delta">
-              across all categories
-            </div>
-          </div>
-        </div>
-
-        <div className="dash-stat-card">
-          <div
-            className="dash-stat-icon"
-            style={{
-              background:
-                'rgba(225,104,94,0.14)',
-              color:
-                'var(--danger)'
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M12 9v4M12 17h.01" />
-              <circle
-                cx="12"
-                cy="12"
-                r="9"
-              />
-            </svg>
-          </div>
-
-          <div>
-            <div className="dash-stat-label">
-              Low Stock Alerts
-            </div>
-
-            <div
-              className="dash-stat-value"
-              style={{
-                color:
-                  lowStockItems.length > 0
-                    ? 'var(--danger)'
-                    : undefined
-              }}
-            >
-              {lowStockItems.length}
-            </div>
-
-            <div
-              className="dash-stat-delta"
-              style={{
-                color:
-                  'var(--gold)'
-              }}
-            >
-              at or below reorder level
-            </div>
-          </div>
-        </div>
+        Total Items Tracked
       </div>
 
+      <div
+        className="dash-stat-value"
+        style={{
+          fontSize: 28,
+          lineHeight: 1.1,
+          marginBottom: 4,
+        }}
+      >
+        {totalItems}
+      </div>
+
+      <div
+        className="dash-stat-delta"
+        style={{
+          fontSize: 11,
+        }}
+      >
+        across all categories
+      </div>
+    </div>
+  </div>
+
+  {/* LOW STOCK */}
+  <div
+    className="dash-stat-card"
+    style={{
+      minHeight: 120,
+      padding: 18,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+    }}
+  >
+    <div
+      className="dash-stat-icon"
+      style={{
+        width: 58,
+        height: 58,
+        minWidth: 58,
+        borderRadius: 14,
+        background: 'rgba(225,104,94,0.14)',
+        color: 'var(--danger)',
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        style={{ width: 30, height: 30 }}
+      >
+        <path d="M12 9v4M12 17h.01" />
+        <circle cx="12" cy="12" r="9" />
+      </svg>
+    </div>
+
+    <div>
+      <div
+        className="dash-stat-label"
+        style={{
+          fontSize: 12,
+          marginBottom: 4,
+        }}
+      >
+        Low Stock Alerts
+      </div>
+
+      <div
+        className="dash-stat-value"
+        style={{
+          fontSize: 28,
+          lineHeight: 1.1,
+          marginBottom: 4,
+          color:
+            lowStockItems.length > 0
+              ? 'var(--danger)'
+              : undefined,
+        }}
+      >
+        {lowStockItems.length}
+      </div>
+
+      <div
+        className="dash-stat-delta"
+        style={{
+          fontSize: 11,
+          color: 'var(--gold)',
+        }}
+      >
+        at or below reorder level
+      </div>
+    </div>
+  </div>
+</div>
       {/* =====================================================
           INVENTORY PANEL
       ===================================================== */}
