@@ -22,6 +22,17 @@ export default function PatientProfile({ patientId, onClose }){
 
   const patient = patients.find(p => p.id === patientId)
 
+  // If the patient hasn't shown up within a few seconds, stop showing an
+  // infinite "Loading patient…" spinner and give a real, actionable error
+  // instead — most commonly caused by a blocked local-database connection
+  // (see useOfflineTable's openDB), occasionally a genuinely missing record.
+  const [loadTimedOut, setLoadTimedOut] = useState(false)
+  useEffect(() => {
+    setLoadTimedOut(false)
+    const timer = setTimeout(() => setLoadTimedOut(true), 6000)
+    return () => clearTimeout(timer)
+  }, [patientId])
+
   function showToast(msg){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
@@ -31,10 +42,28 @@ export default function PatientProfile({ patientId, onClose }){
     return (
       <div style={overlayStyle}>
         <div style={{ ...panelStyle, textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
-          Loading patient…
-          <div style={{ marginTop: 16 }}>
-            <button className="btn btn-ghost" onClick={onClose}>Close</button>
-          </div>
+          {loadTimedOut ? (
+            <>
+              <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: 14, marginBottom: 8 }}>
+                Couldn't load this patient
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
+                This is taking much longer than it should. This usually means the local database
+                is being blocked by another open tab/window of this app, or this patient no longer exists.
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button className="btn btn-ghost" onClick={() => window.location.reload()}>Reload App</button>
+                <button className="btn btn-ghost" onClick={onClose}>Close</button>
+              </div>
+            </>
+          ) : (
+            <>
+              Loading patient…
+              <div style={{ marginTop: 16 }}>
+                <button className="btn btn-ghost" onClick={onClose}>Close</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )
