@@ -126,42 +126,21 @@ function nowISO() {
 // ============================================================
 // CLEAN SUPABASE PAYLOAD
 // ============================================================
+// IMPORTANT: this runs for every table in the app, not just one.
+// Strip only the local-only IndexedDB bookkeeping fields — never
+// whitelist real columns here, since a fixed column list for one
+// table (e.g. inventory) silently drops every other table's real
+// fields (full_name, queue_status, etc.) before they reach Supabase.
 
 function cleanSupabasePayload(record) {
-  const payload = {}
-
-  const allowedColumns = [
-    'id',
-    'hospital_id',
-    'name',
-    'category',
-    'quantity',
-    'unit',
-    'supplier',
-    'reorder_level',
-    'created_by',
-    'created_at',
-    'batch_number',
-    'expiry_date',
-    'cost_price',
-    'selling_price',
-    'generic_name',
-    'strength',
-    'dosage_form',
-    'updated_at',
-  ]
-
-  for (const column of allowedColumns) {
-    if (
-      Object.prototype.hasOwnProperty.call(
-        record,
-        column
-      )
-    ) {
-      payload[column] =
-        record[column]
-    }
-  }
+  const {
+    table_name,
+    _synced,
+    _deleted,
+    _syncError,
+    _syncErrorMessage,
+    ...payload
+  } = record
 
   return payload
 }
