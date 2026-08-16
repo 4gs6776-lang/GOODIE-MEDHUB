@@ -28,9 +28,6 @@ function openDB() {
 
     let settled = false
 
-    // If the open request never resolves (most commonly because another
-    // open tab/instance of this app is holding a blocking connection),
-    // fail loudly after a few seconds instead of hanging forever.
     const timeoutId = setTimeout(() => {
       if (settled) return
       settled = true
@@ -104,8 +101,6 @@ function openDB() {
       console.warn(
         'IndexedDB upgrade blocked. Close other tabs using the app.'
       )
-      // Don't hang forever waiting for the other tab to close — the
-      // timeout above will reject with a clear, actionable message.
     }
   })
 }
@@ -122,7 +117,6 @@ function generateUUID() {
     return crypto.randomUUID()
   }
 
-  // Fallback UUID generator
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(
     /[xy]/g,
     function (c) {
@@ -150,11 +144,6 @@ function nowISO() {
 // ============================================================
 // CLEAN SUPABASE PAYLOAD
 // ============================================================
-// IMPORTANT: this runs for every table in the app, not just one.
-// Strip only the local-only IndexedDB bookkeeping fields — never
-// whitelist real columns here, since a fixed column list for one
-// table (e.g. inventory) silently drops every other table's real
-// fields (full_name, queue_status, etc.) before they reach Supabase.
 
 function cleanSupabasePayload(record) {
   const {
@@ -311,10 +300,6 @@ export function useOfflineTable(
   const [loadError, setLoadError] =
     useState(null)
 
-  // ==========================================================
-  // LOAD LOCAL RECORDS
-  // ==========================================================
-
   const loadLocalRecords =
     useCallback(async () => {
       if (!hospitalId) {
@@ -369,10 +354,6 @@ export function useOfflineTable(
       hospitalId,
     ])
 
-  // ==========================================================
-  // ONLINE / OFFLINE LISTENERS
-  // ==========================================================
-
   useEffect(() => {
     loadLocalRecords()
 
@@ -418,10 +399,6 @@ export function useOfflineTable(
     tableName,
   ])
 
-  // ==========================================================
-  // ADD RECORD
-  // ==========================================================
-
   const addRecord = async (
     data
   ) => {
@@ -434,11 +411,6 @@ export function useOfflineTable(
     const timestamp =
       nowISO()
 
-    /*
-     * IMPORTANT:
-     * Supabase inventory_items.id is UUID.
-     * Therefore we must NOT use local_12345 IDs.
-     */
     const id =
       data.id || generateUUID()
 
@@ -472,17 +444,12 @@ export function useOfflineTable(
     const db =
       await openDB()
 
-    // Save locally FIRST
     await putLocalRecord(
       db,
       newRecord
     )
 
     await loadLocalRecords()
-
-    // ========================================================
-    // ONLINE SUPABASE WRITE
-    // ========================================================
 
     if (
       navigator.onLine &&
@@ -571,10 +538,6 @@ export function useOfflineTable(
     return newRecord
   }
 
-  // ==========================================================
-  // UPDATE RECORD
-  // ==========================================================
-
   const updateRecord = async (
     id,
     updates
@@ -621,17 +584,12 @@ export function useOfflineTable(
         null,
     }
 
-    // Save locally first
     await putLocalRecord(
       db,
       updatedRecord
     )
 
     await loadLocalRecords()
-
-    // ========================================================
-    // ONLINE UPDATE
-    // ========================================================
 
     if (
       navigator.onLine &&
@@ -642,15 +600,6 @@ export function useOfflineTable(
           cleanSupabasePayload(
             updatedRecord
           )
-
-        /*
-         * Do NOT send the local-only fields:
-         *
-         * _synced
-         * _deleted
-         * _syncError
-         * table_name
-         */
 
         const {
           id: payloadId,
@@ -737,10 +686,6 @@ export function useOfflineTable(
     return updatedRecord
   }
 
-  // ==========================================================
-  // DELETE RECORD
-  // ==========================================================
-
   const deleteRecord = async (
     id
   ) => {
@@ -779,10 +724,6 @@ export function useOfflineTable(
     )
 
     await loadLocalRecords()
-
-    // ========================================================
-    // ONLINE DELETE
-    // ========================================================
 
     if (
       navigator.onLine &&
@@ -836,10 +777,6 @@ export function useOfflineTable(
 
     await loadLocalRecords()
   }
-
-  // ==========================================================
-  // RETURN
-  // ==========================================================
 
   return {
     records,
@@ -913,6 +850,9 @@ export function subscribeSyncErrors(
       callback(errors)
     }
 
+  // FIX: Run immediately so the dashboard knows about errors on page load
+  handler()
+
   window.addEventListener(
     'online',
     handler
@@ -971,10 +911,6 @@ export async function flushTableQueue(
 
     for (const record of pending) {
       try {
-        // ======================================================
-        // DELETE
-        // ======================================================
-
         if (record._deleted) {
           const {
             error,
@@ -999,10 +935,6 @@ export async function flushTableQueue(
 
           continue
         }
-
-        // ======================================================
-        // UPSERT
-        // ======================================================
 
         const payload =
           cleanSupabasePayload(
