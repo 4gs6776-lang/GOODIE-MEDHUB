@@ -26,6 +26,21 @@ function openDB() {
       return
     }
 
+    let settled = false
+
+    // If the open request never resolves (most commonly because another
+    // open tab/instance of this app is holding a blocking connection),
+    // fail loudly after a few seconds instead of hanging forever.
+    const timeoutId = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(
+        new Error(
+          'Could not open the local database — another open tab of this app may be blocking it. Close other tabs/windows running this app and try again.'
+        )
+      )
+    }, 8000)
+
     const request = indexedDB.open(
       DB_NAME,
       DB_VERSION
@@ -65,6 +80,10 @@ function openDB() {
     }
 
     request.onsuccess = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+
       const db = request.result
 
       db.onversionchange = () => {
@@ -75,6 +94,9 @@ function openDB() {
     }
 
     request.onerror = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
       reject(request.error)
     }
 
@@ -82,6 +104,8 @@ function openDB() {
       console.warn(
         'IndexedDB upgrade blocked. Close other tabs using the app.'
       )
+      // Don't hang forever waiting for the other tab to close — the
+      // timeout above will reject with a clear, actionable message.
     }
   })
 }
@@ -284,6 +308,9 @@ export function useOfflineTable(
   const [pendingCount, setPendingCount] =
     useState(0)
 
+  const [loadError, setLoadError] =
+    useState(null)
+
   // ==========================================================
   // LOAD LOCAL RECORDS
   // ==========================================================
@@ -322,11 +349,17 @@ export function useOfflineTable(
           pending.length
         )
 
+        setLoadError(null)
         setLoading(false)
       } catch (error) {
         console.error(
           'Error reading offline records:',
           error
+        )
+
+        setLoadError(
+          error?.message ||
+          'Could not read local data'
         )
 
         setLoading(false)
@@ -812,6 +845,8 @@ export function useOfflineTable(
     records,
 
     loading,
+
+    loadError,
 
     isOnline,
 
