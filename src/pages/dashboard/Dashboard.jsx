@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
-import { useOfflineTable, getAllSyncErrors, subscribeSyncErrors, flushTableQueue } from '../../lib/useOfflineTable';
+import { useOfflineTable, getAllSyncErrors, subscribeSyncErrors, flushTableQueue, skipStuckSyncItem } from '../../lib/useOfflineTable';
 import Pharmacy from './Pharmacy'
 import Laboratory from './Laboratory'
 import Radiology from './Radiology'
@@ -186,13 +186,28 @@ export default function Dashboard(){
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const stuckTables = Object.values(syncErrors)
+  // Group sync errors by table name so the UI can display them nicely
+  const stuckTables = useMemo(() => {
+    const groups = {};
+    syncErrors.forEach(err => {
+      const table = err.table_name || 'Unknown table';
+      if (!groups[table]) {
+        groups[table] = {
+          table,
+          queueLength: 0,
+          message: err._syncErrorMessage || 'Unknown error'
+        };
+      }
+      groups[table].queueLength += 1;
+    });
+    return Object.values(groups);
+  }, [syncErrors]);
 
   async function handleRetrySync(table){
     if (!hospital?.id) return
     setSyncActionBusy(true)
     try {
-      await flushTableQueue(table, hospital.id)
+      await flushTableQueue(table) // Removed hospital.id, it's not needed
       setSyncErrors(getAllSyncErrors())
     } finally {
       setSyncActionBusy(false)
@@ -201,10 +216,13 @@ export default function Dashboard(){
 
   async function handleSkipStuck(table){
     if (!hospital?.id) return
-    if (!confirm(`Skip the stuck item for "${table}"? The local record stays — only this one sync attempt is abandoned so the rest of the queue can proceed.`)) return
+    if (!confirm(`Skip ALL stuck items for "${table}"? The local records stay — only these sync attempts are abandoned so the rest of the queue can proceed.`)) return
     setSyncActionBusy(true)
     try {
-      await skipStuckSyncItem(table, hospital.id)
+      const errorsToSkip = syncErrors.filter(err => err.table_name === table)
+      for (const err of errorsToSkip) {
+        await skipStuckSyncItem(err.id) // skipStuckSyncItem takes an ID, not a table name
+      }
       setSyncErrors(getAllSyncErrors())
     } finally {
       setSyncActionBusy(false)
