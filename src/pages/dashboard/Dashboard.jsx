@@ -137,7 +137,7 @@ export default function Dashboard(){
 
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [syncErrors, setSyncErrors] = useState(() => getAllSyncErrors())
+  const [syncErrors, setSyncErrors] = useState([]) // FIX: Initialize as empty array instead of running getAllSyncErrors() immediately
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [syncActionBusy, setSyncActionBusy] = useState(false)
 
@@ -188,6 +188,9 @@ export default function Dashboard(){
 
   // Group sync errors by table name so the UI can display them nicely
   const stuckTables = useMemo(() => {
+    // FIX: Make sure syncErrors is an array before calling .forEach
+    if (!Array.isArray(syncErrors)) return [];
+    
     const groups = {};
     syncErrors.forEach(err => {
       const table = err.table_name || 'Unknown table';
@@ -207,7 +210,7 @@ export default function Dashboard(){
     if (!hospital?.id) return
     setSyncActionBusy(true)
     try {
-      await flushTableQueue(table) // Removed hospital.id, it's not needed
+      await flushTableQueue(table) 
       setSyncErrors(getAllSyncErrors())
     } finally {
       setSyncActionBusy(false)
@@ -221,7 +224,7 @@ export default function Dashboard(){
     try {
       const errorsToSkip = syncErrors.filter(err => err.table_name === table)
       for (const err of errorsToSkip) {
-        await skipStuckSyncItem(err.id) // skipStuckSyncItem takes an ID, not a table name
+        await skipStuckSyncItem(err.id)
       }
       setSyncErrors(getAllSyncErrors())
     } finally {
