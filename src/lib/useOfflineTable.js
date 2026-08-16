@@ -18,11 +18,7 @@ const STORE_NAME = 'offline_records'
 function openDB() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) {
-      reject(
-        new Error(
-          'IndexedDB is not supported by this browser.'
-        )
-      )
+      reject(new Error('IndexedDB is not supported by this browser.'))
       return
     }
 
@@ -38,41 +34,15 @@ function openDB() {
       )
     }, 8000)
 
-    const request = indexedDB.open(
-      DB_NAME,
-      DB_VERSION
-    )
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result
-
-      if (
-        !db.objectStoreNames.contains(
-          STORE_NAME
-        )
-      ) {
-        const store =
-          db.createObjectStore(STORE_NAME, {
-            keyPath: 'id',
-          })
-
-        store.createIndex(
-          'table_name',
-          'table_name',
-          { unique: false }
-        )
-
-        store.createIndex(
-          'hospital_id',
-          'hospital_id',
-          { unique: false }
-        )
-
-        store.createIndex(
-          'synced',
-          '_synced',
-          { unique: false }
-        )
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+        store.createIndex('table_name', 'table_name', { unique: false })
+        store.createIndex('hospital_id', 'hospital_id', { unique: false })
+        store.createIndex('synced', '_synced', { unique: false })
       }
     }
 
@@ -80,13 +50,8 @@ function openDB() {
       if (settled) return
       settled = true
       clearTimeout(timeoutId)
-
       const db = request.result
-
-      db.onversionchange = () => {
-        db.close()
-      }
-
+      db.onversionchange = () => db.close()
       resolve(db)
     }
 
@@ -98,9 +63,7 @@ function openDB() {
     }
 
     request.onblocked = () => {
-      console.warn(
-        'IndexedDB upgrade blocked. Close other tabs using the app.'
-      )
+      console.warn('IndexedDB upgrade blocked. Close other tabs using the app.')
     }
   })
 }
@@ -110,27 +73,14 @@ function openDB() {
 // ============================================================
 
 function generateUUID() {
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof crypto.randomUUID === 'function'
-  ) {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
-
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(
-    /[xy]/g,
-    function (c) {
-      const r =
-        (Math.random() * 16) | 0
-
-      const v =
-        c === 'x'
-          ? r
-          : (r & 0x3) | 0x8
-
-      return v.toString(16)
-    }
-  )
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 }
 
 // ============================================================
@@ -146,15 +96,7 @@ function nowISO() {
 // ============================================================
 
 function cleanSupabasePayload(record) {
-  const {
-    table_name,
-    _synced,
-    _deleted,
-    _syncError,
-    _syncErrorMessage,
-    ...payload
-  } = record
-
+  const { table_name, _synced, _deleted, _syncError, _syncErrorMessage, ...payload } = record
   return payload
 }
 
@@ -162,59 +104,28 @@ function cleanSupabasePayload(record) {
 // WRITE LOCAL RECORD
 // ============================================================
 
-async function putLocalRecord(
-  db,
-  record
-) {
-  return new Promise(
-    (resolve, reject) => {
-      const tx = db.transaction(
-        STORE_NAME,
-        'readwrite'
-      )
-
-      const store =
-        tx.objectStore(STORE_NAME)
-
-      store.put(record)
-
-      tx.oncomplete = () =>
-        resolve(record)
-
-      tx.onerror = () =>
-        reject(tx.error)
-    }
-  )
+async function putLocalRecord(db, record) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    store.put(record)
+    tx.oncomplete = () => resolve(record)
+    tx.onerror = () => reject(tx.error)
+  })
 }
 
 // ============================================================
 // GET LOCAL RECORD
 // ============================================================
 
-async function getLocalRecord(
-  db,
-  id
-) {
-  return new Promise(
-    (resolve, reject) => {
-      const tx = db.transaction(
-        STORE_NAME,
-        'readonly'
-      )
-
-      const store =
-        tx.objectStore(STORE_NAME)
-
-      const request =
-        store.get(id)
-
-      request.onsuccess = () =>
-        resolve(request.result || null)
-
-      request.onerror = () =>
-        reject(request.error)
-    }
-  )
+async function getLocalRecord(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const store = tx.objectStore(STORE_NAME)
+    const request = store.get(id)
+    request.onsuccess = () => resolve(request.result || null)
+    request.onerror = () => reject(request.error)
+  })
 }
 
 // ============================================================
@@ -222,556 +133,259 @@ async function getLocalRecord(
 // ============================================================
 
 async function getAllLocalRecords(db) {
-  return new Promise(
-    (resolve, reject) => {
-      const tx = db.transaction(
-        STORE_NAME,
-        'readonly'
-      )
-
-      const store =
-        tx.objectStore(STORE_NAME)
-
-      const request =
-        store.getAll()
-
-      request.onsuccess = () =>
-        resolve(request.result || [])
-
-      request.onerror = () =>
-        reject(request.error)
-    }
-  )
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const store = tx.objectStore(STORE_NAME)
+    const request = store.getAll()
+    request.onsuccess = () => resolve(request.result || [])
+    request.onerror = () => reject(request.error)
+  })
 }
 
 // ============================================================
 // DELETE LOCAL RECORD
 // ============================================================
 
-async function deleteLocalRecord(
-  db,
-  id
-) {
-  return new Promise(
-    (resolve, reject) => {
-      const tx = db.transaction(
-        STORE_NAME,
-        'readwrite'
-      )
-
-      const store =
-        tx.objectStore(STORE_NAME)
-
-      store.delete(id)
-
-      tx.oncomplete = () =>
-        resolve()
-
-      tx.onerror = () =>
-        reject(tx.error)
-    }
-  )
+async function deleteLocalRecord(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    store.delete(id)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
 }
 
 // ============================================================
 // MAIN HOOK
 // ============================================================
 
-export function useOfflineTable(
-  tableName,
-  hospitalId
-) {
-  const [records, setRecords] =
-    useState([])
+export function useOfflineTable(tableName, hospitalId) {
+  const [records, setRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : false)
+  const [pendingCount, setPendingCount] = useState(0)
+  const [loadError, setLoadError] = useState(null)
 
-  const [loading, setLoading] =
-    useState(true)
+  const loadLocalRecords = useCallback(async () => {
+    if (!hospitalId) {
+      setRecords([])
+      setLoading(false)
+      return
+    }
 
-  const [isOnline, setIsOnline] =
-    useState(
-      typeof navigator !== 'undefined'
-        ? navigator.onLine
-        : false
-    )
+    try {
+      const db = await openDB()
+      const all = await getAllLocalRecords(db)
+      
+      const filtered = all.filter(
+        (record) =>
+          record.table_name === tableName &&
+          record.hospital_id === hospitalId &&
+          !record._deleted
+      )
 
-  const [pendingCount, setPendingCount] =
-    useState(0)
+      setRecords(filtered)
 
-  const [loadError, setLoadError] =
-    useState(null)
-
-  const loadLocalRecords =
-    useCallback(async () => {
-      if (!hospitalId) {
-        setRecords([])
-        setLoading(false)
-        return
-      }
-
-      try {
-        const db = await openDB()
-
-        const all =
-          await getAllLocalRecords(db)
-
-        const filtered = all.filter(
-          (record) =>
-            record.table_name ===
-              tableName &&
-            record.hospital_id ===
-              hospitalId &&
-            !record._deleted
-        )
-
-        setRecords(filtered)
-
-        const pending = all.filter(
-          (record) =>
-            record._synced === false
-        )
-
-        setPendingCount(
-          pending.length
-        )
-
-        setLoadError(null)
-        setLoading(false)
-      } catch (error) {
-        console.error(
-          'Error reading offline records:',
-          error
-        )
-
-        setLoadError(
-          error?.message ||
-          'Could not read local data'
-        )
-
-        setLoading(false)
-      }
-    }, [
-      tableName,
-      hospitalId,
-    ])
+      const pending = all.filter((record) => record._synced === false)
+      setPendingCount(pending.length)
+      setLoadError(null)
+      setLoading(false)
+    } catch (error) {
+      console.error('Error reading offline records:', error)
+      setLoadError(error?.message || 'Could not read local data')
+      setLoading(false)
+    }
+  }, [tableName, hospitalId])
 
   useEffect(() => {
     loadLocalRecords()
 
-    const handleOnline =
-      async () => {
-        setIsOnline(true)
+    const handleOnline = async () => {
+      setIsOnline(true)
+      await flushTableQueue(tableName)
+      await loadLocalRecords()
+    }
 
-        await flushTableQueue(
-          tableName
-        )
+    const handleOffline = () => setIsOnline(false)
 
-        await loadLocalRecords()
-      }
-
-    const handleOffline =
-      () => {
-        setIsOnline(false)
-      }
-
-    window.addEventListener(
-      'online',
-      handleOnline
-    )
-
-    window.addEventListener(
-      'offline',
-      handleOffline
-    )
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
     return () => {
-      window.removeEventListener(
-        'online',
-        handleOnline
-      )
-
-      window.removeEventListener(
-        'offline',
-        handleOffline
-      )
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
     }
-  }, [
-    loadLocalRecords,
-    tableName,
-  ])
+  }, [loadLocalRecords, tableName])
 
-  const addRecord = async (
-    data
-  ) => {
-    if (!hospitalId) {
-      throw new Error(
-        'Hospital ID is required.'
-      )
-    }
+  const addRecord = async (data) => {
+    if (!hospitalId) throw new Error('Hospital ID is required.')
 
-    const timestamp =
-      nowISO()
-
-    const id =
-      data.id || generateUUID()
+    const timestamp = nowISO()
+    const id = data.id || generateUUID()
 
     const newRecord = {
       ...data,
-
       id,
-
-      table_name:
-        tableName,
-
-      hospital_id:
-        hospitalId,
-
-      created_at:
-        data.created_at ||
-        timestamp,
-
-      updated_at:
-        timestamp,
-
+      table_name: tableName,
+      hospital_id: hospitalId,
+      created_at: data.created_at || timestamp,
+      updated_at: timestamp,
       _synced: false,
-
       _deleted: false,
-
       _syncError: false,
-
       _syncErrorMessage: null,
     }
 
-    const db =
-      await openDB()
-
-    await putLocalRecord(
-      db,
-      newRecord
-    )
-
+    const db = await openDB()
+    await putLocalRecord(db, newRecord)
     await loadLocalRecords()
 
-    if (
-      navigator.onLine &&
-      supabase?.from
-    ) {
+    if (navigator.onLine && supabase?.from) {
       try {
-        const payload =
-          cleanSupabasePayload(
-            newRecord
-          )
-
-        const {
-          data: remoteData,
-          error,
-        } = await supabase
+        const payload = cleanSupabasePayload(newRecord)
+        const { data: remoteData, error } = await supabase
           .from(tableName)
-          .insert([
-            payload,
-          ])
+          .insert([payload])
           .select()
           .single()
 
-        if (error) {
-          throw error
-        }
+        if (error) throw error
 
         if (remoteData) {
           const syncedRecord = {
             ...remoteData,
-
-            table_name:
-              tableName,
-
-            hospital_id:
-              hospitalId,
-
+            table_name: tableName,
+            hospital_id: hospitalId,
             _synced: true,
-
             _deleted: false,
-
             _syncError: false,
-
-            _syncErrorMessage:
-              null,
+            _syncErrorMessage: null,
           }
-
-          await putLocalRecord(
-            db,
-            syncedRecord
-          )
+          await putLocalRecord(db, syncedRecord)
         }
       } catch (error) {
-        console.error(
-          'Supabase insert failed:',
-          error
-        )
-
+        console.error('Supabase insert failed:', error)
         const failedRecord = {
           ...newRecord,
-
           _synced: false,
-
           _syncError: true,
-
-          _syncErrorMessage:
-            error?.message ||
-            'Database insert failed',
+          _syncErrorMessage: error?.message || 'Database insert failed',
         }
-
-        await putLocalRecord(
-          db,
-          failedRecord
-        )
-
+        await putLocalRecord(db, failedRecord)
         await loadLocalRecords()
-
-        throw new Error(
-          error?.message ||
-            'Database rejected insertion.'
-        )
+        throw new Error(error?.message || 'Database rejected insertion.')
       }
     }
 
     await loadLocalRecords()
-
     return newRecord
   }
 
-  const updateRecord = async (
-    id,
-    updates
-  ) => {
-    const db =
-      await openDB()
-
-    const existing =
-      await getLocalRecord(
-        db,
-        id
-      )
+  const updateRecord = async (id, updates) => {
+    const db = await openDB()
+    const existing = await getLocalRecord(db, id)
 
     if (!existing) {
-      throw new Error(
-        'Inventory item was not found locally.'
-      )
+      throw new Error('Record was not found locally.')
     }
 
     const updatedRecord = {
       ...existing,
-
       ...updates,
-
       id,
-
-      table_name:
-        tableName,
-
-      hospital_id:
-        existing.hospital_id ||
-        hospitalId,
-
-      updated_at:
-        nowISO(),
-
+      table_name: tableName,
+      hospital_id: existing.hospital_id || hospitalId,
+      updated_at: nowISO(),
       _synced: false,
-
       _deleted: false,
-
       _syncError: false,
-
-      _syncErrorMessage:
-        null,
+      _syncErrorMessage: null,
     }
 
-    await putLocalRecord(
-      db,
-      updatedRecord
-    )
-
+    await putLocalRecord(db, updatedRecord)
     await loadLocalRecords()
 
-    if (
-      navigator.onLine &&
-      supabase?.from
-    ) {
+    if (navigator.onLine && supabase?.from) {
       try {
-        const payload =
-          cleanSupabasePayload(
-            updatedRecord
-          )
+        const payload = cleanSupabasePayload(updatedRecord)
+        const { id: payloadId, ...updatePayload } = payload
 
-        const {
-          id: payloadId,
-          ...updatePayload
-        } = payload
-
-        const {
-          data: remoteData,
-          error,
-        } = await supabase
+        const { data: remoteData, error } = await supabase
           .from(tableName)
-          .update(
-            updatePayload
-          )
-          .eq(
-            'id',
-            payloadId
-          )
+          .update(updatePayload)
+          .eq('id', payloadId)
           .select()
           .single()
 
-        if (error) {
+        // FIX: PGRST116 means 0 rows returned. This happens if the item is local-only.
+        // We ignore this error so the user can keep working, but we keep _synced = false so it syncs later.
+        if (error && error.code !== 'PGRST116') {
           throw error
         }
 
         const syncedRecord = {
-          ...(remoteData ||
-            updatedRecord),
-
-          table_name:
-            tableName,
-
-          hospital_id:
-            hospitalId,
-
-          _synced: true,
-
+          ...(remoteData || updatedRecord),
+          table_name: tableName,
+          hospital_id: hospitalId,
+          _synced: remoteData ? true : false, 
           _deleted: false,
-
           _syncError: false,
-
-          _syncErrorMessage:
-            null,
+          _syncErrorMessage: null,
         }
 
-        await putLocalRecord(
-          db,
-          syncedRecord
-        )
+        await putLocalRecord(db, syncedRecord)
       } catch (error) {
-        console.error(
-          'Supabase update failed:',
-          error
-        )
-
+        console.error('Supabase update failed:', error)
         const failedRecord = {
           ...updatedRecord,
-
           _synced: false,
-
           _syncError: true,
-
-          _syncErrorMessage:
-            error?.message ||
-            'Database update failed',
+          _syncErrorMessage: error?.message || 'Database update failed',
         }
-
-        await putLocalRecord(
-          db,
-          failedRecord
-        )
-
+        await putLocalRecord(db, failedRecord)
         await loadLocalRecords()
-
-        throw new Error(
-          error?.message ||
-            'Database rejected update.'
-        )
+        throw new Error(error?.message || 'Database rejected update.')
       }
     }
 
     await loadLocalRecords()
-
     return updatedRecord
   }
 
-  const deleteRecord = async (
-    id
-  ) => {
-    const db =
-      await openDB()
+  const deleteRecord = async (id) => {
+    const db = await openDB()
+    const existing = await getLocalRecord(db, id)
 
-    const existing =
-      await getLocalRecord(
-        db,
-        id
-      )
-
-    if (!existing) {
-      return
-    }
+    if (!existing) return
 
     const deletedRecord = {
       ...existing,
-
       _deleted: true,
-
       _synced: false,
-
       _syncError: false,
-
-      _syncErrorMessage:
-        null,
-
-      updated_at:
-        nowISO(),
+      _syncErrorMessage: null,
+      updated_at: nowISO(),
     }
 
-    await putLocalRecord(
-      db,
-      deletedRecord
-    )
-
+    await putLocalRecord(db, deletedRecord)
     await loadLocalRecords()
 
-    if (
-      navigator.onLine &&
-      supabase?.from
-    ) {
+    if (navigator.onLine && supabase?.from) {
       try {
-        const {
-          error,
-        } = await supabase
-          .from(tableName)
-          .delete()
-          .eq('id', id)
-
-        if (error) {
-          throw error
-        }
-
-        await deleteLocalRecord(
-          db,
-          id
-        )
+        const { error } = await supabase.from(tableName).delete().eq('id', id)
+        if (error) throw error
+        await deleteLocalRecord(db, id)
       } catch (error) {
-        console.error(
-          'Supabase delete failed:',
-          error
-        )
-
+        console.error('Supabase delete failed:', error)
         const failedRecord = {
           ...deletedRecord,
-
           _syncError: true,
-
-          _syncErrorMessage:
-            error?.message ||
-            'Database delete failed',
+          _syncErrorMessage: error?.message || 'Database delete failed',
         }
-
-        await putLocalRecord(
-          db,
-          failedRecord
-        )
-
+        await putLocalRecord(db, failedRecord)
         await loadLocalRecords()
-
-        throw new Error(
-          error?.message ||
-            'Database rejected delete.'
-        )
+        throw new Error(error?.message || 'Database rejected delete.')
       }
     }
 
@@ -780,23 +394,14 @@ export function useOfflineTable(
 
   return {
     records,
-
     loading,
-
     loadError,
-
     isOnline,
-
     pendingCount,
-
     addRecord,
-
     updateRecord,
-
     deleteRecord,
-
-    refreshTable:
-      loadLocalRecords,
+    refreshTable: loadLocalRecords,
   }
 }
 
@@ -806,24 +411,11 @@ export function useOfflineTable(
 
 export async function getAllSyncErrors() {
   try {
-    const db =
-      await openDB()
-
-    const all =
-      await getAllLocalRecords(
-        db
-      )
-
-    return all.filter(
-      (record) =>
-        record._syncError === true
-    )
+    const db = await openDB()
+    const all = await getAllLocalRecords(db)
+    return all.filter((record) => record._syncError === true)
   } catch (error) {
-    console.error(
-      'Could not get sync errors:',
-      error
-    )
-
+    console.error('Could not get sync errors:', error)
     return []
   }
 }
@@ -832,47 +424,21 @@ export async function getAllSyncErrors() {
 // SUBSCRIBE TO SYNC ERRORS
 // ============================================================
 
-export function subscribeSyncErrors(
-  callback
-) {
-  const handler =
-    async () => {
-      if (
-        typeof callback !==
-        'function'
-      ) {
-        return
-      }
+export function subscribeSyncErrors(callback) {
+  const handler = async () => {
+    if (typeof callback !== 'function') return
+    const errors = await getAllSyncErrors()
+    callback(errors)
+  }
 
-      const errors =
-        await getAllSyncErrors()
+  handler() // Run immediately
 
-      callback(errors)
-    }
-
-  // FIX: Run immediately so the dashboard knows about errors on page load
-  handler()
-
-  window.addEventListener(
-    'online',
-    handler
-  )
-
-  window.addEventListener(
-    'offline',
-    handler
-  )
+  window.addEventListener('online', handler)
+  window.addEventListener('offline', handler)
 
   return () => {
-    window.removeEventListener(
-      'online',
-      handler
-    )
-
-    window.removeEventListener(
-      'offline',
-      handler
-    )
+    window.removeEventListener('online', handler)
+    window.removeEventListener('offline', handler)
   }
 }
 
@@ -880,140 +446,66 @@ export function subscribeSyncErrors(
 // FLUSH OFFLINE QUEUE
 // ============================================================
 
-export async function flushTableQueue(
-  tableName = null
-) {
-  if (
-    !navigator.onLine ||
-    !supabase?.from
-  ) {
-    return
-  }
+export async function flushTableQueue(tableName = null) {
+  if (!navigator.onLine || !supabase?.from) return
 
   try {
-    const db =
-      await openDB()
+    const db = await openDB()
+    const all = await getAllLocalRecords(db)
 
-    const all =
-      await getAllLocalRecords(
-        db
-      )
-
-    const pending =
-      all.filter(
-        (record) =>
-          record._synced ===
-            false &&
-          (!tableName ||
-            record.table_name ===
-              tableName)
-      )
+    const pending = all.filter(
+      (record) =>
+        record._synced === false &&
+        (!tableName || record.table_name === tableName)
+    )
 
     for (const record of pending) {
       try {
         if (record._deleted) {
-          const {
-            error,
-          } = await supabase
-            .from(
-              record.table_name
-            )
+          const { error } = await supabase
+            .from(record.table_name)
             .delete()
-            .eq(
-              'id',
-              record.id
-            )
+            .eq('id', record.id)
 
-          if (error) {
-            throw error
-          }
-
-          await deleteLocalRecord(
-            db,
-            record.id
-          )
-
+          if (error) throw error
+          await deleteLocalRecord(db, record.id)
           continue
         }
 
-        const payload =
-          cleanSupabasePayload(
-            record
-          )
+        const payload = cleanSupabasePayload(record)
 
-        const {
-          data: remoteData,
-          error,
-        } = await supabase
-          .from(
-            record.table_name
-          )
-          .upsert(
-            payload,
-            {
-              onConflict: 'id',
-            }
-          )
+        const { data: remoteData, error } = await supabase
+          .from(record.table_name)
+          .upsert(payload, { onConflict: 'id' })
           .select()
           .single()
 
-        if (error) {
-          throw error
-        }
+        if (error) throw error
 
         const syncedRecord = {
-          ...(remoteData ||
-            record),
-
-          table_name:
-            record.table_name,
-
-          hospital_id:
-            record.hospital_id,
-
+          ...(remoteData || record),
+          table_name: record.table_name,
+          hospital_id: record.hospital_id,
           _synced: true,
-
           _deleted: false,
-
           _syncError: false,
-
-          _syncErrorMessage:
-            null,
+          _syncErrorMessage: null,
         }
 
-        await putLocalRecord(
-          db,
-          syncedRecord
-        )
+        await putLocalRecord(db, syncedRecord)
       } catch (error) {
-        console.error(
-          `Failed to sync ${record.id}:`,
-          error
-        )
-
+        console.error(`Failed to sync ${record.id}:`, error)
         const failedRecord = {
           ...record,
-
           _synced: false,
-
           _syncError: true,
-
-          _syncErrorMessage:
-            error?.message ||
-            'Synchronization failed',
+          _syncErrorMessage: error?.message || 'Synchronization failed',
         }
-
-        await putLocalRecord(
-          db,
-          failedRecord
-        )
+        await putLocalRecord(db, failedRecord)
       }
     }
   } catch (error) {
-    console.error(
-      'Error flushing offline queue:',
-      error
-    )
+    console.error('Error flushing offline queue:', error)
   }
 }
 
@@ -1021,44 +513,23 @@ export async function flushTableQueue(
 // SKIP STUCK SYNC ITEM
 // ============================================================
 
-export async function skipStuckSyncItem(
-  id
-) {
+export async function skipStuckSyncItem(id) {
   try {
-    const db =
-      await openDB()
+    const db = await openDB()
+    const record = await getLocalRecord(db, id)
 
-    const record =
-      await getLocalRecord(
-        db,
-        id
-      )
+    if (!record) return false
 
-    if (!record) {
-      return false
-    }
-
-    await putLocalRecord(
-      db,
-      {
-        ...record,
-
-        _synced: true,
-
-        _syncError: false,
-
-        _syncErrorMessage:
-          null,
-      }
-    )
+    await putLocalRecord(db, {
+      ...record,
+      _synced: true,
+      _syncError: false,
+      _syncErrorMessage: null,
+    })
 
     return true
   } catch (error) {
-    console.error(
-      'Could not skip sync item:',
-      error
-    )
-
+    console.error('Could not skip sync item:', error)
     return false
   }
 }
