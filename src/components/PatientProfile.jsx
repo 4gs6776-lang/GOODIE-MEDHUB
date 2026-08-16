@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useOfflineTable } from '../lib/useOfflineTable'
 
-const TABS = ['Overview', 'History', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
+const TABS = ['Overview', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
 // the app. Reuses the same offline-first tables every other module reads —
@@ -16,16 +16,15 @@ export default function PatientProfile({ patientId, onClose }){
   const { records: invoices, addRecord: addInvoice, updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
   const { records: admissionRequests } = useOfflineTable('admission_requests', hospital?.id)
   const { records: drugChartEntries, addRecord: addDrugChartEntry, updateRecord: updateDrugChartEntry, deleteRecord: deleteDrugChartEntry } = useOfflineTable('patient_drug_charts', hospital?.id)
+  
+  // NEW: Fetch the stock records (Items Given)
+  const { records: stockRecords } = useOfflineTable('patient_stock_records', hospital?.id)
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
 
   const patient = patients.find(p => p.id === patientId)
 
-  // If the patient hasn't shown up within a few seconds, stop showing an
-  // infinite "Loading patient…" spinner and give a real, actionable error
-  // instead — most commonly caused by a blocked local-database connection
-  // (see useOfflineTable's openDB), occasionally a genuinely missing record.
   const [loadTimedOut, setLoadTimedOut] = useState(false)
   useEffect(() => {
     setLoadTimedOut(false)
@@ -90,7 +89,7 @@ export default function PatientProfile({ patientId, onClose }){
   const activePrescriptions = patientPrescriptions.filter(rx => rx.status === 'active')
 
   const patientInvoices = invoices
-    .filter(inv => inv.patient_name === patient.full_name)
+    .filter(inv => inv.patient_id === patient.id || inv.patient_name === patient.full_name)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
   const outstandingBalance = patientInvoices.filter(inv => inv.status === 'unpaid').reduce((sum, inv) => sum + Number(inv.amount), 0)
@@ -99,8 +98,11 @@ export default function PatientProfile({ patientId, onClose }){
     .filter(e => e.patient_id === patient.id)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
-  // Most recent non-cancelled/non-rejected admission request for this patient —
-  // same "active request" concept the Doctor Workbench uses.
+  // NEW: Filter stock records for this patient
+  const patientStockRecords = stockRecords
+    .filter(r => r.patient_id === patient.id || r.patient_name === patient.full_name)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
   const activeAdmissionRequest = admissionRequests
     .filter(r => r.patient_id === patient.id && r.status !== 'cancelled' && r.status !== 'rejected')
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
@@ -161,6 +163,7 @@ export default function PatientProfile({ patientId, onClose }){
             <OverviewTab patient={patient} latestConsultation={history[0]} activePrescriptions={activePrescriptions} outstandingBalance={outstandingBalance} admissionRequest={activeAdmissionRequest} />
           )}
           {tab === 'History' && <HistoryTab history={history} />}
+          {tab === 'Items Given' && <ItemsGivenTab records={patientStockRecords} />}
           {tab === 'Prescriptions' && <PrescriptionsTab prescriptions={patientPrescriptions} />}
           {tab === 'Drug Chart' && (
             <DrugChartTab
@@ -216,15 +219,11 @@ function detailRow(label, value){
   return (
     <div>
       <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
-      <div style={{ fontWeight: 700, fontSize: 14, marginTop: 2 }}>{value || '—'}</div>
+      <div style={{ fontWeight: 700, fontSize: 14, marginTop: 2 }}>{value || '—'}}</div>
     </div>
   )
 }
 
-// Maps admission_requests.status -> card presentation. 'converted' means
-// staff has turned the request into an official admission — ward/room/bed
-// detail attaches once Section 9's admissions table has more room/bed
-// granularity; for now it still shows what was requested.
 const ADMISSION_STATUS_MAP = {
   pending: { heading: '🏥 ADMISSION RECOMMENDED', label: 'Awaiting Admission', color: 'var(--gold)' },
   approved: { heading: '🏥 ADMISSION APPROVED', label: 'Admission Approved', color: 'var(--teal)' },
@@ -241,29 +240,19 @@ function AdmissionStatusCard({ request }){
       background: 'var(--bg-elevated)', border: `1px solid ${meta.color}`,
     }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: meta.color, marginBottom: 10 }}>{meta.heading}</div>
-
       <div style={{ fontSize: 13, marginBottom: 10 }}>
         {request.doctor_name ? `Dr. ${request.doctor_name}` : 'A doctor'} has recommended admission.
       </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
         {request.diagnosis && detailRow('Diagnosis', request.diagnosis)}
         {request.priority && detailRow('Priority', request.priority)}
         {request.requested_ward && detailRow('Requested Ward', request.requested_ward)}
         {request.requested_bed_type && detailRow('Requested Bed Type', request.requested_bed_type)}
       </div>
-
-      {request.reason && (
-        <div style={{ marginBottom: 10 }}>
-          {detailRow('Reason', request.reason)}
-        </div>
-      )}
-
+      {request.reason && (<div style={{ marginBottom: 10 }}>{detailRow('Reason', request.reason)}</div>)}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--line-soft)' }}>
         <span style={{ fontSize: 11.5, fontWeight: 700, color: meta.color }}>{meta.label}</span>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Requested: {new Date(request.created_at).toLocaleString()}
-        </span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Requested: {new Date(request.created_at).toLocaleString()}</span>
       </div>
     </div>
   )
@@ -273,7 +262,6 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
   return (
     <div>
       <AdmissionStatusCard request={admissionRequest} />
-
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
         {detailRow('Phone', patient.phone)}
         {detailRow('Blood Group / Genotype', [patient.blood_group, patient.genotype].filter(Boolean).join(' · '))}
@@ -282,7 +270,6 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
         {detailRow('Queue Status', patient.queue_status ? patient.queue_status.replace('_', ' ') : 'Not in queue')}
         {detailRow('Patient Status', patient.status === 'stable' ? 'Stable' : 'In Review')}
       </div>
-
       <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div>
@@ -297,7 +284,6 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
           </div>
         </div>
       </div>
-
       {latestConsultation ? (
         <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Latest Consultation</div>
@@ -326,6 +312,37 @@ function HistoryTab({ history }){
           {v.follow_up_notes && <div style={{ fontSize: 13 }}><strong>Follow-up:</strong> {v.follow_up_notes}</div>}
         </div>
       ))}
+    </div>
+  )
+}
+
+// NEW COMPONENT: Items Given Tab
+function ItemsGivenTab({ records }){
+  if (records.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No items or drugs have been dispensed to this patient yet.</div>
+  
+  const totalCost = records.reduce((sum, r) => sum + Number(r.total_price || 0), 0)
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18, padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Total Value of Items Given</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)' }}>₦{totalCost.toLocaleString()}</div>
+      </div>
+
+      <ul className="dash-legend">
+        {records.map(r => (
+          <li key={r.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 0', borderBottom: '1px solid var(--line-soft)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+              <strong>{r.item_name}</strong>
+              <span style={{ fontWeight: 700, color: 'var(--gold)' }}>₦{Number(r.total_price || 0).toLocaleString()}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+              <span>Qty: {r.quantity_used}</span>
+              <span>{new Date(r.created_at).toLocaleString()}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -391,9 +408,7 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
   const [form, setForm] = useState(() => emptyDrugChartForm(profile))
   const [saving, setSaving] = useState(false)
 
-  function set(key, value){
-    setForm(f => ({ ...f, [key]: value }))
-  }
+  function set(key, value){ setForm(f => ({ ...f, [key]: value })) }
 
   function handleEdit(entry){
     setForm({
@@ -420,10 +435,7 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
 
   async function handleSubmit(e){
     e.preventDefault()
-    if (!form.drug_name.trim()) {
-      showToast('Drug name is required')
-      return
-    }
+    if (!form.drug_name.trim()) { showToast('Drug name is required'); return }
     setSaving(true)
     try {
       const payload = {
@@ -441,19 +453,11 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
         remarks: form.remarks || null,
         created_by: profile?.id || null,
       }
-      if (form.id) {
-        await updateEntry(form.id, payload)
-        showToast('Entry updated')
-      } else {
-        await addEntry(payload)
-        showToast('Entry added to drug chart')
-      }
+      if (form.id) { await updateEntry(form.id, payload); showToast('Entry updated') } 
+      else { await addEntry(payload); showToast('Entry added to drug chart') }
       setForm(emptyDrugChartForm(profile))
-    } catch (err) {
-      showToast(err.message || 'Could not save entry')
-    } finally {
-      setSaving(false)
-    }
+    } catch (err) { showToast(err.message || 'Could not save entry') } 
+    finally { setSaving(false) }
   }
 
   function handlePrint(){
@@ -496,9 +500,7 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
     win.print()
   }
 
-  function escapeHtml(s){
-    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-  }
+  function escapeHtml(s){ return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
 
   return (
     <div>
@@ -506,81 +508,28 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
         <div style={{ fontSize: 11, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>
           {form.id ? 'Edit Entry' : 'New Administration Entry'}
         </div>
-
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="field">
-            <label>Date</label>
-            <input type="date" value={form.entry_date} onChange={e => set('entry_date', e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Time</label>
-            <input type="time" value={form.entry_time} onChange={e => set('entry_time', e.target.value)} />
-          </div>
-          <div className="field" style={{ gridColumn: '1 / -1' }}>
-            <label>Drug Name</label>
-            <input value={form.drug_name} onChange={e => set('drug_name', e.target.value)} placeholder="e.g. Paracetamol 1g" />
-          </div>
-          <div className="field">
-            <label>Dosage / Strength</label>
-            <input value={form.dosage} onChange={e => set('dosage', e.target.value)} placeholder="e.g. 1g" />
-          </div>
-          <div className="field">
-            <label>Route</label>
-            <select value={form.route} onChange={e => set('route', e.target.value)}>
-              <option value="">—</option>
-              {DRUG_CHART_ROUTES.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Frequency</label>
-            <select value={form.frequency} onChange={e => set('frequency', e.target.value)}>
-              <option value="">—</option>
-              {DRUG_CHART_FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Duration</label>
-            <input value={form.duration} onChange={e => set('duration', e.target.value)} placeholder="e.g. 5 days" />
-          </div>
-          <div className="field">
-            <label>Prescribing Doctor</label>
-            <input value={form.prescribing_doctor} onChange={e => set('prescribing_doctor', e.target.value)} placeholder="e.g. Dr. James" />
-          </div>
-          <div className="field">
-            <label>Administering Nurse</label>
-            <input value={form.administering_nurse} onChange={e => set('administering_nurse', e.target.value)} placeholder="e.g. Nurse Grace" />
-          </div>
-          <div className="field" style={{ gridColumn: '1 / -1' }}>
-            <label>Status</label>
-            <select value={form.status} onChange={e => set('status', e.target.value)}>
-              {DRUG_CHART_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="field" style={{ gridColumn: '1 / -1' }}>
-            <label>Remarks</label>
-            <textarea rows={2} value={form.remarks} onChange={e => set('remarks', e.target.value)} placeholder="Optional" />
-          </div>
+          <div className="field"><label>Date</label><input type="date" value={form.entry_date} onChange={e => set('entry_date', e.target.value)} /></div>
+          <div className="field"><label>Time</label><input type="time" value={form.entry_time} onChange={e => set('entry_time', e.target.value)} /></div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Drug Name</label><input value={form.drug_name} onChange={e => set('drug_name', e.target.value)} placeholder="e.g. Paracetamol 1g" /></div>
+          <div className="field"><label>Dosage / Strength</label><input value={form.dosage} onChange={e => set('dosage', e.target.value)} placeholder="e.g. 1g" /></div>
+          <div className="field"><label>Route</label><select value={form.route} onChange={e => set('route', e.target.value)}><option value="">—</option>{DRUG_CHART_ROUTES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+          <div className="field"><label>Frequency</label><select value={form.frequency} onChange={e => set('frequency', e.target.value)}><option value="">—</option>{DRUG_CHART_FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
+          <div className="field"><label>Duration</label><input value={form.duration} onChange={e => set('duration', e.target.value)} placeholder="e.g. 5 days" /></div>
+          <div className="field"><label>Prescribing Doctor</label><input value={form.prescribing_doctor} onChange={e => set('prescribing_doctor', e.target.value)} placeholder="e.g. Dr. James" /></div>
+          <div className="field"><label>Administering Nurse</label><input value={form.administering_nurse} onChange={e => set('administering_nurse', e.target.value)} placeholder="e.g. Nurse Grace" /></div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Status</label><select value={form.status} onChange={e => set('status', e.target.value)}>{DRUG_CHART_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Remarks</label><textarea rows={2} value={form.remarks} onChange={e => set('remarks', e.target.value)} placeholder="Optional" /></div>
         </div>
-
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {form.id && (
-            <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setForm(emptyDrugChartForm(profile))}>
-              Cancel Edit
-            </button>
-          )}
-          <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>
-            {saving ? 'Saving…' : form.id ? 'Update Entry' : '+ Add Entry'}
-          </button>
+          {form.id && <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setForm(emptyDrugChartForm(profile))}>Cancel Edit</button>}
+          <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>{saving ? 'Saving…' : form.id ? 'Update Entry' : '+ Add Entry'}</button>
         </div>
       </form>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          History ({entries.length})
-        </div>
-        <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '5px 12px', fontSize: 11.5 }} onClick={handlePrint}>
-          Print Chart
-        </button>
+        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>History ({entries.length})</div>
+        <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '5px 12px', fontSize: 11.5 }} onClick={handlePrint}>Print Chart</button>
       </div>
 
       {entries.length === 0 ? (
@@ -595,9 +544,7 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 700, fontSize: 13.5 }}>{e.drug_name}</span>
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 9px', borderRadius: 20, background: style.bg, color: style.color }}>
-                        {e.status}
-                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 9px', borderRadius: 20, background: style.bg, color: style.color }}>{e.status}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                       {e.entry_date} {e.entry_time ? e.entry_time.slice(0,5) : ''} · {e.dosage || '—'}{e.route ? ` · ${e.route}` : ''}{e.frequency ? ` · ${e.frequency}` : ''}{e.duration ? ` · ${e.duration}` : ''}
@@ -622,7 +569,6 @@ function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, delete
     </div>
   )
 }
-
 // ===================== END DRUG CHART =====================
 
 function PharmacyTab({ activePrescriptions, findPharmacyMatch, onDispense }){
@@ -641,9 +587,7 @@ function PharmacyTab({ activePrescriptions, findPharmacyMatch, onDispense }){
                   {match ? `${match.quantity} ${match.unit || 'units'} in stock` : 'Not tracked in pharmacy inventory'}
                 </div>
               </div>
-              <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => onDispense(rx)}>
-                Dispense
-              </button>
+              <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => onDispense(rx)}>Dispense</button>
             </div>
           </div>
         )
@@ -663,6 +607,7 @@ function BillingTab({ patient, invoices, outstandingBalance, profile, addInvoice
     setSaving(true)
     try {
       await addInvoice({
+        patient_id: patient.id, // FIX: ensure manual charges link to patient_id
         patient_name: patient.full_name,
         description: description || 'Charge',
         amount: parseFloat(amount),
@@ -775,50 +720,16 @@ function EditInfoTab({ patient, updatePatient, showToast }){
         <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div className="field">
-          <label>Age</label>
-          <input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value }))} />
-        </div>
-        <div className="field">
-          <label>Gender</label>
-          <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}>
-            <option value="">—</option>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-          </select>
-        </div>
-        <div className="field">
-          <label>Phone</label>
-          <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-        </div>
-        <div className="field">
-          <label>Patient Status</label>
-          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-            <option value="stable">Stable</option>
-            <option value="review">In Review</option>
-          </select>
-        </div>
-        <div className="field">
-          <label>Blood Group</label>
-          <input value={form.blood_group} onChange={e => setForm(f => ({ ...f, blood_group: e.target.value }))} placeholder="e.g. O+" />
-        </div>
-        <div className="field">
-          <label>Genotype</label>
-          <input value={form.genotype} onChange={e => setForm(f => ({ ...f, genotype: e.target.value }))} placeholder="e.g. AA" />
-        </div>
-        <div className="field">
-          <label>Emergency Contact Name</label>
-          <input value={form.emergency_contact_name} onChange={e => setForm(f => ({ ...f, emergency_contact_name: e.target.value }))} />
-        </div>
-        <div className="field">
-          <label>Emergency Contact Phone</label>
-          <input value={form.emergency_contact_phone} onChange={e => setForm(f => ({ ...f, emergency_contact_phone: e.target.value }))} />
-        </div>
+        <div className="field"><label>Age</label><input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value }))} /></div>
+        <div className="field"><label>Gender</label><select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))}><option value="">—</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+        <div className="field"><label>Phone</label><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} /></div>
+        <div className="field"><label>Patient Status</label><select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}><option value="stable">Stable</option><option value="review">In Review</option></select></div>
+        <div className="field"><label>Blood Group</label><input value={form.blood_group} onChange={e => setForm(f => ({ ...f, blood_group: e.target.value }))} placeholder="e.g. O+" /></div>
+        <div className="field"><label>Genotype</label><input value={form.genotype} onChange={e => setForm(f => ({ ...f, genotype: e.target.value }))} placeholder="e.g. AA" /></div>
+        <div className="field"><label>Emergency Contact Name</label><input value={form.emergency_contact_name} onChange={e => setForm(f => ({ ...f, emergency_contact_name: e.target.value }))} /></div>
+        <div className="field"><label>Emergency Contact Phone</label><input value={form.emergency_contact_phone} onChange={e => setForm(f => ({ ...f, emergency_contact_phone: e.target.value }))} /></div>
       </div>
-      <div className="field">
-        <label>Address</label>
-        <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
-      </div>
+      <div className="field"><label>Address</label><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
       <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
     </form>
   )
