@@ -360,6 +360,9 @@ export default function Dashboard(){
   }
 
   const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
+  const filteredPatients = displayedPatients.filter(p =>
+    !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
+  )
 
   function formatMoney(n){
     return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
@@ -733,7 +736,43 @@ export default function Dashboard(){
 
           {/* Other tab routing components */}
           {tab === 'appointments' && <Appointments />}
-          {tab === 'patients' && <PatientProfile patientId={profilePatientId} onBack={() => setProfilePatientId(null)} />}
+          {tab === 'patients' && (
+            profilePatientId ? (
+              <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
+            ) : (
+              <div className="dash-panel">
+                <div className="dash-panel-head">
+                  <div>
+                    <div className="dash-panel-title">All Patients</div>
+                    <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
+                  </div>
+                  <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                </div>
+
+                {loading ? (
+                  <div className="dash-empty-state">Loading…</div>
+                ) : filteredPatients.length === 0 ? (
+                  <div className="dash-empty-state">
+                    {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
+                  </div>
+                ) : (
+                  <table className="dash-full-table">
+                    <thead><tr><th>Name</th><th>Age</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                      {filteredPatients.map(p => (
+                        <tr key={p.id}>
+                          <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
+                          <td>{p.age}</td>
+                          <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                          <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          )}
           {tab === 'reception' && <Reception />}
           {tab === 'billing' && <Billing />}
           {tab === 'laboratory' && <Laboratory />}
@@ -753,6 +792,29 @@ export default function Dashboard(){
 
         </div>
       </main>
+
+      {showModal && (
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal">
+            <div className="dash-modal-title">Register Patient</div>
+            <form onSubmit={handleAdd}>
+              <div className="field"><label>Full Name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Chinedu Okafor"/></div>
+              <div className="field"><label>Age</label><input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 34"/></div>
+              <div className="field"><label>Status</label><select value={status} onChange={e => setStatus(e.target.value)}><option value="stable">Stable</option><option value="review">In Review</option></select></div>
+              <div className="dash-modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Patient'}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {pending ? (
+        <div className="dash-toast dash-undo-toast">
+          <span>{pending.patient.full_name} removed ({pending.secondsLeft}s)</span>
+          <button onClick={handleUndo}>Undo</button>
+        </div>
+      ) : toast && (
+        <div className="dash-toast">{toast}</div>
+      )}
 
       {/* Popover Menu Styling */}
       <style>{`
