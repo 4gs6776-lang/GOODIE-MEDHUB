@@ -9,7 +9,7 @@ const TABS = ['Overview', 'History', 'Prescriptions', 'Drug Chart', 'Pharmacy', 
 // nothing new is stored here except through those existing hooks.
 export default function PatientProfile({ patientId, onClose }){
   const { profile, hospital } = useAuth()
-  const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
+  const { records: patients, updateRecord: updatePatient, loadError: patientsLoadError } = useOfflineTable('patients', hospital?.id)
   const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: pharmacyItems, updateRecord: updatePharmacyItem } = useOfflineTable('pharmacy_items', hospital?.id)
@@ -47,9 +47,19 @@ export default function PatientProfile({ patientId, onClose }){
               <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: 14, marginBottom: 8 }}>
                 Couldn't load this patient
               </div>
-              <div style={{ fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
-                This is taking much longer than it should. This usually means the local database
-                is being blocked by another open tab/window of this app, or this patient no longer exists.
+              {patientsLoadError ? (
+                <div style={{ fontSize: 12.5, marginBottom: 14, fontFamily: 'monospace', color: 'var(--danger)', wordBreak: 'break-word' }}>
+                  {patientsLoadError}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, marginBottom: 14, lineHeight: 1.5 }}>
+                  No local error was reported, but the record for this patient wasn't found in local data.
+                </div>
+              )}
+              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 18, fontFamily: 'monospace', opacity: 0.7 }}>
+                patient_id: {patientId || '—'}<br />
+                hospital_id: {hospital?.id || '—'}<br />
+                records loaded: {patients.length}
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
                 <button className="btn btn-ghost" onClick={() => window.location.reload()}>Reload App</button>
