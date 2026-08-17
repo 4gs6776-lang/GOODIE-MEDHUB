@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import InvoiceViewer from '../../components/InvoiceViewer'
 
 const STATUS_STYLES = {
   paid: { bg: 'rgba(46,204,113,0.15)', color: '#2ecc71', label: 'Paid' },
@@ -30,6 +31,7 @@ export default function Billing() {
   const [paymentMethod, setPaymentMethod] = useState('Cash')
   const [amountPaid, setAmountPaid] = useState('')
   const [saving, setSaving] = useState(false)
+  const [selectedInv, setSelectedInv] = useState(null) // NEW: For viewing invoice
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -168,7 +170,7 @@ export default function Billing() {
                 {filteredInv.map(inv => {
                   const st = inv.status || 'unpaid', stl = STATUS_STYLES[st] || STATUS_STYLES.unpaid
                   return (
-                    <tr key={inv.id}>
+                    <tr key={inv.id} onClick={() => setSelectedInv(inv)} style={{ cursor: 'pointer' }}>
                       <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--blue)' }}>{inv.invoice_number || `INV-${String(inv.id).slice(-6).toUpperCase()}`}</td>
                       <td>{inv.patient_name || '—'}</td>
                       <td style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(inv.created_at).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
@@ -264,6 +266,8 @@ export default function Billing() {
           </div>
         </div>
       )}
+
+      {selectedInv && <InvoiceViewer invoice={selectedInv} onClose={() => setSelectedInv(null)} hospital={hospital} profile={profile} />}
 
       {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
     </>
