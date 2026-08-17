@@ -1,14 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
-
-const STATUS_STYLES = {
-  paid: { bg: 'rgba(46,204,113,0.15)', color: '#2ecc71', label: 'Paid' },
-  unpaid: { bg: 'rgba(235,87,87,0.15)', color: '#eb5757', label: 'Unpaid' },
-  partial: { bg: 'rgba(242,201,76,0.15)', color: '#f2c94c', label: 'Partial' },
-  pending: { bg: 'rgba(76,141,255,0.15)', color: '#4c8dff', label: 'Pending' },
-  cancelled: { bg: 'rgba(107,114,128,0.15)', color: '#6b7280', label: 'Cancelled' }
-}
+import CashierWorkspace from '../../components/CashierWorkspace'
 
 export default function Billing() {
   const { profile, hospital } = useAuth()
@@ -17,11 +10,11 @@ export default function Billing() {
   
   const [toast, setToast] = useState(null)
   const [search, setSearch] = useState('')
+  const [selectedPatient, setSelectedPatient] = useState(null) // NEW: For Cashier Workspace
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // Calculate KPIs
   const kpis = useMemo(() => {
     const tStr = new Date().toDateString()
     const tRev = invoices.filter(i => new Date(i.created_at).toDateString() === tStr).reduce((s, i) => s + Number(i.amount_paid || 0), 0)
@@ -33,7 +26,6 @@ export default function Billing() {
     return { tRev, out, pendingTotal, pendingCount: pendingCharges.length }
   }, [invoices, billableCharges])
 
-  // Build Patient Billing Queue
   const patientQueue = useMemo(() => {
     const pendingCharges = billableCharges.filter(c => c.status === 'pending')
     const queue = {}
@@ -57,7 +49,6 @@ export default function Billing() {
 
   return (
     <>
-      {/* Header & KPIs */}
       <div className="dash-panel" style={{ marginBottom: 20, padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
@@ -77,7 +68,6 @@ export default function Billing() {
         </div>
       </div>
 
-      {/* Patient Billing Queue */}
       <div className="dash-panel">
         <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
           <div>
@@ -122,7 +112,7 @@ export default function Billing() {
                       </span>
                     </td>
                     <td>
-                      <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }}>
+                      <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => setSelectedPatient({ id: p.id, name: p.name })}>
                         Open Billing
                       </button>
                     </td>
@@ -133,6 +123,17 @@ export default function Billing() {
           </div>
         )}
       </div>
+
+      {/* NEW: Render the Cashier Workspace */}
+      {selectedPatient && (
+        <CashierWorkspace 
+          patientId={selectedPatient.id} 
+          patientName={selectedPatient.name} 
+          hospital={hospital} 
+          profile={profile} 
+          onClose={() => setSelectedPatient(null)} 
+        />
+      )}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>
