@@ -38,7 +38,8 @@ export default function Inventory() {
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
 
-  // New item form
+  // Form State
+  const [editingId, setEditingId] = useState(null) // NEW: Track if we are editing
   const [name, setName] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
   const [quantity, setQuantity] = useState('')
@@ -71,6 +72,7 @@ export default function Inventory() {
   }
 
   function resetForm() {
+    setEditingId(null) // Clear editing state
     setName('')
     setCategory(CATEGORIES[0])
     setQuantity('')
@@ -85,6 +87,95 @@ export default function Inventory() {
     setStrength('')
     setDosageForm('')
     setFormError('')
+  }
+
+  // NEW: Function to open the modal in Edit Mode
+  function openEdit(item) {
+    setEditingId(item.id)
+    setName(item.name || '')
+    setCategory(item.category || CATEGORIES[0])
+    setQuantity(String(item.quantity || ''))
+    setUnit(item.unit || 'units')
+    setSupplier(item.supplier || '')
+    setReorderLevel(String(item.reorder_level || '10'))
+    setCostPrice(String(item.cost_price || ''))
+    setSellingPrice(String(item.selling_price || ''))
+    setBatchNumber(item.batch_number || '')
+    setExpiryDate(item.expiry_date || '')
+    setGenericName(item.generic_name || '')
+    setStrength(item.strength || '')
+    setDosageForm(item.dosage_form || '')
+    setFormError('')
+    setShowModal(true)
+  }
+
+  // MODIFIED: Now handles both Adding and Updating
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setFormError('')
+
+    if (!name.trim()) {
+      setFormError('Item name is required.')
+      return
+    }
+
+    if (quantity === '') {
+      setFormError('Quantity is required.')
+      return
+    }
+
+    const parsedQuantity = parseInt(quantity, 10)
+
+    if (Number.isNaN(parsedQuantity) || parsedQuantity < 0) {
+      setFormError('Quantity must be a valid number.')
+      return
+    }
+
+    if (!hospital || !profile) {
+      setFormError('Still loading your account — try again in a moment.')
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      const payload = {
+        name: name.trim(),
+        category,
+        quantity: parsedQuantity,
+        unit: unit.trim() || 'units',
+        supplier: supplier.trim(),
+        reorder_level: parseInt(reorderLevel, 10) || 10,
+        cost_price: parseFloat(costPrice) || 0,
+        selling_price: parseFloat(sellingPrice) || 0,
+        batch_number: batchNumber.trim(),
+        expiry_date: expiryDate || null,
+        generic_name: genericName.trim(),
+        strength: strength.trim(),
+        dosage_form: dosageForm.trim(),
+        updated_at: new Date().toISOString()
+      }
+
+      if (editingId) {
+        // We are editing an existing item
+        await updateRecord(editingId, payload)
+        showToast('Item updated successfully')
+      } else {
+        // We are creating a new item
+        payload.hospital_id = hospital.id
+        payload.created_by = profile.id
+        await addRecord(payload)
+        showToast(isOnline ? 'Item added successfully' : 'Item added — will sync when back online')
+      }
+
+      setShowModal(false)
+      resetForm()
+    } catch (error) {
+      console.error('Save inventory item failed:', error)
+      setFormError(error.message || 'Could not save item')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleImportSave(itemPayload, matchedItemId) {
@@ -142,64 +233,6 @@ export default function Inventory() {
     setIsImportModalOpen(false)
     if (refreshTable) {
       await refreshTable()
-    }
-  }
-
-  async function handleAdd(event) {
-    event.preventDefault()
-    setFormError('')
-
-    if (!name.trim()) {
-      setFormError('Item name is required.')
-      return
-    }
-
-    if (quantity === '') {
-      setFormError('Quantity is required.')
-      return
-    }
-
-    const parsedQuantity = parseInt(quantity, 10)
-
-    if (Number.isNaN(parsedQuantity) || parsedQuantity < 0) {
-      setFormError('Quantity must be a valid number.')
-      return
-    }
-
-    if (!hospital || !profile) {
-      setFormError('Still loading your account — try again in a moment.')
-      return
-    }
-
-    setSaving(true)
-
-    try {
-      await addRecord({
-        name: name.trim(),
-        category,
-        quantity: parsedQuantity,
-        unit: unit.trim() || 'units',
-        supplier: supplier.trim(),
-        reorder_level: parseInt(reorderLevel, 10) || 10,
-        cost_price: parseFloat(costPrice) || 0,
-        selling_price: parseFloat(sellingPrice) || 0,
-        batch_number: batchNumber.trim(),
-        expiry_date: expiryDate || null,
-        generic_name: genericName.trim(),
-        strength: strength.trim(),
-        dosage_form: dosageForm.trim(),
-        hospital_id: hospital.id,
-        created_by: profile.id
-      })
-
-      setShowModal(false)
-      resetForm()
-      showToast(isOnline ? 'Item added successfully' : 'Item added — will sync when back online')
-    } catch (error) {
-      console.error('Add inventory item failed:', error)
-      setFormError(error.message || 'Could not save item')
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -294,13 +327,11 @@ export default function Inventory() {
       const unitPrice = Number(dispensingItem.selling_price || 0)
       const totalPrice = unitPrice * quantityToDispense
 
-      // 1. Reduce Stock
       await updateRecord(dispensingItem.id, {
         quantity: newQuantity,
         updated_at: new Date().toISOString()
       })
 
-      // 2. Record usage
       await addStockRecord({
         patient_id: selectedPatient.id,
         patient_name: selectedPatient.full_name,
@@ -313,7 +344,6 @@ export default function Inventory() {
         created_by: profile?.id || null
       })
 
-      // 3. Automatically add to patient's bill (Invoice)
       await addInvoice({
         hospital_id: hospital?.id,
         patient_id: selectedPatient.id,
@@ -446,7 +476,11 @@ export default function Inventory() {
                       <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12 }}>{expiry || '—'}</td>
                       <td style={{ padding: 12, display: 'flex', gap: 6 }}>
                         <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: quantity <= 0 ? 0.5 : 1 }} disabled={quantity <= 0} onClick={() => openDispense(item)}>
-                          Dispense/Use
+                          Dispense
+                        </button>
+                        {/* NEW: Edit Button */}
+                        <button onClick={() => openEdit(item)} className="btn btn-ghost" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, border: '1px solid var(--line)' }}>
+                          Edit
                         </button>
                         <button onClick={() => handleDelete(item)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }} title="Delete">
                           ✕
@@ -464,9 +498,14 @@ export default function Inventory() {
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div className="card" style={{ width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>New Inventory Item</div>
+            {/* MODIFIED: Title changes based on editingId */}
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>
+              {editingId ? 'Edit Inventory Item' : 'New Inventory Item'}
+            </div>
             {formError && <div className="error-box">{formError}</div>}
-            <form onSubmit={handleAdd}>
+            
+            {/* MODIFIED: onSubmit calls handleSubmit */}
+            <form onSubmit={handleSubmit}>
               <div className="field"><label>Item Name *</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ceftriaxone" /></div>
               <div className="field"><label>Category *</label><select value={category} onChange={e => setCategory(e.target.value)}>{CATEGORIES.map(value => <option key={value} value={value}>{value}</option>)}</select></div>
               <div className="field"><label>Generic Name</label><input value={genericName} onChange={e => setGenericName(e.target.value)} placeholder="e.g. Ceftriaxone" /></div>
@@ -482,7 +521,8 @@ export default function Inventory() {
               <div className="field"><label>Expiry Date</label><input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
                 <button type="button" className="btn btn-ghost" onClick={() => { setShowModal(false); resetForm() }}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Item'}</button>
+                {/* MODIFIED: Button text changes based on editingId */}
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Update Item' : 'Save Item'}</button>
               </div>
             </form>
           </div>
@@ -491,7 +531,6 @@ export default function Inventory() {
 
       <ImportExcelModal isOpen={isImportModalOpen} onClose={handleCloseImportModal} existingInventory={items || []} onImportSuccess={handleImportSave} hospitalId={hospital?.id} />
 
-      {/* Dispense Modal */}
       {showDispenseModal && dispensingItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div className="card" style={{ width: '100%', maxWidth: 420 }}>
