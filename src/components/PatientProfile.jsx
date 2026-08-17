@@ -334,7 +334,7 @@ function ItemsGivenTab({ records }){
           <li key={r.id} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 0', borderBottom: '1px solid var(--line-soft)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
               <strong>{r.item_name}</strong>
-              <span style={{ fontWeight: 700, color: 'var(--gold)' }}>₦{Number(r.total_price || 0).toLocaleString()}</span>
+              <span style={{ fontWeight: 700, color: 'var(--gold)' }>₦{Number(r.total_price || 0).toLocaleString()}</span>
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', width: '100%' }}>
               <span>Qty: {r.quantity_used}</span>
