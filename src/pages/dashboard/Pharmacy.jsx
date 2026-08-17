@@ -5,280 +5,123 @@ import SearchInput from '../../components/common/SearchInput'
 
 export default function Pharmacy() {
   const { profile, hospital } = useAuth()
-
-  const {
-    records: inventoryItems,
-    loading,
-    isOnline,
-    pendingCount,
-    updateRecord,
-    refreshTable
-  } = useOfflineTable('inventory_items', hospital?.id)
-
+  const { records: inventoryItems, loading, isOnline, pendingCount, updateRecord, refreshTable } = useOfflineTable('inventory_items', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addStockRecord } = useOfflineTable('patient_stock_records', hospital?.id)
-  const { addRecord: addInvoice } = useOfflineTable('invoices', hospital?.id) // NEW: For billing
+  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id) // NEW: Billable Charges
 
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [showDetails, setShowDetails] = useState(null)
-  
   const [showDispenseModal, setShowDispenseModal] = useState(false)
   const [dispensingItem, setDispensingItem] = useState(null)
   const [dispenseQuantity, setDispenseQuantity] = useState('')
   const [dispensing, setDispensing] = useState(false)
   const [dispenseError, setDispenseError] = useState('')
-  
   const [patientSearch, setPatientSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState(null)
 
-  function showToast(msg) {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
-
-  const drugs = inventoryItems.filter(
-    item => String(item.category || '').trim().toLowerCase() === 'drug'
-  )
-
-  const pharmacySearch = searchTerm.trim().toLowerCase()
-  const visibleItems = pharmacySearch
-    ? drugs.filter(item =>
-        [item.name, item.generic_name, item.strength, item.dosage_form, item.batch_number, item.supplier, item.id].some(value =>
-          String(value || '').toLowerCase().includes(pharmacySearch)
-        )
-      )
-    : drugs
-
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+  const drugs = inventoryItems.filter(item => String(item.category || '').trim().toLowerCase() === 'drug')
+  const visibleItems = searchTerm.trim() ? drugs.filter(item => [item.name, item.generic_name, item.strength, item.batch_number].some(v => String(v || '').toLowerCase().includes(searchTerm.toLowerCase()))) : drugs
   const lowStockCount = drugs.filter(item => Number(item.quantity || 0) <= Number(item.reorder_level || 0)).length
   const today = new Date(); today.setHours(0, 0, 0, 0)
-  const expiredCount = drugs.filter(item => {
-    if (!item.expiry_date) return false
-    const expiry = new Date(item.expiry_date); expiry.setHours(0, 0, 0, 0)
-    return expiry < today
-  }).length
+  const expiredCount = drugs.filter(item => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); return e < today }).length
+  const expiringSoonCount = drugs.filter(item => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); const d = (e.getTime() - today.getTime()) / (1000*60*60*24); return d >= 0 && d <= 30 }).length
 
-  const expiringSoonCount = drugs.filter(item => {
-    if (!item.expiry_date) return false
-    const expiry = new Date(item.expiry_date); expiry.setHours(0, 0, 0, 0)
-    const days = (expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-    return days >= 0 && days <= 30
-  }).length
+  const formatMoney = (v) => '₦' + Number(v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const formatDate = (v) => { if (!v) return '—'; const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) }
+  const isExpired = (item) => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); return e < today }
+  const isExpiringSoon = (item) => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); const d = (e.getTime() - today.getTime()) / (1000*60*60*24); return d >= 0 && d <= 30 }
 
-  function formatMoney(value) {
-    return '₦' + Number(value || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-
-  function formatDate(value) {
-    if (!value) return '—'
-    const date = new Date(value)
-    if (isNaN(date.getTime())) return value
-    return date.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
-  }
-
-  function isExpired(item) {
-    if (!item.expiry_date) return false
-    const expiry = new Date(item.expiry_date); expiry.setHours(0, 0, 0, 0)
-    return expiry < today
-  }
-
-  function isExpiringSoon(item) {
-    if (!item.expiry_date) return false
-    const expiry = new Date(item.expiry_date); expiry.setHours(0, 0, 0, 0)
-    const days = (expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-    return days >= 0 && days <= 30
-  }
-
-  async function handleRestock(item) {
+  const handleRestock = async (item) => {
     const input = prompt(`Current stock: ${item.quantity} ${item.unit}\n\nEnter new quantity:`, item.quantity)
     if (input === null) return
-    const newQuantity = parseInt(input, 10)
-    if (isNaN(newQuantity) || newQuantity < 0) { showToast('Please enter a valid quantity'); return }
-
-    try {
-      await updateRecord(item.id, { quantity: newQuantity, updated_at: new Date().toISOString() })
-      showToast(isOnline ? 'Stock updated' : 'Stock updated — will sync when back online')
-    } catch (err) { showToast(err.message || 'Could not update stock') }
+    const newQ = parseInt(input, 10)
+    if (isNaN(newQ) || newQ < 0) return showToast('Invalid quantity')
+    try { await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() }); showToast('Stock updated') } catch (e) { showToast(e.message) }
   }
 
-  function openDispense(item) {
-    setDispensingItem(item)
-    setDispenseQuantity('')
-    setDispenseError('')
-    setPatientSearch('')
-    setSelectedPatient(null)
-    setShowDispenseModal(true)
-  }
+  const openDispense = (item) => { setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setShowDispenseModal(true) }
+  const closeDispense = () => { if (dispensing) return; setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null) }
+  const filteredPatients = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
 
-  function closeDispense() {
-    if (dispensing) return
-    setShowDispenseModal(false)
-    setDispensingItem(null)
-    setDispenseQuantity('')
-    setDispenseError('')
-    setPatientSearch('')
-    setSelectedPatient(null)
-  }
-
-  const filteredPatients = patientSearch.trim()
-    ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5)
-    : []
-
-  async function handleDispense(e) {
+  const handleDispense = async (e) => {
     e.preventDefault()
     if (!dispensingItem) return
     setDispenseError('')
-
-    const quantityToDispense = parseInt(dispenseQuantity, 10)
-    if (isNaN(quantityToDispense) || quantityToDispense <= 0) { setDispenseError('Enter a valid quantity greater than zero.'); return }
-    if (!selectedPatient) { setDispenseError('Please select a patient to dispense to.'); return }
-
-    const currentQuantity = parseInt(dispensingItem.quantity, 10) || 0
-    if (quantityToDispense > currentQuantity) { setDispenseError(`Insufficient stock. Only ${currentQuantity} ${dispensingItem.unit || 'units'} available.`); return }
-    if (isExpired(dispensingItem)) { setDispenseError('This drug has expired and cannot be dispensed.'); return }
+    const qty = parseInt(dispenseQuantity, 10)
+    if (isNaN(qty) || qty <= 0) return setDispenseError('Enter valid quantity.')
+    if (!selectedPatient) return setDispenseError('Please select a patient.')
+    const currQty = parseInt(dispensingItem.quantity, 10) || 0
+    if (qty > currQty) return setDispenseError(`Insufficient stock. Only ${currQty} left.`)
+    if (isExpired(dispensingItem)) return setDispenseError('This drug has expired.')
 
     setDispensing(true)
-
     try {
-      const newQuantity = currentQuantity - quantityToDispense
+      const newQty = currQty - qty
       const unitPrice = Number(dispensingItem.selling_price || 0)
-      const totalPrice = unitPrice * quantityToDispense
+      const totalPrice = unitPrice * qty
 
       // 1. Reduce Stock
-      await updateRecord(dispensingItem.id, {
-        quantity: newQuantity,
-        updated_at: new Date().toISOString()
+      await updateRecord(dispensingItem.id, { quantity: newQty, updated_at: new Date().toISOString() })
+      // 2. Record in Patient Profile
+      await addStockRecord({ patient_id: selectedPatient.id, patient_name: selectedPatient.full_name, item_type: 'pharmacy', item_id: dispensingItem.id, item_name: dispensingItem.name, quantity_used: qty, unit_price: unitPrice, total_price: totalPrice, created_by: profile?.id })
+      // 3. AUTOMATIC CHARGE GENERATION (Sent to Cashier Queue)
+      await addBillableCharge({
+        hospital_id: hospital.id, patient_id: selectedPatient.id, patient_name: selectedPatient.full_name,
+        source_module: 'Pharmacy', source_transaction_id: `PHARM-${Date.now()}`,
+        item_name: dispensingItem.name, category: 'Drug', quantity: qty, unit_price: unitPrice, total: totalPrice,
+        status: 'pending', created_by: profile?.id
       })
 
-      // 2. Record dispensing action
-      await addStockRecord({
-        patient_id: selectedPatient.id,
-        patient_name: selectedPatient.full_name,
-        item_type: 'pharmacy',
-        item_id: dispensingItem.id,
-        item_name: dispensingItem.name,
-        quantity_used: quantityToDispense,
-        unit_price: unitPrice,
-        total_price: totalPrice,
-        created_by: profile?.id || null
-      })
-
-      // 3. Automatically add to patient's bill (Invoice)
-      await addInvoice({
-        hospital_id: hospital?.id,
-        patient_id: selectedPatient.id,
-        patient_name: selectedPatient.full_name,
-        description: `Pharmacy: ${dispensingItem.name} (x${quantityToDispense})`,
-        amount: totalPrice,
-        status: 'unpaid',
-        created_by: profile?.id || null
-      })
-
-      showToast(`${quantityToDispense} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} given to ${selectedPatient.full_name}. ₦${totalPrice.toFixed(2)} added to bill.`)
+      showToast(`${qty} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} sent to Billing Queue.`)
       closeDispense()
       if (refreshTable) await refreshTable()
-    } catch (err) {
-      setDispenseError(err.message || 'Could not dispense medication.')
-    } finally {
-      setDispensing(false)
-    }
+    } catch (err) { setDispenseError(err.message || 'Failed to dispense.') } finally { setDispensing(false) }
   }
 
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16, marginBottom: 20, width: '100%' }}>
         <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'var(--teal-soft)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><path d="M9 3h6l1 4H8l1-4Z" /><path d="M6 7h12l-1 14H7L6 7Z" /></svg>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Total Drugs</div>
-            <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>{drugs.length}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>from inventory</div>
-          </div>
+          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'var(--teal-soft)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><path d="M9 3h6l1 4H8l1-4Z" /><path d="M6 7h12l-1 14H7L6 7Z" /></svg></div>
+          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Total Drugs</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700 }}>{drugs.length}</div></div>
         </div>
         <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Low Stock</div>
-            <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: lowStockCount > 0 ? 'var(--danger)' : 'var(--text)', marginBottom: 5 }}>{lowStockCount}</div>
-            <div style={{ fontSize: 11, color: lowStockCount > 0 ? 'var(--danger)' : 'var(--teal)' }}>{lowStockCount > 0 ? 'needs reorder' : 'all stocked'}</div>
-          </div>
+          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg></div>
+          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Low Stock</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: lowStockCount > 0 ? 'var(--danger)' : 'var(--text)' }}>{lowStockCount}</div></div>
         </div>
         <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Expired</div>
-            <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: expiredCount > 0 ? 'var(--danger)' : 'var(--text)', marginBottom: 5 }}>{expiredCount}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>expired drugs</div>
-          </div>
+          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></div>
+          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Expired</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: expiredCount > 0 ? 'var(--danger)' : 'var(--text)' }}>{expiredCount}</div></div>
         </div>
         <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(212,175,55,0.14)', color: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><circle cx="12" cy="12" r="9" /><path d="M12 7v5" /><path d="M12 16h.01" /></svg>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Expiring Soon</div>
-            <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: 'var(--text)', marginBottom: 5 }}>{expiringSoonCount}</div>
-            <div style={{ fontSize: 11, color: 'var(--gold)' }}>within 30 days</div>
-          </div>
+          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(212,175,55,0.14)', color: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><circle cx="12" cy="12" r="9" /><path d="M12 7v5" /><path d="M12 16h.01" /></svg></div>
+          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Expiring Soon</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700 }}>{expiringSoonCount}</div></div>
         </div>
       </div>
 
       <div className="dash-panel">
         <div className="dash-panel-head">
-          <div>
-            <div className="dash-panel-title">Pharmacy</div>
-            <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-              {isOnline ? 'Online' : 'Offline'}
-              {pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
-              {' · Drugs linked to Inventory & Billing'}
-            </div>
-          </div>
-          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug, generic name, batch..." style={{ minWidth: 260, maxWidth: 420 }} />
+          <div><div className="dash-panel-title">Pharmacy</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />{isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}</div></div>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug..." style={{ minWidth: 260, maxWidth: 420 }} />
         </div>
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading pharmacy...</div>
-        ) : visibleItems.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div>
-        ) : (
+        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
-              <thead>
-                <tr>
-                  {['Drug', 'Strength / Form', 'Batch', 'Expiry', 'Stock', 'Selling Price', 'Status', ''].map(header => (
-                    <th key={header} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{header}</th>
-                  ))}
-                </tr>
-              </thead>
+            <table className="dash-full-table">
+              <thead><tr>{['Drug', 'Batch', 'Expiry', 'Stock', 'Price', 'Status', ''].map(h => <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
               <tbody>
                 {visibleItems.map(item => {
-                  const quantity = Number(item.quantity || 0)
-                  const reorderLevel = Number(item.reorder_level || 0)
-                  const isLow = quantity <= reorderLevel
-                  const expired = isExpired(item)
-                  const expiringSoon = isExpiringSoon(item)
+                  const q = Number(item.quantity || 0), r = Number(item.reorder_level || 0), low = q <= r, exp = isExpired(item), soon = isExpiringSoon(item)
                   return (
                     <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                      <td style={{ padding: 12 }}><div style={{ fontWeight: 700 }}>{item.name}</div></td>
-                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12 }}><div>{item.strength || '—'}</div><div style={{ marginTop: 3 }}>{item.dosage_form || '—'}</div></td>
-                      <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--muted)' }}>{item.batch_number || '—'}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}><span style={{ color: expired ? 'var(--danger)' : expiringSoon ? 'var(--gold)' : 'var(--muted)', fontWeight: expired || expiringSoon ? 700 : 400 }}>{formatDate(item.expiry_date)}</span></td>
-                      <td style={{ padding: 12 }}><span onClick={() => handleRestock(item)} style={{ fontFamily: 'var(--font-mono)', fontSize: 12, cursor: 'pointer', padding: '4px 10px', borderRadius: 20, fontWeight: 700, background: isLow ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: isLow ? 'var(--danger)' : 'var(--teal)' }}>{quantity} {item.unit || 'units'}</span></td>
-                      <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--muted)' }}>{formatMoney(item.selling_price)}</td>
-                      <td style={{ padding: 12 }}>
-                        {expired ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span> : isLow ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span> : expiringSoon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING SOON</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>}
-                      </td>
-                      <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                        <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: expired || quantity <= 0 ? 0.5 : 1 }} disabled={expired || quantity <= 0} onClick={() => openDispense(item)}>Dispense</button>
-                        <button onClick={() => setShowDetails(item)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, padding: '6px 9px', cursor: 'pointer', fontSize: 11 }}>View</button>
-                      </td>
+                      <td style={{ padding: 12, fontWeight: 700 }}>{item.name}</td>
+                      <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{item.batch_number || '—'}</td>
+                      <td style={{ padding: 12, fontSize: 12 }}><span style={{ color: exp ? 'var(--danger)' : soon ? 'var(--gold)' : 'var(--muted)', fontWeight: exp || soon ? 700 : 400 }}>{formatDate(item.expiry_date)}</span></td>
+                      <td style={{ padding: 12 }}><span onClick={() => handleRestock(item)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}>{q} {item.unit || 'units'}</span></td>
+                      <td style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>{formatMoney(item.selling_price)}</td>
+                      <td style={{ padding: 12 }}>{exp ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span> : low ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span> : soon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>}</td>
+                      <td style={{ padding: 12 }}><button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11', opacity: exp || q <= 0 ? 0.5 : 1 }} disabled={exp || q <= 0} onClick={() => openDispense(item)}>Dispense</button></td>
                     </tr>
                   )
                 })}
@@ -312,10 +155,7 @@ export default function Pharmacy() {
                 )}
                 {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
               </div>
-              <div className="field">
-                <label>Quantity to Dispense</label>
-                <input type="number" min="1" max={dispensingItem.quantity} value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} placeholder={`Maximum ${dispensingItem.quantity}`} />
-              </div>
+              <div className="field"><label>Quantity to Dispense</label><input type="number" min="1" max={dispensingItem.quantity} value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} placeholder={`Max ${dispensingItem.quantity}`} /></div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
                 <button type="button" className="btn btn-ghost" onClick={closeDispense} disabled={dispensing}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={dispensing}>{dispensing ? 'Dispensing…' : 'Confirm Dispense'}</button>
@@ -324,7 +164,7 @@ export default function Pharmacy() {
           </div>
         </div>
       )}
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center' }}>{toast}</div>}
+      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
     </>
   )
 }
