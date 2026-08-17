@@ -31,7 +31,9 @@ export default function Billing() {
   const [paymentMethod, setPaymentMethod] = useState('Cash')
   const [amountPaid, setAmountPaid] = useState('')
   const [saving, setSaving] = useState(false)
-  const [selectedInv, setSelectedInv] = useState(null) // NEW: For viewing invoice
+  const [selectedInv, setSelectedInv] = useState(null)
+  const [discount, setDiscount] = useState('') // NEW: Discount
+  const [tax, setTax] = useState('') // NEW: Tax/VAT
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -66,17 +68,28 @@ export default function Billing() {
     }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   }, [invoices, search, statusFilter])
 
-  const resetModal = () => { setShowModal(false); setStep(1); setPatientSearch(''); setSelectedPatient(null); setLineItems([]); setItemSearch(''); setPaymentMethod('Cash'); setAmountPaid(''); setSaving(false) }
+  const resetModal = () => { setShowModal(false); setStep(1); setPatientSearch(''); setSelectedPatient(null); setLineItems([]); setItemSearch(''); setPaymentMethod('Cash'); setAmountPaid(''); setSaving(false); setDiscount(''); setTax('') }
   const filteredPats = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
   const filteredInvItems = itemSearch.trim() ? inventoryItems.filter(it => String(it.name || '').toLowerCase().includes(itemSearch.trim().toLowerCase())).slice(0, 5) : []
 
   const addItem = (item) => { setLineItems(p => [...p, { tempId: Date.now(), item_id: item.id, item_name: item.name, unit_price: Number(item.selling_price || 0), quantity: 1, total: Number(item.selling_price || 0) }]); setItemSearch('') }
-  const addCustom = () => setLineItems(p => [...p, { tempId: Date.now(), item_id: null, item_name: 'Custom Service', unit_price: 0, quantity: 1, total: 0 }])
+  
+  // UPDATED: Custom service now asks for name and price immediately
+  const addCustom = () => {
+    const name = window.prompt('Enter name of service/item (e.g. Consultation, Theatre):')
+    if (!name) return
+    const priceStr = window.prompt(`Enter price for ${name} (₦):`, '0')
+    const price = parseFloat(priceStr) || 0
+    setLineItems(p => [...p, { tempId: Date.now(), item_id: null, item_name: name, unit_price: price, quantity: 1, total: price }])
+  }
+  
   const updateItem = (id, k, v) => setLineItems(p => p.map(li => { if (li.tempId === id) { const u = { ...li, [k]: v }; u.total = (Number(u.quantity) || 0) * (Number(u.unit_price) || 0); return u } return li }))
   const removeItem = (id) => setLineItems(p => p.filter(li => li.tempId !== id))
 
   const subtotal = lineItems.reduce((s, li) => s + Number(li.total || 0), 0)
-  const grandTotal = subtotal
+  const discountAmt = Number(discount) || 0
+  const taxAmt = Number(tax) || 0
+  const grandTotal = Math.max(0, subtotal - discountAmt + taxAmt) // NEW: Calculate Grand Total
 
   const handleGenerate = async () => {
     if (!selectedPatient || lineItems.length === 0) return
@@ -84,7 +97,21 @@ export default function Billing() {
     try {
       const pAmt = Number(amountPaid) || 0, bal = grandTotal - pAmt
       const status = pAmt >= grandTotal ? 'paid' : (pAmt > 0 ? 'partial' : 'unpaid')
-      const newInv = await addInvoice({ hospital_id: hospital.id, patient_id: selectedPatient.id, patient_name: selectedPatient.full_name, invoice_number: `INV-${Date.now().toString().slice(-8)}`, subtotal, grand_total: grandTotal, amount_paid: pAmt, balance: bal, payment_method: paymentMethod, status, created_by: profile?.id })
+      const newInv = await addInvoice({ 
+        hospital_id: hospital.id, 
+        patient_id: selectedPatient.id, 
+        patient_name: selectedPatient.full_name, 
+        invoice_number: `INV-${Date.now().toString().slice(-8)}`, 
+        subtotal, 
+        discount: discountAmt, 
+        tax: taxAmt,
+        grand_total: grandTotal, 
+        amount_paid: pAmt, 
+        balance: bal, 
+        payment_method: paymentMethod, 
+        status, 
+        created_by: profile?.id 
+      })
       for (const item of lineItems) await addInvoiceItem({ hospital_id: hospital.id, invoice_id: newInv.id, item_name: item.item_name, quantity: item.quantity, unit_price: item.unit_price, total: item.total, inventory_item_id: item.item_id })
       showToast('Invoice generated successfully!'); resetModal()
     } catch (err) { showToast(err.message || 'Failed to save'); setSaving(false) }
@@ -253,7 +280,35 @@ export default function Billing() {
                     <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Items Billed</div>
                     {lineItems.map(li => (<div key={li.tempId} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}><span>{li.item_name} (x{li.quantity})</span><span style={{ fontWeight: 700 }}>{formatMoney(li.total)}</span></div>))}
                   </div>
-                  <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 16, marginBottom: 20, textAlign: 'right' }}><div style={{ fontSize: 18, fontWeight: 800 }}>Grand Total: <span style={{ color: 'var(--teal)' }}>{formatMoney(grandTotal)}</span></div></div>
+                  
+                  {/* NEW: Discount & Tax Inputs */}
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                    <div className="field" style={{ flex: 1 }}>
+                      <label>Discount (₦)</label>
+                      <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0.00" style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }} />
+                    </div>
+                    <div className="field" style={{ flex: 1 }}>
+                      <label>Tax / VAT (₦)</label>
+                      <input type="number" value={tax} onChange={e => setTax(e.target.value)} placeholder="0.00" style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }} />
+                    </div>
+                  </div>
+
+                  {/* NEW: Calculation Breakdown */}
+                  <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 16, marginBottom: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+                      <span>Subtotal</span><span>{formatMoney(subtotal)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--danger)', marginBottom: 4 }}>
+                      <span>Discount</span><span>- {formatMoney(discountAmt)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--gold)', marginBottom: 12 }}>
+                      <span>Tax / VAT</span><span>+ {formatMoney(taxAmt)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 800, borderTop: '1px solid var(--line-soft)', paddingTop: 8 }}>
+                      <span>Grand Total</span><span style={{ color: 'var(--teal)' }}>{formatMoney(grandTotal)}</span>
+                    </div>
+                  </div>
+
                   <div className="field"><label>Payment Method</label><select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }}>{METHODS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
                   <div className="field"><label>Amount Paid (₦)</label><input type="number" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} placeholder={grandTotal.toFixed(2)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)', fontSize: 16, fontWeight: 700 }} /><div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Balance: <strong style={{ color: 'var(--danger)' }}>{formatMoney(grandTotal - (Number(amountPaid) || 0))}</strong></div></div>
                 </div>
