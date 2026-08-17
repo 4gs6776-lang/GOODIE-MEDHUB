@@ -8,7 +8,7 @@ export default function Pharmacy() {
   const { records: inventoryItems, loading, isOnline, pendingCount, updateRecord, refreshTable } = useOfflineTable('inventory_items', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addStockRecord } = useOfflineTable('patient_stock_records', hospital?.id)
-  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id) // NEW: Billable Charges
+  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -62,11 +62,8 @@ export default function Pharmacy() {
       const unitPrice = Number(dispensingItem.selling_price || 0)
       const totalPrice = unitPrice * qty
 
-      // 1. Reduce Stock
       await updateRecord(dispensingItem.id, { quantity: newQty, updated_at: new Date().toISOString() })
-      // 2. Record in Patient Profile
       await addStockRecord({ patient_id: selectedPatient.id, patient_name: selectedPatient.full_name, item_type: 'pharmacy', item_id: dispensingItem.id, item_name: dispensingItem.name, quantity_used: qty, unit_price: unitPrice, total_price: totalPrice, created_by: profile?.id })
-      // 3. AUTOMATIC CHARGE GENERATION (Sent to Cashier Queue)
       await addBillableCharge({
         hospital_id: hospital.id, patient_id: selectedPatient.id, patient_name: selectedPatient.full_name,
         source_module: 'Pharmacy', source_transaction_id: `PHARM-${Date.now()}`,
@@ -121,7 +118,9 @@ export default function Pharmacy() {
                       <td style={{ padding: 12 }}><span onClick={() => handleRestock(item)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}>{q} {item.unit || 'units'}</span></td>
                       <td style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>{formatMoney(item.selling_price)}</td>
                       <td style={{ padding: 12 }}>{exp ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span> : low ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span> : soon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>}</td>
-                      <td style={{ padding: 12 }}><button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11', opacity: exp || q <= 0 ? 0.5 : 1 }} disabled={exp || q <= 0} onClick={() => openDispense(item)}>Dispense</button></td>
+                      <td style={{ padding: 12 }}>
+                        <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: exp || q <= 0 ? 0.5 : 1 }} disabled={exp || q <= 0} onClick={() => openDispense(item)}>Dispense</button>
+                      </td>
                     </tr>
                   )
                 })}
