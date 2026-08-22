@@ -9,6 +9,9 @@ export default function Pharmacy() {
   const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addStockRecord } = useOfflineTable('patient_stock_records', hospital?.id)
   const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
+  
+  // NEW: Fetch prescriptions to receive doctor's orders
+  const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -19,8 +22,13 @@ export default function Pharmacy() {
   const [dispenseError, setDispenseError] = useState('')
   const [patientSearch, setPatientSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState(null)
+  const [activeRx, setActiveRx] = useState(null) // Tracks if dispensing from a doctor's order
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+  
+  // Doctor's Prescription Queue
+  const pendingRx = prescriptions.filter(p => p.status === 'prescribed').sort((a,b) => new Date(a.prescribed_at) - new Date(b.prescribed_at))
+  
   const drugs = inventoryItems.filter(item => String(item.category || '').trim().toLowerCase() === 'drug')
   const visibleItems = searchTerm.trim() ? drugs.filter(item => [item.name, item.generic_name, item.strength, item.batch_number].some(v => String(v || '').toLowerCase().includes(searchTerm.toLowerCase()))) : drugs
   const lowStockCount = drugs.filter(item => Number(item.quantity || 0) <= Number(item.reorder_level || 0)).length
@@ -41,8 +49,45 @@ export default function Pharmacy() {
     try { await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() }); showToast('Stock updated') } catch (e) { showToast(e.message) }
   }
 
-  const openDispense = (item) => { setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setShowDispenseModal(true) }
-  const closeDispense = () => { if (dispensing) return; setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null) }
+  // Manual Dispense (Over the counter)
+  const openDispense = (item) => { 
+    setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setActiveRx(null); setShowDispenseModal(true) 
+  }
+
+  // Automatic Dispense (From Doctor's Queue)
+  const openDispenseRx = (rx) => {
+    // Find matching drug in inventory
+    const matchedDrug = inventoryItems.find(it => 
+      it.name.toLowerCase() === rx.drug_name.toLowerCase() || 
+      it.generic_name.toLowerCase() === rx.drug_name.toLowerCase()
+    )
+
+    if (!matchedDrug) {
+      showToast(`Drug "${rx.drug_name}" not found in inventory. Please add it first.`)
+      return
+    }
+
+    // Find patient
+    const matchedPatient = patients.find(p => p.id === rx.patient_id)
+    if (!matchedPatient) {
+      showToast(`Patient record not found.`)
+      return
+    }
+
+    setDispensingItem(matchedDrug)
+    setDispenseQuantity(rx.quantity || '1')
+    setDispenseError('')
+    setPatientSearch('')
+    setSelectedPatient(matchedPatient)
+    setActiveRx(rx) // Link this dispense to the doctor's prescription
+    setShowDispenseModal(true)
+  }
+
+  const closeDispense = () => { 
+    if (dispensing) return
+    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setActiveRx(null) 
+  }
+  
   const filteredPatients = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
 
   const handleDispense = async (e) => {
@@ -62,8 +107,17 @@ export default function Pharmacy() {
       const unitPrice = Number(dispensingItem.selling_price || 0)
       const totalPrice = unitPrice * qty
 
+      // 1. Reduce Stock
       await updateRecord(dispensingItem.id, { quantity: newQty, updated_at: new Date().toISOString() })
-      await addStockRecord({ patient_id: selectedPatient.id, patient_name: selectedPatient.full_name, item_type: 'pharmacy', item_id: dispensingItem.id, item_name: dispensingItem.name, quantity_used: qty, unit_price: unitPrice, total_price: totalPrice, created_by: profile?.id })
+      
+      // 2. Record in Patient Profile
+      await addStockRecord({ 
+        patient_id: selectedPatient.id, patient_name: selectedPatient.full_name, 
+        item_type: 'pharmacy', item_id: dispensingItem.id, item_name: dispensingItem.name, 
+        quantity_used: qty, unit_price: unitPrice, total_price: totalPrice, created_by: profile?.id 
+      })
+      
+      // 3. AUTOMATIC CHARGE GENERATION (Sent to Cashier Queue)
       await addBillableCharge({
         hospital_id: hospital.id, patient_id: selectedPatient.id, patient_name: selectedPatient.full_name,
         source_module: 'Pharmacy', source_transaction_id: `PHARM-${Date.now()}`,
@@ -71,10 +125,17 @@ export default function Pharmacy() {
         status: 'pending', created_by: profile?.id
       })
 
+      // 4. If this was from a Doctor's Order, mark prescription as dispensed
+      if (activeRx) {
+        await updatePrescription(activeRx.id, { status: 'dispensed' })
+      }
+
       showToast(`${qty} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} sent to Billing Queue.`)
       closeDispense()
       if (refreshTable) await refreshTable()
-    } catch (err) { setDispenseError(err.message || 'Failed to dispense.') } finally { setDispensing(false) }
+    } catch (err) { 
+      setDispenseError(err.message || 'Failed to dispense.') 
+    } finally { setDispensing(false) }
   }
 
   return (
@@ -98,9 +159,52 @@ export default function Pharmacy() {
         </div>
       </div>
 
+      {/* NEW: DOCTOR'S PRESCRIPTION QUEUE */}
+      <div className="dash-panel" style={{ marginBottom: 20, borderColor: 'var(--teal)' }}>
+        <div className="dash-panel-head">
+          <div>
+            <div className="dash-panel-title" style={{ color: 'var(--teal)' }}>Doctor's Prescription Queue</div>
+            <div className="dash-panel-sub">Prescriptions automatically sent from the Doctor Workbench</div>
+          </div>
+        </div>
+        {pendingRx.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>No pending prescriptions from doctors.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="dash-full-table">
+              <thead>
+                <tr>
+                  <th>Patient</th>
+                  <th>Drug Prescribed</th>
+                  <th>Dosage / Frequency</th>
+                  <th>Doctor</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingRx.map(rx => (
+                  <tr key={rx.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                    <td style={{ padding: 12, fontWeight: 700 }}>{rx.patient_name}</td>
+                    <td style={{ padding: 12 }}>{rx.drug_name}</td>
+                    <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>{rx.dosage} · {rx.frequency}</td>
+                    <td style={{ padding: 12, fontSize: 12 }}>{rx.doctor_name || '—'}</td>
+                    <td style={{ padding: 12 }}>
+                      <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>
+                        Dispense
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* EXISTING INVENTORY TABLE */}
       <div className="dash-panel">
         <div className="dash-panel-head">
-          <div><div className="dash-panel-title">Pharmacy</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />{isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}</div></div>
+          <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />{isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug..." style={{ minWidth: 260, maxWidth: 420 }} />
         </div>
         {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : (
