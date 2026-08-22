@@ -5,8 +5,19 @@ import { TagAutocomplete } from '../../components/ClinicalAutocomplete'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
 import AdmissionRequestModal from '../../components/AdmissionRequestModal'
 
+// NEW: Global Medication Reference List (allows searching even if hospital has 0 stock)
+const GLOBAL_MEDICATIONS = [
+  { id: 'GMED-001', name: 'Ceftriaxone 1g Injection', generic: 'Ceftriaxone', strength: '1g', form: 'Injection', route: 'IV/IM' },
+  { id: 'GMED-002', name: 'Ceftriaxone 500mg Injection', generic: 'Ceftriaxone', strength: '500mg', form: 'Injection', route: 'IV/IM' },
+  { id: 'GMED-003', name: 'Amoxicillin 500mg Capsule', generic: 'Amoxicillin', strength: '500mg', form: 'Capsule', route: 'Oral' },
+  { id: 'GMED-004', name: 'Paracetamol 500mg Tablet', generic: 'Paracetamol', strength: '500mg', form: 'Tablet', route: 'Oral' },
+  { id: 'GMED-005', name: 'Artesunate 120mg Injection', generic: 'Artesunate', strength: '120mg', form: 'Injection', route: 'IV' },
+  { id: 'GMED-006', name: 'Methyldopa 250mg Tablet', generic: 'Methyldopa', strength: '250mg', form: 'Tablet', route: 'Oral' },
+  // Can be expanded or moved to a database table later
+]
+
 const EMPTY_MED = { 
-  inventory_item_id: null, drugName: '', dose: '', route: '', frequency: '', frequencyCustom: '', 
+  inventory_item_id: null, global_med_id: null, drugName: '', dose: '', route: '', frequency: '', frequencyCustom: '', 
   duration: '', quantity: '', instructions: '', stock_at_prescription: 0, 
   availability_status: null, accepted_unavailable: false 
 }
@@ -57,20 +68,54 @@ export default function DoctorWorkbench() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
+  // NEW: Search Global Medications first, then cross-reference with Hospital Inventory
   const drugSearchResults = useMemo(() => {
     if (!drugSearch.trim()) return []
-    return inventoryItems.filter(item => 
-      String(item.category || '').toLowerCase() === 'drug' && 
-      (String(item.name || '').toLowerCase().includes(drugSearch.toLowerCase()) || String(item.generic_name || '').toLowerCase().includes(drugSearch.toLowerCase()))
-    ).slice(0, 6)
+    const q = drugSearch.toLowerCase()
+    
+    // Combine Global Meds + Hospital Inventory into one searchable list
+    const combinedResults = {}
+    
+    // Add matching hospital items
+    inventoryItems.forEach(it => {
+      if (String(it.category).toLowerCase() === 'drug' && (String(it.name).toLowerCase().includes(q) || String(it.generic_name).toLowerCase().includes(q))) {
+        combinedResults[it.name] = {
+          id: it.id, global_med_id: null, name: it.name, generic: it.generic_name || 'Generic',
+          strength: it.strength || '', form: it.dosage_form || '', route: '',
+          stock: Number(it.quantity || 0)
+        }
+      }
+    })
+
+    // Add matching global meds (if not already added by hospital inventory)
+    GLOBAL_MEDICATIONS.forEach(gm => {
+      if (gm.name.toLowerCase().includes(q) || gm.generic.toLowerCase().includes(q)) {
+        if (!combinedResults[gm.name]) {
+          // Check if hospital has this global med in stock
+          const hospMatch = inventoryItems.find(it => it.name.toLowerCase() === gm.name.toLowerCase())
+          combinedResults[gm.name] = {
+            id: hospMatch?.id || null, global_med_id: gm.id, name: gm.name, generic: gm.generic,
+            strength: gm.strength, form: gm.form, route: gm.route,
+            stock: hospMatch ? Number(hospMatch.quantity || 0) : 0
+          }
+        }
+      }
+    })
+
+    return Object.values(combinedResults).slice(0, 8)
   }, [drugSearch, inventoryItems])
 
   function selectDrug(item) {
-    const stock = Number(item.quantity || 0)
     setMedBuilder(b => ({
-      ...b, inventory_item_id: item.id, drugName: item.name, dose: item.strength || b.dose,
-      route: item.dosage_form || b.route, stock_at_prescription: stock,
-      availability_status: stock > 0 ? 'AVAILABLE' : 'UNAVAILABLE', accepted_unavailable: false
+      ...b, 
+      inventory_item_id: item.id, 
+      global_med_id: item.global_med_id,
+      drugName: item.name, 
+      dose: item.strength || b.dose,
+      route: item.route || item.form || b.route, 
+      stock_at_prescription: item.stock,
+      availability_status: item.stock > 0 ? 'AVAILABLE' : 'UNAVAILABLE', 
+      accepted_unavailable: false
     }))
     setDrugSearch('')
   }
@@ -249,144 +294,3 @@ export default function DoctorWorkbench() {
   }
 
   const historySummary = [chiefComplaints && `Chief complaint: ${chiefComplaints}`, historyPresenting && `HPC: ${historyPresenting}`, pastMedicalHistory && `PMH: ${pastMedicalHistory}`, pastSurgicalHistory && `PSH: ${pastSurgicalHistory}`, drugHistory && `Drug Hx: ${drugHistory}`, allergyHistory && `Allergies: ${allergyHistory}`, familySocialHistory && `Family/Social: ${familySocialHistory}`].filter(Boolean).join(' · ')
-    return (
-    <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.3 7-6.3s7 2.8 7 6.3"/></svg></div><div><div className="dash-stat-label">Waiting for Doctor</div><div className="dash-stat-value">{queue.length}</div><div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged</div></div></div>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg></div><div><div className="dash-stat-label">Completed</div><div className="dash-stat-value">{vitals.filter(v => v.status === 'completed').length}</div><div className="dash-stat-delta">total</div></div></div>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg></div><div style={{ flex: 1 }}><div className="dash-stat-label">Active Consultation</div><div className="dash-stat-value" style={{ fontSize: 17 }}>{activePatient?.full_name || 'None'}</div><div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select'}</div>{activePatient && (() => { const req = getActiveAdmissionRequest(activePatient.id); if (!req) return <button type="button" className="btn btn-ghost" style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }} onClick={() => setShowAdmissionModal(true)}>Recommend Admission</button>; const l = { pending: 'Requested', approved: 'Approved', converted: 'Admitted' }; const c = { pending: 'var(--gold)', approved: 'var(--teal)', converted: 'var(--teal)' }; return <div style={{ marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, color: c[req.status] || 'var(--muted)', background: 'var(--bg-elevated)', border: `1px solid ${c[req.status]}` }}>{l[req.status] || req.status}</div> })()}</div></div>
-      </div>
-
-      <div className="dash-row dash-row-2">
-        <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Queue</div><div className="dash-panel-sub">Triaged patients</div></div></div>{loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : queue.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients waiting.</div> : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{queue.map(v => { const p = patients.find(pt => pt.id === v.patient_id); const isActive = activeVitalsId === v.id; return <div key={v.id} onClick={() => openConsultation(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '10px 14px', borderRadius: 10, background: isActive ? 'var(--teal-soft)' : 'var(--bg-elevated)', border: isActive ? '1px solid var(--teal)' : '1px solid var(--line-soft)' }}><div><div style={{ fontWeight: 700, color: isActive ? 'var(--teal)' : undefined }}>{p?.full_name || v.patient_name}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>BP {v.blood_pressure || '—'} · Pulse {v.pulse_rate || '—'}</div></div><span style={{ fontSize: 11, fontWeight: 700, color: v.urgency === 'Emergency' ? 'var(--danger)' : 'var(--gold)' }}>{v.urgency || 'Waiting'}</span></div> })}</div>}</div>
-        <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Recorded Vitals</div><div className="dash-panel-sub">{activePatient?.full_name || 'No patient selected'}</div></div></div>{!activeVitals ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Select a patient from the queue.</div> : <><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>{vitalRow('Blood Pressure', activeVitals.blood_pressure)}{vitalRow('Pulse', activeVitals.pulse_rate, 'bpm')}{vitalRow('Temperature', activeVitals.temperature, '°C')}{vitalRow('SpO2', activeVitals.spo2, '%')}{vitalRow('Resp Rate', activeVitals.respiratory_rate, 'bpm')}{vitalRow('Weight', activeVitals.weight, 'kg')}{vitalRow('Height', activeVitals.height, 'cm')}{vitalRow('Urgency', activeVitals.urgency)}</div>{activeVitals.nurse_notes && <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line-soft)', fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>Nurse note: "{activeVitals.nurse_notes}"</div>}</>}</div>
-      </div>
-
-      {activeVitals && (
-        <>
-          <div className="dash-panel" style={{ marginTop: 20 }}>
-            <div className="dash-panel-head"><div><div className="dash-panel-title">History & Clinical Notes</div><div className="dash-panel-sub">Consultation record</div></div></div>
-            <div className="field"><label>Chief Complaint</label><textarea rows={2} value={chiefComplaints} onChange={e => setChiefComplaints(e.target.value)} /></div>
-            <div className="field"><label>History of Presenting Complaint</label><textarea rows={3} value={historyPresenting} onChange={e => setHistoryPresenting(e.target.value)} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field"><label>Past Medical History</label><textarea rows={2} value={pastMedicalHistory} onChange={e => setPastMedicalHistory(e.target.value)} /></div>
-              <div className="field"><label>Past Surgical History</label><textarea rows={2} value={pastSurgicalHistory} onChange={e => setPastSurgicalHistory(e.target.value)} /></div>
-              <div className="field"><label>Drug History</label><textarea rows={2} value={drugHistory} onChange={e => setDrugHistory(e.target.value)} /></div>
-              <div className="field"><label>Allergy History</label><textarea rows={2} value={allergyHistory} onChange={e => setAllergyHistory(e.target.value)} /></div>
-            </div>
-            <div className="field"><label>Family / Social History</label><textarea rows={2} value={familySocialHistory} onChange={e => setFamilySocialHistory(e.target.value)} /></div>
-            <div className="field"><label>Symptoms</label><TagAutocomplete options={SYMPTOM_OPTIONS} value={symptoms} onChange={setSymptoms} /></div>
-            <div className="field"><label>Diagnosis</label><TagAutocomplete options={DIAGNOSIS_OPTIONS} value={diagnoses} onChange={setDiagnoses} /></div>
-            <div className="field"><label>Examination Findings</label><textarea rows={3} value={examinationFindings} onChange={e => setExaminationFindings(e.target.value)} /></div>
-            <div className="field"><label>Clinical Notes</label><textarea rows={3} value={clinicalNotes} onChange={e => setClinicalNotes(e.target.value)} /></div>
-            <div className="field"><label>Treatment Plan</label><textarea rows={2} value={treatmentPlan} onChange={e => setTreatmentPlan(e.target.value)} /></div>
-            <div className="field"><label>Follow-up Notes</label><textarea rows={2} value={followUpNotes} onChange={e => setFollowUpNotes(e.target.value)} /></div>
-          </div>
-
-          <div className="dash-row dash-row-2" style={{ marginTop: 20 }}>
-            <div className="dash-panel">
-              <div className="dash-panel-head"><div><div className="dash-panel-title">Lab Orders</div><div className="dash-panel-sub">Request tests</div></div></div>
-              <form onSubmit={handleAddLabOrder}>
-                <div className="field"><label>Test Name</label><input value={labTestName} onChange={e => setLabTestName(e.target.value)} /></div>
-                <div className="field"><label>Notes</label><input value={labNotes} onChange={e => setLabNotes(e.target.value)} /></div>
-                <button type="submit" className="btn btn-primary" disabled={savingLabOrder}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
-              </form>
-              {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: 'var(--gold)' }} />{o.test_name}</span><span className="dash-legend-val">{o.status}</span></li>)}</ul>}
-            </div>
-
-            <div className="dash-panel">
-              <div className="dash-panel-head"><div><div className="dash-panel-title">Prescription</div><div className="dash-panel-sub">Build medications</div></div></div>
-              <div className="field"><label>Load Template</label><div style={{ display: 'flex', gap: 8 }}><select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)} style={{ flex: 1 }}><option value="">Select…</option><optgroup label="Built-in">{DEFAULT_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>{hospitalTemplates.length > 0 && <optgroup label="Hospital">{hospitalTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>}</select><button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handleApplyTemplate} disabled={!selectedTemplateId}>Load</button></div></div>
-
-              <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 14, marginTop: 6 }}>
-                <div className="field" style={{ position: 'relative' }}>
-                  <label>Drug / Medication Search</label>
-                  <input value={drugSearch} onChange={e => setDrugSearch(e.target.value)} placeholder="Search live pharmacy inventory..." />
-                  {drugSearchResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, marginTop: 4, zIndex: 10, maxHeight: 220, overflowY: 'auto' }}>
-                      {drugSearchResults.map(it => { const stock = Number(it.quantity || 0); return <div key={it.id} onClick={() => selectDrug(it)} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)' }}><div style={{ fontWeight: 700, fontSize: 13 }}>{it.name}</div><div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 11, color: 'var(--muted)' }}>{it.generic_name || 'Generic'} • {it.dosage_form || 'N/A'}</span><span style={{ fontSize: 11, color: stock > 0 ? 'var(--teal)' : 'var(--danger)', fontWeight: 700 }}>{stock > 0 ? `🟢 In Stock: ${stock}` : '🔴 Out of Stock'}</span></div></div> })}
-                    </div>
-                  )}
-                </div>
-
-                {medBuilder.availability_status === 'UNAVAILABLE' && (
-                  <div style={{ border: '1px solid var(--danger)', background: 'rgba(235,87,87,0.05)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-                    <div style={{ color: 'var(--danger)', fontWeight: 800, marginBottom: 6 }}>🔴 Medication Unavailable</div>
-                    <div style={{ fontSize: 13, marginBottom: 8 }}>This medication is not available in the hospital.</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Current pharmacy stock: 0</div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button type="button" className="btn btn-primary" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setMedBuilder(b => ({ ...b, accepted_unavailable: true }))}>Continue Prescribing</button>
-                      <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12, border: '1px solid var(--danger)', color: 'var(--danger)' }} onClick={resetMedBuilder}>Remove Medication</button>
-                    </div>
-                  </div>
-                )}
-                {medBuilder.accepted_unavailable && <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 12, fontWeight: 700 }}>⚠ UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
-                {medBuilder.availability_status === 'AVAILABLE' && medBuilder.drugName && <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 12, fontWeight: 700 }}>🟢 AVAILABLE (Stock: {medBuilder.stock_at_prescription})</div>}
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="field"><label>Dose</label><input value={medBuilder.dose} onChange={e => setMedBuilder(b => ({ ...b, dose: e.target.value }))} /></div>
-                  <div className="field"><label>Route</label><select value={medBuilder.route} onChange={e => setMedBuilder(b => ({ ...b, route: e.target.value }))}><option value="">Select…</option>{ROUTE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                  <div className="field"><label>Frequency</label><select value={medBuilder.frequency} onChange={e => setMedBuilder(b => ({ ...b, frequency: e.target.value }))}><option value="">Select…</option>{FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
-                  {medBuilder.frequency === 'Custom' && <div className="field"><label>Custom Freq</label><input value={medBuilder.frequencyCustom} onChange={e => setMedBuilder(b => ({ ...b, frequencyCustom: e.target.value }))} /></div>}
-                  <div className="field"><label>Duration</label><input value={medBuilder.duration} onChange={e => setMedBuilder(b => ({ ...b, duration: e.target.value }))} /></div>
-                  <div className="field"><label>Quantity</label><input value={medBuilder.quantity} onChange={e => setMedBuilder(b => ({ ...b, quantity: e.target.value }))} /></div>
-                </div>
-                <div className="field"><label>Instructions</label><input value={medBuilder.instructions} onChange={e => setMedBuilder(b => ({ ...b, instructions: e.target.value }))} /></div>
-                <button type="button" className="btn btn-primary" onClick={handleAddOrUpdateMedToDraft}>{editingMedLocalId ? 'Update Medication' : '+ Add Medication'}</button>
-                {editingMedLocalId && <button type="button" className="btn btn-ghost" style={{ marginTop: 8 }} onClick={resetMedBuilder}>Cancel Edit</button>}
-              </div>
-
-              {medications.length > 0 && (
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>Medications ({medications.length})</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {medications.map(m => (
-                      <div key={m.localId} style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{m.drugName}</div>
-                            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{m.dose} · {m.route || '—'} · {m.frequency}{m.duration ? ` · ${m.duration}` : ''}</div>
-                            {m.availability_status === 'AVAILABLE' && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 6, fontWeight: 700 }}>🟢 AVAILABLE</div>}
-                            {m.availability_status === 'UNAVAILABLE' && m.accepted_unavailable && <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6, fontWeight: 700 }}>⚠ UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
-                          </div>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button type="button" onClick={() => handleEditMed(m)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>Edit</button>
-                            <button type="button" onClick={() => handleRemoveMed(m)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--danger)', borderRadius: 8, width: 28, height: 28, cursor: 'pointer' }}>✕</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setShowPreview(s => !s)}>{showPreview ? 'Hide' : 'Preview'}</button>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => handleSavePrescriptions('draft')} disabled={savingPrescriptions}>Save Draft</button>
-                    <button type="button" className="btn btn-primary" style={{ width: 'auto' }} onClick={() => handleSavePrescriptions('active')} disabled={savingPrescriptions}>Finalize</button>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handlePrint}>Print</button>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handleSaveAsTemplate}>Save as Template</button>
-                  </div>
-                  {showPreview && <div style={{ marginTop: 16, padding: 16, borderRadius: 10, background: 'var(--bg-elevated)' }}><ol style={{ paddingLeft: 20 }}>{medications.map(m => <li key={m.localId} style={{ fontSize: 13.5, marginBottom: 8 }}><strong>{m.drugName}</strong> - {m.dose} {m.route} {m.frequency}</li>)}</ol></div>}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="dash-panel" style={{ marginTop: 20 }}>
-            <div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Summary</div></div></div>
-            <div>{summaryRow('Patient', activePatient?.full_name)}{summaryRow('History', historySummary)}{summaryRow('Symptoms', symptoms.map(s => s.label).join(', '))}{summaryRow('Vitals', `BP ${activeVitals.blood_pressure || '—'} · Pulse ${activeVitals.pulse_rate || '—'}`)}{summaryRow('Diagnosis', diagnoses.map(d => d.label).join(', '))}{summaryRow('Prescription', medications.map(m => m.drugName).join('; '))}{summaryRow('Plan', treatmentPlan)}</div>
-          </div>
-
-          <div className="dash-panel" style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><div className="dash-panel-title">Finish Up</div><div className="dash-panel-sub">Finalizes meds and completes visit</div></div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-ghost" onClick={clearWorkbench}>Cancel</button>
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleCompleteConsultation} disabled={completing}>{completing ? 'Completing…' : 'Complete Consultation'}</button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
-      {showAdmissionModal && activePatient && <AdmissionRequestModal patient={activePatient} consultationId={activeVitals?.id} prefillDiagnosis={diagnoses.map(d => d.label).join(', ')} onSubmit={handleSubmitAdmissionRequest} onClose={() => setShowAdmissionModal(false)} />}
-    </>
-  )
-}
