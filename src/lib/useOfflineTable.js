@@ -157,6 +157,50 @@ async function deleteLocalRecord(db, id) {
 }
 
 // ============================================================
+// PULL RECORDS DOWN FROM SUPABASE
+// (This was missing — local storage only ever got written to when
+// you added/edited something on THIS device. If local storage was
+// ever cleared, or you opened the app somewhere else, the list would
+// show empty even though the real data was safe in Supabase.)
+// ============================================================
+
+async function pullFromSupabase(db, tableName, hospitalId) {
+  if (!navigator.onLine || !supabase?.from || !hospitalId) return
+
+  try {
+    const { data: remoteRows, error } = await supabase
+      .from(tableName)
+      .select('*')
+      .eq('hospital_id', hospitalId)
+
+    if (error || !remoteRows) return
+
+    const localRows = await getAllLocalRecords(db)
+    const localById = new Map(localRows.map((r) => [r.id, r]))
+
+    for (const remote of remoteRows) {
+      const local = localById.get(remote.id)
+
+      // Don't overwrite a record that has local changes waiting to sync
+      // (e.g. an edit or delete made offline that hasn't gone up yet).
+      if (local && local._synced === false) continue
+
+      await putLocalRecord(db, {
+        ...remote,
+        table_name: tableName,
+        hospital_id: hospitalId,
+        _synced: true,
+        _deleted: false,
+        _syncError: false,
+        _syncErrorMessage: null,
+      })
+    }
+  } catch (err) {
+    console.error(`Error pulling ${tableName} from Supabase:`, err)
+  }
+}
+
+// ============================================================
 // MAIN HOOK
 // ============================================================
 
@@ -199,11 +243,31 @@ export function useOfflineTable(tableName, hospitalId) {
   }, [tableName, hospitalId])
 
   useEffect(() => {
-    loadLocalRecords()
+    async function initialLoad() {
+      if (hospitalId) {
+        try {
+          const db = await openDB()
+          await pullFromSupabase(db, tableName, hospitalId)
+        } catch (err) {
+          console.error('Error opening DB for initial pull:', err)
+        }
+      }
+      await loadLocalRecords()
+    }
+
+    initialLoad()
 
     const handleOnline = async () => {
       setIsOnline(true)
       await flushTableQueue(tableName)
+      if (hospitalId) {
+        try {
+          const db = await openDB()
+          await pullFromSupabase(db, tableName, hospitalId)
+        } catch (err) {
+          console.error('Error opening DB for reconnect pull:', err)
+        }
+      }
       await loadLocalRecords()
     }
 
@@ -216,7 +280,7 @@ export function useOfflineTable(tableName, hospitalId) {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [loadLocalRecords, tableName])
+  }, [loadLocalRecords, tableName, hospitalId])
 
   const addRecord = async (data) => {
     if (!hospitalId) throw new Error('Hospital ID is required.')
