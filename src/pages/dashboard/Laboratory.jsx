@@ -7,6 +7,10 @@ export default function Laboratory(){
   const { profile, hospital } = useAuth()
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
   const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder } = useOfflineTable('lab_orders', hospital?.id)
+  
+  // NEW: Hook to send charges to Billing
+  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
+  
   const loading = loadingTests || loadingOrders
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
@@ -56,12 +60,38 @@ export default function Laboratory(){
   async function handleComplete(test){
     const result = prompt(`Enter result for ${test.test_name} (${test.patient_name}):`, test.result || '')
     if (result === null) return
-    if (test.origin === 'doctor') {
-      await updateOrder(test.id, { status: 'completed', result })
-    } else {
-      await updateRecord(test.id, { status: 'completed', result })
+    
+    // NEW: Ask for the price to send to billing
+    const priceStr = prompt(`Enter price for ${test.test_name} (₦):`, '0')
+    const price = parseFloat(priceStr) || 0
+
+    try {
+      if (test.origin === 'doctor') {
+        await updateOrder(test.id, { status: 'completed', result })
+      } else {
+        await updateRecord(test.id, { status: 'completed', result })
+      }
+
+      // NEW: AUTOMATIC CHARGE GENERATION (Sent to Cashier Queue)
+      await addBillableCharge({
+        hospital_id: hospital.id, 
+        patient_id: test.patient_id || null, 
+        patient_name: test.patient_name,
+        source_module: 'Laboratory', 
+        source_transaction_id: `LAB-${test.id}`,
+        item_name: test.test_name, 
+        category: 'Lab Test', 
+        quantity: 1, 
+        unit_price: price, 
+        total: price,
+        status: 'pending', 
+        created_by: profile?.id
+      })
+
+      showToast(isOnline ? 'Marked completed & sent to Billing Queue' : 'Marked completed — will sync when back online')
+    } catch (err) {
+      showToast('Failed to complete test')
     }
-    showToast(isOnline ? 'Marked completed' : 'Marked completed — will sync when back online')
   }
 
   async function handleReopen(test){
@@ -126,7 +156,7 @@ export default function Laboratory(){
             <div className="dash-panel-title">Lab Requests</div>
             <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-              {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
+              {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}
             </div>
           </div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, test or request number" style={{ minWidth: 260, maxWidth: 420 }} />
