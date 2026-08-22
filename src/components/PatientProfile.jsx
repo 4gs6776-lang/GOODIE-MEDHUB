@@ -263,10 +263,25 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
     <div>
       <AdmissionStatusCard request={admissionRequest} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        {detailRow('Gender', patient.gender)}
+        {detailRow('Date of Birth', patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString() : null)}
+        {detailRow('Marital Status', patient.marital_status)}
         {detailRow('Phone', patient.phone)}
+        {detailRow('Email', patient.email)}
         {detailRow('Blood Group / Genotype', [patient.blood_group, patient.genotype].filter(Boolean).join(' · '))}
+        {detailRow('Nationality', patient.nationality)}
+        {detailRow('State of Origin', patient.state_of_origin)}
+        {detailRow('Occupation', patient.occupation)}
+        {detailRow('Religion', patient.religion)}
+        {detailRow('Category / Folder', patient.category)}
         {detailRow('Address', patient.address)}
-        {detailRow('Emergency Contact', patient.emergency_contact_name ? `${patient.emergency_contact_name}${patient.emergency_contact_phone ? ` — ${patient.emergency_contact_phone}` : ''}` : null)}
+        {detailRow('Next of Kin', patient.emergency_contact_name ? `${patient.emergency_contact_name}${patient.emergency_contact_phone ? ` — ${patient.emergency_contact_phone}` : ''}` : null)}
+        {detailRow('Next of Kin Relationship', patient.next_of_kin_relationship)}
+        {detailRow('Next of Kin Address', patient.next_of_kin_address)}
+        {patient.category === 'anc' && detailRow('ANC — LMP', patient.anc_lmp ? new Date(patient.anc_lmp).toLocaleDateString() : null)}
+        {patient.category === 'anc' && detailRow('ANC — EDD', patient.anc_edd ? new Date(patient.anc_edd).toLocaleDateString() : null)}
+        {patient.category === 'anc' && detailRow('ANC — Indication', patient.anc_indication)}
+        {patient.category === 'anc' && detailRow('ANC — Husband', patient.anc_husband_name)}
         {detailRow('Queue Status', patient.queue_status ? patient.queue_status.replace('_', ' ') : 'Not in queue')}
         {detailRow('Patient Status', patient.status === 'stable' ? 'Stable' : 'In Review')}
       </div>
