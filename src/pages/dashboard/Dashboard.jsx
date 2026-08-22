@@ -21,6 +21,79 @@ import Admissions from './Admissions'
 import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 
+// Same option lists used in Reception's registration form, kept in sync
+// so a patient added here has the exact same fields/choices available.
+const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown']
+const GENOTYPES = ['AA','AS','SS','AC']
+const MARITAL_STATUSES = ['Single','Married','Widow','Widower','Divorced']
+const RELIGIONS = ['Christianity','Islam','Traditional','Other']
+const CATEGORIES = [
+  { value: 'personal', label: 'Personal Folder' },
+  { value: 'family', label: 'Family Folder' },
+  { value: 'emergency', label: 'Emergency Folder' },
+  { value: 'anc', label: 'ANC Folder' },
+]
+const NIGERIAN_STATES = [
+  'Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
+  'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)',
+  'Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara',
+  'Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers',
+  'Sokoto','Taraba','Yobe','Zamfara',
+]
+const AFRICAN_COUNTRIES = [
+  'Algeria','Angola','Benin','Botswana','Burkina Faso','Burundi','Cabo Verde',
+  'Cameroon','Central African Republic','Chad','Comoros','Congo (Republic)',
+  'Congo (DRC)','Djibouti','Egypt','Equatorial Guinea','Eritrea','Eswatini',
+  'Ethiopia','Gabon','Gambia','Ghana','Guinea','Guinea-Bissau','Ivory Coast',
+  'Kenya','Lesotho','Liberia','Libya','Madagascar','Malawi','Mali',
+  'Mauritania','Mauritius','Morocco','Mozambique','Namibia','Niger',
+  'Nigeria','Rwanda','Sao Tome and Principe','Senegal','Seychelles',
+  'Sierra Leone','Somalia','South Africa','South Sudan','Sudan','Tanzania',
+  'Togo','Tunisia','Uganda','Zambia','Zimbabwe',
+]
+
+const EMPTY_PATIENT_FORM = {
+  surname: '',
+  otherNames: '',
+  phone: '',
+  email: '',
+  gender: '',
+  maritalStatus: '',
+  dateOfBirth: '',
+  age: '',
+  bloodGroup: '',
+  genotype: '',
+  nationality: '',
+  stateOfOrigin: '',
+  occupation: '',
+  religion: '',
+  category: '',
+  homeAddress: '',
+  ancSpecialPoint: '',
+  ancDateOfBooking: '',
+  ancIndication: '',
+  ancLmp: '',
+  ancEdd: '',
+  ancHusbandName: '',
+  ancHusbandOccupation: '',
+  ancEmployer: '',
+  nokName: '',
+  nokRelationship: '',
+  nokPhone: '',
+  nokAddress: '',
+}
+
+function calculatePatientAge(dobStr) {
+  if (!dobStr) return ''
+  const dob = new Date(dobStr)
+  if (Number.isNaN(dob.getTime())) return ''
+  const today = new Date()
+  let age = today.getFullYear() - dob.getFullYear()
+  const m = today.getMonth() - dob.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--
+  return age >= 0 ? String(age) : ''
+}
+
 const NAV_ITEMS = [
   { key: 'overview', label: 'Dashboard', section: 'Main', icon: 'home' },
   { key: 'appointments', label: 'Appointments', section: 'Main', icon: 'calendar' },
@@ -149,8 +222,7 @@ export default function Dashboard(){
 
   const [profilePatientId, setProfilePatientId] = useState(null)
   const [showModal, setShowModal] = useState(false)
-  const [name, setName] = useState('')
-  const [age, setAge] = useState('')
+  const [form, setForm] = useState(EMPTY_PATIENT_FORM)
   const [status, setStatus] = useState('stable')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
@@ -326,26 +398,68 @@ export default function Dashboard(){
     setTimeout(() => setToast(null), 3000)
   }
 
+  function setField(field, value) {
+    setForm(current => ({ ...current, [field]: value }))
+  }
+
+  function handleDobChange(value) {
+    setForm(current => ({
+      ...current,
+      dateOfBirth: value,
+      age: calculatePatientAge(value),
+    }))
+  }
+
   async function handleAdd(e){
     e.preventDefault()
-    if (!name || !age) return
+    const surname = form.surname.trim()
+    const otherNames = form.otherNames.trim()
+    const fullName = `${surname} ${otherNames}`.trim()
+    if (!surname) return
     if (!hospital || !profile) {
       showToast('Still loading your account — wait a moment and try again')
       return
     }
     setSaving(true)
     try {
+      const isAnc = form.category === 'anc'
       await addRecord({
-        full_name:name,
-        age:parseInt(age,10),
+        full_name: fullName,
+        surname,
+        other_names: otherNames || null,
+        age: form.age ? parseInt(form.age, 10) : null,
+        gender: form.gender || null,
+        phone: form.phone?.trim() || null,
+        email: form.email?.trim() || null,
+        marital_status: form.maritalStatus || null,
+        date_of_birth: form.dateOfBirth || null,
+        blood_group: form.bloodGroup || null,
+        genotype: form.genotype || null,
+        nationality: form.nationality?.trim() || null,
+        state_of_origin: form.stateOfOrigin || null,
+        occupation: form.occupation?.trim() || null,
+        religion: form.religion || null,
+        category: form.category || null,
+        address: form.homeAddress?.trim() || null,
+        anc_special_point: isAnc ? form.ancSpecialPoint?.trim() || null : null,
+        anc_date_of_booking: isAnc ? form.ancDateOfBooking || null : null,
+        anc_indication: isAnc ? form.ancIndication?.trim() || null : null,
+        anc_lmp: isAnc ? form.ancLmp || null : null,
+        anc_edd: isAnc ? form.ancEdd || null : null,
+        anc_husband_name: isAnc ? form.ancHusbandName?.trim() || null : null,
+        anc_husband_occupation: isAnc ? form.ancHusbandOccupation?.trim() || null : null,
+        anc_employer: isAnc ? form.ancEmployer?.trim() || null : null,
+        emergency_contact_name: form.nokName?.trim() || null,
+        emergency_contact_phone: form.nokPhone?.trim() || null,
+        next_of_kin_relationship: form.nokRelationship?.trim() || null,
+        next_of_kin_address: form.nokAddress?.trim() || null,
         status,
-        created_by:profile.id
+        created_by: profile.id,
       })
       setShowModal(false)
-      setName('')
-      setAge('')
+      setForm(EMPTY_PATIENT_FORM)
       setStatus('stable')
-      showToast(isOnline ? `${name} added` : `${name} added — will sync when back online`)
+      showToast(isOnline ? `${fullName} added` : `${fullName} added — will sync when back online`)
     } catch(err){
       showToast(err.message || 'Could not save patient')
     } finally {
@@ -762,7 +876,7 @@ export default function Dashboard(){
               <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
             ) : (
               <div className="dash-panel">
-                <div className="dash-panel-head">
+                <div className="dash-panel-head dash-panel-head-wrap">
                   <div>
                     <div className="dash-panel-title">All Patients</div>
                     <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
@@ -777,19 +891,21 @@ export default function Dashboard(){
                     {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
                   </div>
                 ) : (
-                  <table className="dash-full-table">
-                    <thead><tr><th>Name</th><th>Age</th><th>Status</th><th></th></tr></thead>
-                    <tbody>
-                      {filteredPatients.map(p => (
-                        <tr key={p.id}>
-                          <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
-                          <td>{p.age}</td>
-                          <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                          <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="dash-table-wrap">
+                    <table className="dash-full-table">
+                      <thead><tr><th>Name</th><th>Age</th><th>Status</th><th></th></tr></thead>
+                      <tbody>
+                        {filteredPatients.map(p => (
+                          <tr key={p.id}>
+                            <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
+                            <td>{p.age}</td>
+                            <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                            <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             )
@@ -818,10 +934,116 @@ export default function Dashboard(){
         <div className="dash-modal-backdrop">
           <div className="card dash-modal">
             <div className="dash-modal-title">Register Patient</div>
-            <form onSubmit={handleAdd}>
-              <div className="field"><label>Full Name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Chinedu Okafor"/></div>
-              <div className="field"><label>Age</label><input type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 34"/></div>
-              <div className="field"><label>Status</label><select value={status} onChange={e => setStatus(e.target.value)}><option value="stable">Stable</option><option value="review">In Review</option></select></div>
+            <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
+              <div className="dash-modal-body">
+                <div className="dash-field-grid">
+                  <div className="field"><label>Surname</label><input value={form.surname} onChange={e => setField('surname', e.target.value)} placeholder="e.g. Okafor"/></div>
+                  <div className="field"><label>Other Names</label><input value={form.otherNames} onChange={e => setField('otherNames', e.target.value)} placeholder="e.g. Chinedu"/></div>
+
+                  <div className="field"><label>Phone</label><input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="e.g. 08012345678"/></div>
+                  <div className="field"><label>Email</label><input type="email" value={form.email} onChange={e => setField('email', e.target.value)} placeholder="optional"/></div>
+
+                  <div className="field">
+                    <label>Gender</label>
+                    <select value={form.gender} onChange={e => setField('gender', e.target.value)}>
+                      <option value="">—</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Marital Status</label>
+                    <select value={form.maritalStatus} onChange={e => setField('maritalStatus', e.target.value)}>
+                      <option value="">—</option>
+                      {MARITAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field"><label>Date of Birth</label><input type="date" value={form.dateOfBirth} onChange={e => handleDobChange(e.target.value)}/></div>
+                  <div className="field"><label>Age</label><input value={form.age} readOnly placeholder="Auto-calculated" style={{ opacity: 0.75 }}/></div>
+
+                  <div className="field">
+                    <label>Blood Group</label>
+                    <select value={form.bloodGroup} onChange={e => setField('bloodGroup', e.target.value)}>
+                      <option value="">—</option>
+                      {BLOOD_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Genotype</label>
+                    <select value={form.genotype} onChange={e => setField('genotype', e.target.value)}>
+                      <option value="">—</option>
+                      {GENOTYPES.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Nationality</label>
+                    <input list="patient-african-countries" value={form.nationality} onChange={e => setField('nationality', e.target.value)} placeholder="Start typing…"/>
+                    <datalist id="patient-african-countries">
+                      {AFRICAN_COUNTRIES.map(c => <option key={c} value={c}/>)}
+                    </datalist>
+                  </div>
+                  <div className="field">
+                    <label>State of Origin</label>
+                    <select value={form.stateOfOrigin} onChange={e => setField('stateOfOrigin', e.target.value)}>
+                      <option value="">—</option>
+                      {NIGERIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field"><label>Occupation</label><input value={form.occupation} onChange={e => setField('occupation', e.target.value)} placeholder="e.g. Trader"/></div>
+                  <div className="field">
+                    <label>Religion</label>
+                    <select value={form.religion} onChange={e => setField('religion', e.target.value)}>
+                      <option value="">—</option>
+                      {RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Category / Folder</label>
+                    <select value={form.category} onChange={e => setField('category', e.target.value)}>
+                      <option value="">—</option>
+                      {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Status</label>
+                    <select value={status} onChange={e => setStatus(e.target.value)}>
+                      <option value="stable">Stable</option>
+                      <option value="review">In Review</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="field"><label>Home Address</label><input value={form.homeAddress} onChange={e => setField('homeAddress', e.target.value)} placeholder="e.g. 12 Aba Road, Port Harcourt"/></div>
+
+                {form.category === 'anc' && (
+                  <>
+                    <div className="dash-modal-title" style={{ fontSize: 14, marginTop: 6 }}>ANC Details</div>
+                    <div className="dash-field-grid">
+                      <div className="field"><label>Special Point</label><input value={form.ancSpecialPoint} onChange={e => setField('ancSpecialPoint', e.target.value)}/></div>
+                      <div className="field"><label>Date of Booking</label><input type="date" value={form.ancDateOfBooking} onChange={e => setField('ancDateOfBooking', e.target.value)}/></div>
+                      <div className="field"><label>Indication</label><input value={form.ancIndication} onChange={e => setField('ancIndication', e.target.value)}/></div>
+                      <div className="field"><label>LMP</label><input type="date" value={form.ancLmp} onChange={e => setField('ancLmp', e.target.value)}/></div>
+                      <div className="field"><label>EDD</label><input type="date" value={form.ancEdd} onChange={e => setField('ancEdd', e.target.value)}/></div>
+                      <div className="field"><label>Husband's Name</label><input value={form.ancHusbandName} onChange={e => setField('ancHusbandName', e.target.value)}/></div>
+                      <div className="field"><label>Husband's Occupation</label><input value={form.ancHusbandOccupation} onChange={e => setField('ancHusbandOccupation', e.target.value)}/></div>
+                      <div className="field"><label>Employer</label><input value={form.ancEmployer} onChange={e => setField('ancEmployer', e.target.value)}/></div>
+                    </div>
+                  </>
+                )}
+
+                <div className="dash-modal-title" style={{ fontSize: 14, marginTop: 6 }}>Next of Kin</div>
+                <div className="dash-field-grid">
+                  <div className="field"><label>Name</label><input value={form.nokName} onChange={e => setField('nokName', e.target.value)}/></div>
+                  <div className="field"><label>Relationship</label><input value={form.nokRelationship} onChange={e => setField('nokRelationship', e.target.value)}/></div>
+                  <div className="field"><label>Phone</label><input value={form.nokPhone} onChange={e => setField('nokPhone', e.target.value)}/></div>
+                  <div className="field"><label>Address</label><input value={form.nokAddress} onChange={e => setField('nokAddress', e.target.value)}/></div>
+                </div>
+              </div>
+
               <div className="dash-modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Patient'}</button></div>
             </form>
           </div>
