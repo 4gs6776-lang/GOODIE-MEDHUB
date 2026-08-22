@@ -18,6 +18,10 @@ export default function DoctorWorkbench(){
   const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
   const { records: admissionRequests, addRecord: addAdmissionRequest } = useOfflineTable('admission_requests', hospital?.id)
   const { addRecord: addTimelineEvent } = useOfflineTable('admission_timeline_events', hospital?.id)
+  
+  // NEW: Hook to send orders to Pharmacy
+  const { addRecord: addPharmacyOrder } = useOfflineTable('pharmacy_orders', hospital?.id)
+  
   const [showAdmissionModal, setShowAdmissionModal] = useState(false)
 
   const loading = loadingPatients || loadingVitals || loadingLabOrders || loadingPrescriptions
@@ -271,7 +275,10 @@ export default function DoctorWorkbench(){
       for (const m of medications) {
         const payload = {
           patient_vitals_id: activeVitals.id,
+          patient_id: activeVitals.patient_id,
           patient_name: activePatient?.full_name || activeVitals.patient_name || 'Unknown',
+          encounter_id: activeVitals.id, // Ensure encounter link
+          doctor_id: profile?.id,
           drug_name: m.drugName,
           dosage: m.dose,
           route: m.route || null,
@@ -283,16 +290,32 @@ export default function DoctorWorkbench(){
           prescribed_at: new Date().toISOString(),
           created_by: profile.id,
         }
+        
         if (m.dbId) {
           await updatePrescription(m.dbId, payload)
           updated.push(m)
         } else {
           const saved = await addPrescription(payload)
+          
+          // NEW AUTOMATIC PHARMACY ORDER LOGIC
+          if (status === 'active' && saved?.id) {
+            await addPharmacyOrder({
+              hospital_id: hospital.id,
+              prescription_id: saved.id, // Link directly to the prescription
+              patient_id: activeVitals.patient_id,
+              patient_name: payload.patient_name,
+              encounter_id: activeVitals.id, // Link directly to the encounter
+              doctor_id: profile?.id,
+              doctor_name: profile?.full_name,
+              status: 'pending_pharmacy', // Sent straight to Pharmacy Queue
+            })
+          }
+          
           updated.push({ ...m, dbId: saved?.id || null })
         }
       }
       setMedications(updated)
-      showToast(status === 'draft' ? 'Draft saved' : 'Prescription finalized')
+      showToast(status === 'draft' ? 'Draft saved' : 'Prescription finalized & sent to Pharmacy')
     } catch (err) {
       showToast(err.message || 'Could not save prescription')
     } finally {
@@ -336,7 +359,7 @@ export default function DoctorWorkbench(){
     try {
       // Finalize any medications still sitting as drafts/unsaved before closing the visit.
       if (medications.length > 0) {
-        await handleSavePrescriptions('active')
+        await handleSavePrescriptions('active') // This now triggers the Pharmacy Order automatically
       }
 
       const diagnosisSummary = diagnoses.map(d => d.code ? `${d.label} — ${d.code}` : d.label).join('; ')
