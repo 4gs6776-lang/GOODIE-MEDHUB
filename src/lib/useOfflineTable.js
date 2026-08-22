@@ -590,7 +590,6 @@ export async function skipStuckSyncItem(id) {
       _syncError: false,
       _syncErrorMessage: null,
     })
-
     return true
   } catch (error) {
     console.error('Could not skip sync item:', error)
