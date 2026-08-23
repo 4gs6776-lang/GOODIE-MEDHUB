@@ -21,10 +21,11 @@ export default function Laboratory(){
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // NEW: Single Test Result Form State
+  // Professional Result Form State
   const [showResultForm, setShowResultForm] = useState(false)
-  const [activeTest, setActiveTest] = useState(null)
-  const [resultData, setResultData] = useState({ result: '', price: '0', result_file: null, file_name: '' })
+  const [formPatient, setFormPatient] = useState(null)
+  const [formTests, setFormTests] = useState([])
+  const [formResults, setFormResults] = useState({})
 
   function showToast(msg){
     setToast(msg)
@@ -65,75 +66,90 @@ export default function Laboratory(){
     }
   }
 
-  // NEW: Open the Professional Result Form for a single test
+  // NEW: Open the Professional Result Form for all pending tests of a patient
   function openResultForm(test) {
-    setActiveTest(test)
-    setResultData({ 
-      result: test.result || '', 
-      price: '0', 
-      result_file: null, 
-      file_name: test.file_name || '' 
+    const patientDetails = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A', id: test.patient_id }
+    setFormPatient(patientDetails)
+    
+    // Get ALL pending tests for this patient
+    const pending = combined.filter(t => t.patient_id === test.patient_id && t.isPending)
+    setFormTests(pending)
+    
+    const initialResults = {}
+    pending.forEach(t => {
+      initialResults[t.id] = { result: t.result || '', price: '0', result_file: null, file_name: t.file_name || '' }
     })
+    setFormResults(initialResults)
     setShowResultForm(true)
   }
 
-  function handleFileUpload(e) {
+  function handleFileUpload(e, testId) {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
     reader.onloadend = () => {
-      setResultData(prev => ({ ...prev, result_file: reader.result, file_name: file.name }))
+      setFormResults(prev => ({
+        ...prev,
+        [testId]: { ...prev[testId], result_file: reader.result, file_name: file.name }
+      }))
     }
     reader.readAsDataURL(file)
   }
 
-  async function handleSaveResult() {
-    if (!activeTest) return
+  async function handleSaveAllResults() {
     setSaving(true)
     try {
-      const price = parseFloat(resultData.price) || 0
-      const payload = { 
-        status: 'completed', 
-        result: resultData.result, 
-        result_file: resultData.result_file || null,
-        updated_at: new Date().toISOString() 
-      }
-      
-      if (activeTest.origin === 'doctor') {
-        await updateOrder(activeTest.id, payload)
-      } else {
-        await updateRecord(activeTest.id, payload)
-      }
+      for (const t of formTests) {
+        const resData = formResults[t.id]
+        if (resData && resData.result.trim() !== '') {
+          const price = parseFloat(resData.price) || 0
+          const payload = { 
+            status: 'completed', 
+            result: resData.result, 
+            result_file: resData.result_file || null,
+            updated_at: new Date().toISOString() 
+          }
+          
+          if (t.origin === 'doctor') {
+            await updateOrder(t.id, payload)
+          } else {
+            await updateRecord(t.id, payload)
+          }
 
-      // Send Charge to Billing
-      await addBillableCharge({
-        hospital_id: hospital.id, 
-        patient_id: activeTest.patient_id || null, 
-        patient_name: activeTest.patient_name,
-        source_module: 'Laboratory', 
-        source_transaction_id: `LAB-${activeTest.id}`,
-        item_name: activeTest.test_name, 
-        category: 'Lab Test', 
-        quantity: 1, 
-        unit_price: price, 
-        total: price,
-        status: 'pending', 
-        created_by: profile?.id
-      })
-
-      showToast('Result saved & sent to Billing Queue')
+          await addBillableCharge({
+            hospital_id: hospital.id, 
+            patient_id: t.patient_id || null, 
+            patient_name: t.patient_name,
+            source_module: 'Laboratory', 
+            source_transaction_id: `LAB-${t.id}`,
+            item_name: t.test_name, 
+            category: 'Lab Test', 
+            quantity: 1, 
+            unit_price: price, 
+            total: price,
+            status: 'pending', 
+            created_by: profile?.id
+          })
+        }
+      }
+      showToast('All results saved & sent to Billing Queue')
       setShowResultForm(false)
     } catch (err) {
-      showToast(err.message || 'Failed to save result')
+      showToast(err.message || 'Failed to save results')
     } finally {
       setSaving(false)
     }
   }
 
-  function handlePrintResult(test) {
-    const patient = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A' }
+  function handlePrintForm() {
+    let testRows = ''
+    formTests.forEach((t, i) => {
+      const res = formResults[t.id]?.result || ''
+      testRows += `<tr><td style="padding:8px;border:1px solid #ccc;">${i+1}</td><td style="padding:8px;border:1px solid #ccc;font-weight:bold;">${t.test_name}</td><td style="padding:8px;border:1px solid #ccc;">${res || 'Pending'}</td></tr>`
+    })
+
     const html = `
-      <html><head><title>Lab Result - ${patient.full_name}</title>
+      <html><head><title>Lab Result - ${formPatient?.full_name}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 40px; color: #111; max-width: 800px; margin: auto; }
         .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
@@ -142,8 +158,8 @@ export default function Laboratory(){
         .grid { display: flex; justify-content: space-between; margin-bottom: 30px; font-size: 14px; }
         .box { background: #f8f9fa; padding: 15px; border-radius: 8px; width: 48%; }
         .box h3 { margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; color: #888; }
-        .table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background: #f8f9fa; font-weight: bold; }
         .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #888; }
         .sign { margin-top: 60px; border-top: 1px solid #000; width: 200px; text-align: center; font-size: 12px; padding-top: 5px; }
@@ -155,22 +171,19 @@ export default function Laboratory(){
         <div class="grid">
           <div class="box">
             <h3>Patient Details</h3>
-            <div><strong>Name:</strong> ${patient.full_name}</div>
-            <div><strong>Phone:</strong> ${patient.phone || 'N/A'}</div>
-            <div><strong>Patient ID:</strong> ${patient.id?.slice(0,8) || 'N/A'}</div>
+            <div><strong>Name:</strong> ${formPatient?.full_name || 'N/A'}</div>
+            <div><strong>Phone:</strong> ${formPatient?.phone || 'N/A'}</div>
           </div>
           <div class="box">
             <h3>Report Details</h3>
-            <div><strong>Test:</strong> ${test.test_name}</div>
-            <div><strong>Date:</strong> ${new Date(test.updated_at || test.requested_at).toLocaleString()}</div>
+            <div><strong>Date:</strong> ${new Date().toLocaleString()}</div>
             <div><strong>Lab Scientist:</strong> ${profile?.full_name || 'N/A'}</div>
           </div>
         </div>
-        <table class="table">
-          <thead><tr><th>Test Parameter</th><th>Result</th></tr></thead>
-          <tbody><tr><td>${test.test_name}</td><td>${test.result || 'N/A'}</td></tr></tbody>
+        <table>
+          <thead><tr><th style="width:50px;">#</th><th>Test Parameter</th><th>Result</th></tr></thead>
+          <tbody>${testRows}</tbody>
         </table>
-        ${test.result_file ? `<div style="margin-bottom:20px;"><strong>Attached File:</strong> <a href="${test.result_file}" download>Download Attachment</a></div>` : ''}
         <div class="sign">Authorized Signature: ${profile?.full_name || ''}</div>
         <div class="footer">This is a computer generated report from ${hospital?.name || 'the laboratory'}.</div>
       </body></html>`
@@ -298,9 +311,6 @@ export default function Laboratory(){
                       {new Date(test.updated_at || test.requested_at).toLocaleDateString()}
                     </td>
                     <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                      {!test.isPending && (
-                        <button onClick={() => handlePrintResult(test)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>🖨️ Print</button>
-                      )}
                       <button onClick={() => handleDelete(test)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }} title="Delete">✕</button>
                     </td>
                   </tr>
@@ -342,8 +352,8 @@ export default function Laboratory(){
         </div>
       )}
 
-      {/* PROFESSIONAL RESULT FORM MODAL */}
-      {showResultForm && activeTest && (
+      {/* PROFESSIONAL MULTIPLE RESULT FORM MODAL */}
+      {showResultForm && formPatient && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) setShowResultForm(false) }}>
           <div className="card" style={{ width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             
@@ -360,55 +370,66 @@ export default function Laboratory(){
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, background: 'var(--bg-elevated)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid var(--line-soft)' }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Patient Name</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{activeTest.patient_name}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{formPatient.full_name}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Phone Number</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{patients.find(p => p.id === activeTest.patient_id)?.phone || 'N/A'}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{formPatient.phone || 'N/A'}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Date / Time</div>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{new Date().toLocaleString()}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Test Requested</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{activeTest.test_name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Lab Scientist</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{profile?.full_name || 'N/A'}</div>
                 </div>
               </div>
 
-              {/* Result Input Area */}
-              <div className="field">
-                <label>Test Result(s)</label>
-                <textarea 
-                  rows={6} 
-                  value={resultData.result} 
-                  onChange={e => setResultData(prev => ({ ...prev, result: e.target.value }))} 
-                  placeholder="Enter detailed lab results here..." 
-                  style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px', color: 'var(--text)', fontSize: 14 }}
-                />
-              </div>
+              {/* MULTIPLE TEST RESULTS AREA */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {formTests.map((t, index) => (
+                  <div key={t.id} style={{ border: '1px solid var(--line-soft)', borderRadius: 8, padding: 16, background: 'var(--bg-card)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>{index + 1}. {t.test_name}</div>
+                      {t.origin === 'doctor' && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>DOCTOR ORDER</span>}
+                    </div>
+                    
+                    <div className="field" style={{ marginBottom: 12 }}>
+                      <label>Result</label>
+                      <textarea 
+                        rows={3} 
+                        value={formResults[t.id]?.result || ''} 
+                        onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], result: e.target.value } }))} 
+                        placeholder="Enter result..." 
+                        style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
+                      />
+                    </div>
 
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <div className="field" style={{ flex: 1, minWidth: 150 }}>
-                  <label>Price for Billing (₦)</label>
-                  <input 
-                    type="number" 
-                    value={resultData.price} 
-                    onChange={e => setResultData(prev => ({ ...prev, price: e.target.value }))} 
-                    placeholder="0.00" 
-                    style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
-                  />
-                </div>
-                <div className="field" style={{ flex: 2, minWidth: 250 }}>
-                  <label>Upload Result File (Image/PDF)</label>
-                  <input 
-                    type="file" 
-                    accept="image/*, .pdf" 
-                    onChange={handleFileUpload} 
-                    style={{ fontSize: 12, color: 'var(--muted)', width: '100%' }}
-                  />
-                  {resultData.file_name && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>✓ {resultData.file_name}</div>}
-                </div>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      <div className="field" style={{ flex: 1, minWidth: 120 }}>
+                        <label>Price (₦)</label>
+                        <input 
+                          type="number" 
+                          value={formResults[t.id]?.price || '0'} 
+                          onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], price: e.target.value } }))} 
+                          placeholder="0" 
+                          style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px', color: 'var(--text)', fontSize: 14 }}
+                        />
+                      </div>
+                      <div className="field" style={{ flex: 2, minWidth: 200 }}>
+                        <label>Upload File</label>
+                        <input 
+                          type="file" 
+                          accept="image/*, .pdf" 
+                          onChange={e => handleFileUpload(e, t.id)} 
+                          style={{ fontSize: 12, color: 'var(--muted)', width: '100%' }}
+                        />
+                        {formResults[t.id]?.file_name && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>✓ {formResults[t.id]?.file_name}</div>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Signature Area */}
@@ -421,9 +442,12 @@ export default function Laboratory(){
               </div>
             </div>
 
-            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleSaveResult} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Result & Send to Billing'}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'space-between' }}>
+              <button className="btn btn-ghost" style={{ width: 'auto', padding: '0 20px', border: '1px solid var(--line)' }} onClick={handlePrintForm}>
+                🖨️ Print Form
+              </button>
+              <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleSaveAllResults} disabled={saving}>
+                {saving ? 'Saving...' : 'Save All Results & Send to Billing'}
               </button>
             </div>
           </div>
