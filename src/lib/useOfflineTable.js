@@ -565,6 +565,17 @@ export function useOfflineTable(tableName, hospitalId) {
     await loadLocalRecords()
   }
 
+  const syncFromServer = async () => {
+    if (!hospitalId) return
+    try {
+      const db = await openDB()
+      await pullFromSupabase(db, tableName, hospitalId)
+      await loadLocalRecords()
+    } catch (err) {
+      console.error(`Error manually syncing ${tableName} from server:`, err)
+    }
+  }
+
   return {
     records,
     loading,
@@ -575,6 +586,7 @@ export function useOfflineTable(tableName, hospitalId) {
     updateRecord,
     deleteRecord,
     refreshTable: loadLocalRecords,
+    syncFromServer,
   }
 }
 
