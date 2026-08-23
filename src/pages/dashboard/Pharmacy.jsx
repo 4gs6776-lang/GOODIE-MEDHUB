@@ -26,9 +26,7 @@ export default function Pharmacy() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   
-  // Doctor's Prescription Queue — DoctorWorkbench saves finalized
-  // prescriptions with status:'active' (not 'prescribed'), so this
-  // was filtering for a value that never actually gets set.
+  // Doctor's Prescription Queue
   const pendingRx = prescriptions.filter(p => p.status === 'active').sort((a,b) => new Date(a.prescribed_at) - new Date(b.prescribed_at))
   
   const drugs = inventoryItems.filter(item => String(item.category || '').trim().toLowerCase() === 'drug')
@@ -56,6 +54,17 @@ export default function Pharmacy() {
     setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setActiveRx(null); setShowDispenseModal(true) 
   }
 
+  // NEW: Cancel Prescription from Doctor's Queue
+  async function handleCancelRx(rx) {
+    if (!confirm(`Cancel prescription for ${rx.drug_name}?`)) return
+    try {
+      await updatePrescription(rx.id, { status: 'cancelled' })
+      showToast('Prescription cancelled')
+    } catch (err) {
+      showToast(err.message || 'Failed to cancel')
+    }
+  }
+
   // Automatic Dispense (From Doctor's Queue)
   const openDispenseRx = (rx) => {
     // Find matching drug in inventory
@@ -64,19 +73,27 @@ export default function Pharmacy() {
       String(it.generic_name || '').toLowerCase() === String(rx.drug_name || '').toLowerCase()
     )
 
-    if (!matchedDrug) {
-      showToast(`Drug "${rx.drug_name}" not found in inventory. Please add it first.`)
-      return
-    }
-
     // Find patient
     const matchedPatient = patients.find(p => p.id === rx.patient_id)
     if (!matchedPatient) {
-      showToast(`Patient record not found.`)
-      return
+      return showToast(`Patient record not found.`)
     }
 
-    setDispensingItem(matchedDrug)
+    if (!matchedDrug) {
+      // NEW: If not in inventory, create a mock item so the pharmacist can still dispense it
+      setDispensingItem({
+        id: null,
+        name: rx.drug_name,
+        quantity: 9999, // Don't restrict stock
+        unit: 'units',
+        selling_price: 0, // Will prompt for price during dispense
+        expiry_date: null
+      })
+      showToast(`"${rx.drug_name}" is not in inventory. Please enter price manually.`)
+    } else {
+      setDispensingItem(matchedDrug)
+    }
+
     setDispenseQuantity(rx.quantity || '1')
     setDispenseError('')
     setPatientSearch('')
@@ -99,18 +116,29 @@ export default function Pharmacy() {
     const qty = parseInt(dispenseQuantity, 10)
     if (isNaN(qty) || qty <= 0) return setDispenseError('Enter valid quantity.')
     if (!selectedPatient) return setDispenseError('Please select a patient.')
+    
     const currQty = parseInt(dispensingItem.quantity, 10) || 0
-    if (qty > currQty) return setDispenseError(`Insufficient stock. Only ${currQty} left.`)
-    if (isExpired(dispensingItem)) return setDispenseError('This drug has expired.')
+    // Only enforce stock limits if the drug is actually in inventory
+    if (dispensingItem.id && qty > currQty) return setDispenseError(`Insufficient stock. Only ${currQty} left.`)
+    if (dispensingItem.id && isExpired(dispensingItem)) return setDispenseError('This drug has expired.')
 
     setDispensing(true)
     try {
-      const newQty = currQty - qty
-      const unitPrice = Number(dispensingItem.selling_price || 0)
+      let unitPrice = Number(dispensingItem.selling_price || 0)
+      
+      // NEW: If the drug is not in inventory (no ID), prompt for the price
+      if (!dispensingItem.id) {
+        const priceStr = prompt(`Enter price for ${dispensingItem.name} (₦):`, '0')
+        unitPrice = parseFloat(priceStr) || 0
+      }
+
+      const newQty = dispensingItem.id ? (currQty - qty) : null
       const totalPrice = unitPrice * qty
 
-      // 1. Reduce Stock
-      await updateRecord(dispensingItem.id, { quantity: newQty, updated_at: new Date().toISOString() })
+      // 1. Reduce Stock (ONLY if it exists in inventory)
+      if (dispensingItem.id) {
+        await updateRecord(dispensingItem.id, { quantity: newQty, updated_at: new Date().toISOString() })
+      }
       
       // 2. Record in Patient Profile
       await addStockRecord({ 
@@ -161,7 +189,7 @@ export default function Pharmacy() {
         </div>
       </div>
 
-      {/* NEW: DOCTOR'S PRESCRIPTION QUEUE */}
+      {/* DOCTOR'S PRESCRIPTION QUEUE */}
       <div className="dash-panel" style={{ marginBottom: 20, borderColor: 'var(--teal)' }}>
         <div className="dash-panel-head">
           <div>
@@ -190,9 +218,12 @@ export default function Pharmacy() {
                     <td style={{ padding: 12 }}>{rx.drug_name}</td>
                     <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>{rx.dosage} · {rx.frequency}</td>
                     <td style={{ padding: 12, fontSize: 12 }}>{rx.doctor_name || '—'}</td>
-                    <td style={{ padding: 12 }}>
+                    <td style={{ padding: 12, display: 'flex', gap: 6 }}>
                       <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>
                         Dispense
+                      </button>
+                      <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 14px', fontSize: 12, color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => handleCancelRx(rx)}>
+                        Cancel
                       </button>
                     </td>
                   </tr>
@@ -242,10 +273,12 @@ export default function Pharmacy() {
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 8 }}>Dispense Medication</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18 }}>{dispensingItem.name}</div>
             <div style={{ padding: 12, borderRadius: 8, background: 'var(--teal-soft)', marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Available Stock & Price</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{dispensingItem.id ? 'Available Stock & Price' : 'Not in Inventory (Manual Entry)'}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 3 }}>{dispensingItem.quantity} {dispensingItem.unit || 'units'}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{formatMoney(dispensingItem.selling_price)} each</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 3 }}>
+                  {dispensingItem.id ? `${dispensingItem.quantity} ${dispensingItem.unit || 'units'}` : 'Enter Price on Confirm'}
+                </div>
+                {dispensingItem.id && <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)' }}>{formatMoney(dispensingItem.selling_price)} each</div>}
               </div>
             </div>
             {dispenseError && <div className="error-box" style={{ marginBottom: 12 }}>{dispenseError}</div>}
@@ -260,7 +293,7 @@ export default function Pharmacy() {
                 )}
                 {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
               </div>
-              <div className="field"><label>Quantity to Dispense</label><input type="number" min="1" max={dispensingItem.quantity} value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} placeholder={`Max ${dispensingItem.quantity}`} /></div>
+              <div className="field"><label>Quantity to Dispense</label><input type="number" min="1" value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} placeholder="Enter quantity" /></div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
                 <button type="button" className="btn btn-ghost" onClick={closeDispense} disabled={dispensing}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={dispensing}>{dispensing ? 'Dispensing…' : 'Confirm Dispense'}</button>
