@@ -60,34 +60,12 @@ const AFRICAN_COUNTRIES = [
 ]
 
 const EMPTY_PATIENT_FORM = {
-  surname: '',
-  otherNames: '',
-  phone: '',
-  email: '',
-  gender: '',
-  maritalStatus: '',
-  dateOfBirth: '',
-  age: '',
-  bloodGroup: '',
-  genotype: '',
-  nationality: '',
-  stateOfOrigin: '',
-  occupation: '',
-  religion: '',
-  category: '',
-  homeAddress: '',
-  ancSpecialPoint: '',
-  ancDateOfBooking: '',
-  ancIndication: '',
-  ancLmp: '',
-  ancEdd: '',
-  ancHusbandName: '',
-  ancHusbandOccupation: '',
-  ancEmployer: '',
-  nokName: '',
-  nokRelationship: '',
-  nokPhone: '',
-  nokAddress: '',
+  surname: '', otherNames: '', phone: '', email: '', gender: '', maritalStatus: '',
+  dateOfBirth: '', age: '', bloodGroup: '', genotype: '', nationality: '', stateOfOrigin: '',
+  occupation: '', religion: '', category: '', homeAddress: '', ancSpecialPoint: '',
+  ancDateOfBooking: '', ancIndication: '', ancLmp: '', ancEdd: '', ancHusbandName: '',
+  ancHusbandOccupation: '', ancEmployer: '', nokName: '', nokRelationship: '',
+  nokPhone: '', nokAddress: '',
 }
 
 function calculatePatientAge(dobStr) {
@@ -125,34 +103,15 @@ const NAV_ITEMS = [
 ]
 
 const PAGE_TITLES = {
-  overview: 'Dashboard',
-  patients: 'Patient Management',
-  appointments: 'Appointments',
-  billing: 'Billing & Invoices',
-  staff: 'Staff',
-  pharmacy: 'Pharmacy',
-  laboratory: 'Laboratory',
-  nursing: 'Nursing / Triage',
-  doctor: 'Doctor Workbench',
-  radiology: 'Radiology',
-  insurance: 'Insurance / HMO Claims',
-  inventory: 'Inventory & Supplies',
-  reports: 'Reports & Analytics',
-  notifications: 'Reminders & Alerts',
-  settings: 'Settings',
-  ipd: 'IPD Management',
-  reception: 'Reception',
-  admissions: 'Admissions',
-  roster: 'Duty Roster',
-  messages: 'Messages',
+  overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments',
+  billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory',
+  nursing: 'Nursing / Triage', doctor: 'Doctor Workbench', radiology: 'Radiology',
+  insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics',
+  notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management',
+  reception: 'Reception', admissions: 'Admissions', roster: 'Duty Roster', messages: 'Messages',
 }
 
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-// Every role can always reach these, regardless of department.
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
-
-// Which modules each department can see. Admin/owner always see everything
 const ROLE_ACCESS = {
   doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
   nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
@@ -163,15 +122,6 @@ const ROLE_ACCESS = {
 }
 const FULL_ACCESS_ROLES = ['admin', 'owner']
 const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
-
-const SHIFT_STYLE = {
-  M: { background: 'rgba(201,169,97,0.16)', color: 'var(--gold)' },
-  N: { background: 'rgba(76,141,255,0.16)', color: 'var(--blue)' },
-  OFF: { background: 'rgba(255,255,255,0.04)', color: 'var(--muted)' },
-  LEAVE: { background: 'rgba(225,104,94,0.12)', color: 'var(--danger)' },
-  'ON CALL': { background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' },
-  TRAINING: { background: 'var(--teal-soft)', color: 'var(--teal)' },
-}
 
 function Icon({ name, size = 18, strokeWidth = 1.8 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -211,46 +161,29 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
 
 function LiveClock() {
   const [now, setNow] = useState(() => new Date())
-
   useEffect(() => {
-    // Align the first tick to the actual start of the next second,
-    // then tick every second exactly on the boundary — keeps it
-    // accurate indefinitely instead of drifting over time.
     let intervalId
     const msToNextSecond = 1000 - (Date.now() % 1000)
     const timeoutId = setTimeout(() => {
       setNow(new Date())
       intervalId = setInterval(() => setNow(new Date()), 1000)
     }, msToNextSecond)
-
     return () => {
       clearTimeout(timeoutId)
       if (intervalId) clearInterval(intervalId)
     }
   }, [])
 
-  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Africa/Lagos',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
-  }), [])
-
-  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Africa/Lagos',
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  }), [])
-
+  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }), [])
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), [])
   const timeStr = timeFormatter.format(now)
   const dateStr = dateFormatter.format(now)
 
   return (
     <div className="dash-live-clock" title="Nigeria Time (WAT, UTC+1)">
-      <div className="dash-live-clock-icon">
-        <Icon name="clock" size={15} />
-      </div>
+      <div className="dash-live-clock-icon"><Icon name="clock" size={15} /></div>
       <div className="dash-live-clock-text">
-        <div className="dash-live-clock-time">
-          <span key={timeStr} className="dash-clock-tick">{timeStr}</span>
-        </div>
+        <div className="dash-live-clock-time"><span key={timeStr} className="dash-clock-tick">{timeStr}</span></div>
         <div className="dash-live-clock-date">{dateStr}</div>
       </div>
     </div>
@@ -260,7 +193,6 @@ function LiveClock() {
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
 
-  // null = full access (admin/owner); otherwise an array of allowed nav keys.
   const allowedKeys = useMemo(() => {
     if (FULL_ACCESS_ROLES.includes(profile?.role)) return null
     return ROLE_ACCESS[profile?.role] || COMMON_ACCESS
@@ -270,11 +202,7 @@ export default function Dashboard(){
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [theme, setTheme] = useState(() => {
-    try {
-      return localStorage.getItem('gmedhub-theme') === 'light' ? 'light' : 'dark'
-    } catch {
-      return 'dark'
-    }
+    try { return localStorage.getItem('gmedhub-theme') === 'light' ? 'light' : 'dark' } catch { return 'dark' }
   })
 
   useEffect(() => {
@@ -282,19 +210,19 @@ export default function Dashboard(){
     try { localStorage.setItem('gmedhub-theme', theme) } catch {}
   }, [theme])
 
-  function toggleTheme(){
-    setTheme(current => current === 'light' ? 'dark' : 'light')
-  }
+  function toggleTheme(){ setTheme(current => current === 'light' ? 'dark' : 'light') }
 
-  const [syncErrors, setSyncErrors] = useState([]) // FIX: Initialize as empty array instead of running getAllSyncErrors() immediately
+  const [syncErrors, setSyncErrors] = useState([])
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [syncActionBusy, setSyncActionBusy] = useState(false)
 
-  // Top header popover states
-  const [activeMenu, setActiveMenu] = useState(null) // 'notifs' | 'messages' | null
+  const [activeMenu, setActiveMenu] = useState(null)
   const headerMenuRef = useRef(null)
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
+  
+  // NEW: Fetch patient vitals to determine who was attended today
+  const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
 
   const [profilePatientId, setProfilePatientId] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -327,7 +255,6 @@ export default function Dashboard(){
     if (allowedKeys && !allowedKeys.includes(tab)) setTab('overview')
   }, [allowedKeys, tab])
 
-  // Close top header popovers when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) {
@@ -338,55 +265,44 @@ export default function Dashboard(){
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Group sync errors by table name so the UI can display them nicely
   const stuckTables = useMemo(() => {
-    // FIX: Make sure syncErrors is an array before calling .forEach
     if (!Array.isArray(syncErrors)) return [];
-    
     const groups = {};
     syncErrors.forEach(err => {
       const table = err.table_name || 'Unknown table';
       if (!groups[table]) {
-        groups[table] = {
-          table,
-          queueLength: 0,
-          message: err._syncErrorMessage || 'Unknown error'
-        };
+        groups[table] = { table, queueLength: 0, message: err._syncErrorMessage || 'Unknown error' };
       }
       groups[table].queueLength += 1;
     });
     return Object.values(groups);
-  }, [syncErrors]);
+  }, [syncErrors])
 
   async function handleRetrySync(table){
-  if (!hospital?.id) return
-  setSyncActionBusy(true)
-  try {
-    await retryTableQueue(table)
-    setSyncErrors(await getAllSyncErrors())
-  } finally {
-    setSyncActionBusy(false)
-  }
-}
-  async function handleSkipStuck(table){
-  if (!hospital?.id) return
-  if (!confirm(
-    `Discard ALL stuck items for "${table}"?\n\n` +
-    `These changes will NOT reach the database. The local copies stay on this ` +
-    `device marked as discarded, and the rest of the queue can proceed.`
-  )) return
-  setSyncActionBusy(true)
-  try {
-    const errorsToSkip = syncErrors.filter(err => err.table_name === table)
-    for (const err of errorsToSkip) {
-      await skipStuckSyncItem(err.id)
+    if (!hospital?.id) return
+    setSyncActionBusy(true)
+    try {
+      await retryTableQueue(table)
+      setSyncErrors(await getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
     }
-    setSyncErrors(await getAllSyncErrors())
-  } finally {
-    setSyncActionBusy(false)
   }
-}
 
+  async function handleSkipStuck(table){
+    if (!hospital?.id) return
+    if (!confirm(`Discard ALL stuck items for "${table}"?\n\nThese changes will NOT reach the database. The local copies stay on this device marked as discarded, and the rest of the queue can proceed.`)) return
+    setSyncActionBusy(true)
+    try {
+      const errorsToSkip = syncErrors.filter(err => err.table_name === table)
+      for (const err of errorsToSkip) {
+        await skipStuckSyncItem(err.id)
+      }
+      setSyncErrors(await getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
 
   function computeWeeklyCounts(patientList){
     const counts = [0,0,0,0,0,0,0]
@@ -429,38 +345,19 @@ export default function Dashboard(){
       const year = now.getFullYear()
       const todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
 
-      const { data: roster } = await supabase
-        .from('rosters')
-        .select('id')
-        .eq('hospital_id', hospital.id)
-        .eq('month', month)
-        .eq('year', year)
-        .is('department', null)
-        .maybeSingle()
-
+      const { data: roster } = await supabase.from('rosters').select('id').eq('hospital_id', hospital.id).eq('month', month).eq('year', year).is('department', null).maybeSingle()
       if (!roster) { setTodayDuty([]); return }
 
-      const { data: entries } = await supabase
-        .from('roster_entries')
-        .select('staff_id, shift_code')
-        .eq('roster_id', roster.id)
-        .eq('roster_date', todayKey)
-
+      const { data: entries } = await supabase.from('roster_entries').select('staff_id, shift_code').eq('roster_id', roster.id).eq('roster_date', todayKey)
       if (!entries || entries.length === 0) { setTodayDuty([]); return }
 
       const staffIds = entries.map(e => e.staff_id)
-      const { data: staffData } = await supabase
-        .from('profiles')
-        .select('id, full_name, role')
-        .in('id', staffIds)
+      const { data: staffData } = await supabase.from('profiles').select('id, full_name, role').in('id', staffIds)
 
-      const combined = entries
-        .map(e => {
-          const staffMember = (staffData || []).find(s => s.id === e.staff_id)
-          return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
-        })
-        .filter(Boolean)
-        .filter(e => e.shift && e.shift !== 'OFF')
+      const combined = entries.map(e => {
+        const staffMember = (staffData || []).find(s => s.id === e.staff_id)
+        return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
+      }).filter(Boolean).filter(e => e.shift && e.shift !== 'OFF')
 
       setTodayDuty(combined)
     } catch {
@@ -487,11 +384,7 @@ export default function Dashboard(){
   }
 
   function handleDobChange(value) {
-    setForm(current => ({
-      ...current,
-      dateOfBirth: value,
-      age: calculatePatientAge(value),
-    }))
+    setForm(current => ({ ...current, dateOfBirth: value, age: calculatePatientAge(value) }))
   }
 
   async function handleAdd(e){
@@ -583,6 +476,13 @@ export default function Dashboard(){
     !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
   )
 
+  // NEW: Calculate Patients Attended Today
+  const todayStr = new Date().toDateString()
+  const patientsSeenToday = useMemo(() => {
+    const seenIds = new Set(vitals.filter(v => new Date(v.created_at).toDateString() === todayStr).map(v => v.patient_id))
+    return patients.filter(p => seenIds.has(p.id))
+  }, [vitals, patients, todayStr])
+
   function formatMoney(n){
     return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
   }
@@ -591,8 +491,7 @@ export default function Dashboard(){
     if (!value) return '—'
     const d = new Date(value)
     if (Number.isNaN(d.getTime())) return '—'
-    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
-      + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
   }
 
   function appointmentName(a){
@@ -1004,40 +903,74 @@ export default function Dashboard(){
             profilePatientId ? (
               <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
             ) : (
-              <div className="dash-panel">
-                <div className="dash-panel-head dash-panel-head-wrap">
-                  <div>
-                    <div className="dash-panel-title">All Patients</div>
-                    <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
-                  </div>
-                  <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
-                </div>
-
-                {loading ? (
-                  <div className="dash-empty-state">Loading…</div>
-                ) : filteredPatients.length === 0 ? (
-                  <div className="dash-empty-state">
-                    {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
-                  </div>
-                ) : (
-                  <div className="dash-table-wrap">
-                    <table className="dash-full-table">
-                      <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
-                      <tbody>
-                        {filteredPatients.map(p => (
-                          <tr key={p.id}>
-                            <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
-                            <td>{p.age}</td>
-                            <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                            <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
-                            <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <>
+                {/* NEW: ATTENDED TODAY SECTION */}
+                {patientsSeenToday.length > 0 && (
+                  <div className="dash-panel" style={{ marginBottom: 16, borderColor: 'var(--teal)' }}>
+                    <div className="dash-panel-head">
+                      <div>
+                        <div className="dash-panel-title" style={{ color: 'var(--teal)', fontSize: 14 }}>Attended Today ({patientsSeenToday.length})</div>
+                        <div className="dash-panel-sub">Quick access to patients seen today</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', flexWrap: 'wrap' }}>
+                      {patientsSeenToday.map(p => (
+                        <div 
+                          key={p.id} 
+                          onClick={() => setProfilePatientId(p.id)} 
+                          style={{ 
+                            padding: '8px 14px', 
+                            background: 'var(--bg-elevated)', 
+                            border: '1px solid var(--teal)', 
+                            borderRadius: 20, 
+                            cursor: 'pointer', 
+                            fontSize: 13, 
+                            fontWeight: 700, 
+                            color: 'var(--teal)' 
+                          }}
+                        >
+                          {p.full_name}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
-              </div>
+
+                <div className="dash-panel">
+                  <div className="dash-panel-head dash-panel-head-wrap">
+                    <div>
+                      <div className="dash-panel-title">All Patients</div>
+                      <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
+                    </div>
+                    <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                  </div>
+
+                  {loading ? (
+                    <div className="dash-empty-state">Loading…</div>
+                  ) : filteredPatients.length === 0 ? (
+                    <div className="dash-empty-state">
+                      {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
+                    </div>
+                  ) : (
+                    <div className="dash-table-wrap">
+                      <table className="dash-full-table">
+                        <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+                        <tbody>
+                          {filteredPatients.map(p => (
+                            <tr key={p.id}>
+                              <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
+                              <td>{p.age}</td>
+                              <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                              <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
+                              <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
             )
           )}
           {tab === 'reception' && <Reception />}
