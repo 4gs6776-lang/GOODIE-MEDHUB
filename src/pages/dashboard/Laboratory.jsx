@@ -21,10 +21,10 @@ export default function Laboratory(){
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // Batch Results State
-  const [showBatchModal, setShowBatchModal] = useState(false)
-  const [batchPatient, setBatchPatient] = useState(null)
-  const [batchResults, setBatchResults] = useState({})
+  // NEW: Single Test Result Form State
+  const [showResultForm, setShowResultForm] = useState(false)
+  const [activeTest, setActiveTest] = useState(null)
+  const [resultData, setResultData] = useState({ result: '', price: '0', result_file: null, file_name: '' })
 
   function showToast(msg){
     setToast(msg)
@@ -65,81 +65,69 @@ export default function Laboratory(){
     }
   }
 
-  function openBatchResults(test) {
-    const patientDetails = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A' }
-    setBatchPatient(patientDetails)
-    
-    const initialResults = {}
-    combined.filter(t => t.patient_id === test.patient_id && t.isPending).forEach(t => {
-      initialResults[t.id] = { result: t.result || '', price: '0', result_file: null, file_name: '' }
+  // NEW: Open the Professional Result Form for a single test
+  function openResultForm(test) {
+    setActiveTest(test)
+    setResultData({ 
+      result: test.result || '', 
+      price: '0', 
+      result_file: null, 
+      file_name: test.file_name || '' 
     })
-    setBatchResults(initialResults)
-    setShowBatchModal(true)
+    setShowResultForm(true)
   }
 
-  async function handleSaveBatch() {
-    setSaving(true)
-    try {
-      const testsToUpdate = combined.filter(t => t.patient_id === batchPatient.id && t.isPending)
-      
-      for (const t of testsToUpdate) {
-        const resData = batchResults[t.id]
-        if (resData && resData.result.trim() !== '') {
-          const price = parseFloat(resData.price) || 0
-          const payload = { 
-            status: 'completed', 
-            result: resData.result, 
-            result_file: resData.result_file || null,
-            updated_at: new Date().toISOString() 
-          }
-          
-          if (t.origin === 'doctor') {
-            await updateOrder(t.id, payload)
-          } else {
-            await updateRecord(t.id, payload)
-          }
-
-          await addBillableCharge({
-            hospital_id: hospital.id, 
-            patient_id: t.patient_id || null, 
-            patient_name: t.patient_name,
-            source_module: 'Laboratory', 
-            source_transaction_id: `LAB-${t.id}`,
-            item_name: t.test_name, 
-            category: 'Lab Test', 
-            quantity: 1, 
-            unit_price: price, 
-            total: price,
-            status: 'pending', 
-            created_by: profile?.id
-          })
-        }
-      }
-      showToast('Results saved & sent to Billing Queue')
-      setShowBatchModal(false)
-    } catch (err) {
-      showToast(err.message || 'Failed to save results')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function updateBatchResult(testId, field, value) {
-    setBatchResults(prev => ({
-      ...prev,
-      [testId]: { ...prev[testId], [field]: value }
-    }))
-  }
-
-  function handleFileUpload(e, testId) {
+  function handleFileUpload(e) {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
     reader.onloadend = () => {
-      updateBatchResult(testId, 'result_file', reader.result)
-      updateBatchResult(testId, 'file_name', file.name)
+      setResultData(prev => ({ ...prev, result_file: reader.result, file_name: file.name }))
     }
     reader.readAsDataURL(file)
+  }
+
+  async function handleSaveResult() {
+    if (!activeTest) return
+    setSaving(true)
+    try {
+      const price = parseFloat(resultData.price) || 0
+      const payload = { 
+        status: 'completed', 
+        result: resultData.result, 
+        result_file: resultData.result_file || null,
+        updated_at: new Date().toISOString() 
+      }
+      
+      if (activeTest.origin === 'doctor') {
+        await updateOrder(activeTest.id, payload)
+      } else {
+        await updateRecord(activeTest.id, payload)
+      }
+
+      // Send Charge to Billing
+      await addBillableCharge({
+        hospital_id: hospital.id, 
+        patient_id: activeTest.patient_id || null, 
+        patient_name: activeTest.patient_name,
+        source_module: 'Laboratory', 
+        source_transaction_id: `LAB-${activeTest.id}`,
+        item_name: activeTest.test_name, 
+        category: 'Lab Test', 
+        quantity: 1, 
+        unit_price: price, 
+        total: price,
+        status: 'pending', 
+        created_by: profile?.id
+      })
+
+      showToast('Result saved & sent to Billing Queue')
+      setShowResultForm(false)
+    } catch (err) {
+      showToast(err.message || 'Failed to save result')
+    } finally {
+      setSaving(false)
+    }
   }
 
   function handlePrintResult(test) {
@@ -183,7 +171,7 @@ export default function Laboratory(){
           <tbody><tr><td>${test.test_name}</td><td>${test.result || 'N/A'}</td></tr></tbody>
         </table>
         ${test.result_file ? `<div style="margin-bottom:20px;"><strong>Attached File:</strong> <a href="${test.result_file}" download>Download Attachment</a></div>` : ''}
-        <div class="sign">Authorized Signature</div>
+        <div class="sign">Authorized Signature: ${profile?.full_name || ''}</div>
         <div class="footer">This is a computer generated report from ${hospital?.name || 'the laboratory'}.</div>
       </body></html>`
     const win = window.open('', '_blank')
@@ -291,14 +279,14 @@ export default function Laboratory(){
                     <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{test.test_name}</td>
                     <td style={{ padding: 12 }}>
                       <span
-                        onClick={() => test.isPending ? openBatchResults(test) : handleReopen(test)}
+                        onClick={() => test.isPending ? openResultForm(test) : handleReopen(test)}
                         style={{
                           fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
                           background: !test.isPending ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
                           color: !test.isPending ? 'var(--teal)' : 'var(--gold)',
                           whiteSpace: 'nowrap'
                         }}
-                        title={test.isPending ? "Click to enter results grid" : "Tap to change"}
+                        title={test.isPending ? "Click to open Result Form" : "Tap to change"}
                       >
                         {!test.isPending ? 'Completed' : 'Enter Results'}
                       </span>
@@ -354,9 +342,9 @@ export default function Laboratory(){
         </div>
       )}
 
-      {/* BATCH RESULTS GRID MODAL (PROFESSIONAL FORM LAYOUT) */}
-      {showBatchModal && batchPatient && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) setShowBatchModal(false) }}>
+      {/* PROFESSIONAL RESULT FORM MODAL */}
+      {showResultForm && activeTest && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) setShowResultForm(false) }}>
           <div className="card" style={{ width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             
             <div style={{ padding: '20px 24px', borderBottom: '2px solid var(--teal)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -364,7 +352,7 @@ export default function Laboratory(){
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--teal)' }}>{hospital?.name || 'Hospital'}</div>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>Laboratory Test Request & Result Form</div>
               </div>
-              <button onClick={() => setShowBatchModal(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setShowResultForm(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>✕</button>
             </div>
             
             <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
@@ -372,68 +360,70 @@ export default function Laboratory(){
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, background: 'var(--bg-elevated)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid var(--line-soft)' }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Patient Name</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{batchPatient.full_name}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{activeTest.patient_name}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Phone Number</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{batchPatient.phone || 'N/A'}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{patients.find(p => p.id === activeTest.patient_id)?.phone || 'N/A'}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Date / Time</div>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{new Date().toLocaleString()}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Lab Scientist</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{profile?.full_name || 'N/A'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Test Requested</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{activeTest.test_name}</div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 12, borderBottom: '1px solid var(--line-soft)', paddingBottom: 8 }}>
-                <div style={{ flex: 1.2 }}>Test Parameter</div>
-                <div style={{ flex: 1.5 }}>Result</div>
-                <div style={{ flex: 1, maxWidth: 100 }}>Price (₦)</div>
-                <div style={{ flex: 1, maxWidth: 120 }}>Upload File</div>
+              {/* Result Input Area */}
+              <div className="field">
+                <label>Test Result(s)</label>
+                <textarea 
+                  rows={6} 
+                  value={resultData.result} 
+                  onChange={e => setResultData(prev => ({ ...prev, result: e.target.value }))} 
+                  placeholder="Enter detailed lab results here..." 
+                  style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px', color: 'var(--text)', fontSize: 14 }}
+                />
               </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {combined.filter(t => t.patient_id === batchPatient.id && t.isPending).map(t => (
-                  <div key={t.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <div style={{ flex: 1.2, fontSize: 13, fontWeight: 600 }}>{t.test_name}</div>
-                    <div style={{ flex: 1.5 }}>
-                      <input 
-                        type="text" 
-                        value={batchResults[t.id]?.result || ''} 
-                        onChange={e => updateBatchResult(t.id, 'result', e.target.value)} 
-                        placeholder="Enter result..." 
-                        style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px', color: 'var(--text)', fontSize: 13 }}
-                      />
-                    </div>
-                    <div style={{ flex: 1, maxWidth: 100 }}>
-                      <input 
-                        type="number" 
-                        value={batchResults[t.id]?.price || '0'} 
-                        onChange={e => updateBatchResult(t.id, 'price', e.target.value)} 
-                        placeholder="0" 
-                        style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px', color: 'var(--text)', fontSize: 13 }}
-                      />
-                    </div>
-                    <div style={{ flex: 1, maxWidth: 120 }}>
-                      <input 
-                        type="file" 
-                        accept="image/*, .pdf" 
-                        onChange={e => handleFileUpload(e, t.id)} 
-                        style={{ fontSize: 10, color: 'var(--muted)' }}
-                      />
-                      {batchResults[t.id]?.file_name && <div style={{ fontSize: 10, color: 'var(--teal)', marginTop: 2 }}>✓ {batchResults[t.id]?.file_name}</div>}
-                    </div>
-                  </div>
-                ))}
+
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <div className="field" style={{ flex: 1, minWidth: 150 }}>
+                  <label>Price for Billing (₦)</label>
+                  <input 
+                    type="number" 
+                    value={resultData.price} 
+                    onChange={e => setResultData(prev => ({ ...prev, price: e.target.value }))} 
+                    placeholder="0.00" 
+                    style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
+                  />
+                </div>
+                <div className="field" style={{ flex: 2, minWidth: 250 }}>
+                  <label>Upload Result File (Image/PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="image/*, .pdf" 
+                    onChange={handleFileUpload} 
+                    style={{ fontSize: 12, color: 'var(--muted)', width: '100%' }}
+                  />
+                  {resultData.file_name && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>✓ {resultData.file_name}</div>}
+                </div>
+              </div>
+
+              {/* Signature Area */}
+              <div style={{ marginTop: 40, display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ borderTop: '1px solid var(--text)', width: 200, marginBottom: 4 }}></div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{profile?.full_name || 'Lab Scientist'}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>Lab Scientist Signature</div>
+                </div>
               </div>
             </div>
 
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleSaveBatch} disabled={saving}>
-                {saving ? 'Saving...' : 'Save All Results'}
+              <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleSaveResult} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Result & Send to Billing'}
               </button>
             </div>
           </div>
