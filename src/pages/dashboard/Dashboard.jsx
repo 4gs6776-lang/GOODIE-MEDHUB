@@ -503,6 +503,14 @@ export default function Dashboard(){
     return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
   }
 
+  function formatDateTime(value){
+    if (!value) return '—'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return '—'
+    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
+      + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
+  }
+
   function appointmentName(a){
     return a.patient_name || a.patient || a.full_name || a.name || 'Patient'
   }
@@ -893,13 +901,14 @@ export default function Dashboard(){
                 ) : (
                   <div className="dash-table-wrap">
                     <table className="dash-full-table">
-                      <thead><tr><th>Name</th><th>Age</th><th>Status</th><th></th></tr></thead>
+                      <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
                       <tbody>
                         {filteredPatients.map(p => (
                           <tr key={p.id}>
                             <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
                             <td>{p.age}</td>
                             <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
                             <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
                           </tr>
                         ))}
