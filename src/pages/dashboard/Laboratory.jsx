@@ -3,6 +3,38 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 
+// NEW: List of common lab tests for the dropdown
+const COMMON_LAB_TESTS = [
+  'Full Blood Count (FBC)',
+  'Malaria Parasite Test',
+  'Widal Test',
+  'Urinalysis',
+  'Stool Routine Examination',
+  'Lipid Profile',
+  'Liver Function Test (LFT)',
+  'Renal Function Test (RFT)',
+  'Random Blood Glucose',
+  'Fasting Blood Glucose',
+  'HbA1c',
+  'HIV Screening',
+  'Hepatitis B Surface Antigen',
+  'Hepatitis C Antibody',
+  'Thyroid Profile',
+  'Pregnancy Test (UPT)',
+  'Blood Grouping & Rh',
+  'Genotype (Hb Electrophoresis)',
+  'ESR (Erythrocyte Sedimentation Rate)',
+  'CRP (C-Reactive Protein)',
+  'Electrolytes & Urea',
+  'Semen Analysis',
+  'Pap Smear',
+  'X-Ray Chest',
+  'Ultrasound Scan',
+  'CT Scan',
+  'MRI Scan',
+  'ECG',
+]
+
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
@@ -339,10 +371,20 @@ export default function Laboratory(){
                 {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
               </div>
 
+              {/* NEW: Test Name Input with Dropdown Datalist */}
               <div className="field">
                 <label>Test Name</label>
-                <input value={testName} onChange={e => setTestName(e.target.value)} placeholder="e.g. Full Blood Count" />
+                <input 
+                  list="common-lab-tests" 
+                  value={testName} 
+                  onChange={e => setTestName(e.target.value)} 
+                  placeholder="Select or type a test..." 
+                />
+                <datalist id="common-lab-tests">
+                  {COMMON_LAB_TESTS.map(test => <option key={test} value={test} />)}
+                </datalist>
               </div>
+
               <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '0 16px' }} onClick={() => setShowModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto', padding: '0 20px' }} disabled={saving}>{saving ? 'Saving…' : 'Save Request'}</button>
