@@ -26,8 +26,10 @@ export default function Pharmacy() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   
-  // Doctor's Prescription Queue
-  const pendingRx = prescriptions.filter(p => p.status === 'prescribed').sort((a,b) => new Date(a.prescribed_at) - new Date(b.prescribed_at))
+  // Doctor's Prescription Queue — DoctorWorkbench saves finalized
+  // prescriptions with status:'active' (not 'prescribed'), so this
+  // was filtering for a value that never actually gets set.
+  const pendingRx = prescriptions.filter(p => p.status === 'active').sort((a,b) => new Date(a.prescribed_at) - new Date(b.prescribed_at))
   
   const drugs = inventoryItems.filter(item => String(item.category || '').trim().toLowerCase() === 'drug')
   const visibleItems = searchTerm.trim() ? drugs.filter(item => [item.name, item.generic_name, item.strength, item.batch_number].some(v => String(v || '').toLowerCase().includes(searchTerm.toLowerCase()))) : drugs
@@ -58,8 +60,8 @@ export default function Pharmacy() {
   const openDispenseRx = (rx) => {
     // Find matching drug in inventory
     const matchedDrug = inventoryItems.find(it => 
-      it.name.toLowerCase() === rx.drug_name.toLowerCase() || 
-      it.generic_name.toLowerCase() === rx.drug_name.toLowerCase()
+      String(it.name || '').toLowerCase() === String(rx.drug_name || '').toLowerCase() || 
+      String(it.generic_name || '').toLowerCase() === String(rx.drug_name || '').toLowerCase()
     )
 
     if (!matchedDrug) {
