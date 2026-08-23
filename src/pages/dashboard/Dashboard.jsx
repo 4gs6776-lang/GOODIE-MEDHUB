@@ -198,6 +198,54 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
   return <svg {...common}>{paths[name] || paths.home}</svg>
 }
 
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    // Align the first tick to the actual start of the next second,
+    // then tick every second exactly on the boundary — keeps it
+    // accurate indefinitely instead of drifting over time.
+    let intervalId
+    const msToNextSecond = 1000 - (Date.now() % 1000)
+    const timeoutId = setTimeout(() => {
+      setNow(new Date())
+      intervalId = setInterval(() => setNow(new Date()), 1000)
+    }, msToNextSecond)
+
+    return () => {
+      clearTimeout(timeoutId)
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [])
+
+  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Lagos',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  }), [])
+
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Lagos',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  }), [])
+
+  const timeStr = timeFormatter.format(now)
+  const dateStr = dateFormatter.format(now)
+
+  return (
+    <div className="dash-live-clock" title="Nigeria Time (WAT, UTC+1)">
+      <div className="dash-live-clock-icon">
+        <Icon name="clock" size={15} />
+      </div>
+      <div className="dash-live-clock-text">
+        <div className="dash-live-clock-time">
+          <span key={timeStr} className="dash-clock-tick">{timeStr}</span>
+        </div>
+        <div className="dash-live-clock-date">{dateStr}</div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
 
@@ -641,7 +689,9 @@ export default function Dashboard(){
 
           {/* Interactive Actions Icons & Popovers */}
           <div className="dash-top-actions" ref={headerMenuRef} style={{ position: 'relative' }}>
-            
+
+            <LiveClock />
+
             {/* 1. Theme Toggle */}
             <button 
               className="dash-icon-btn" 
