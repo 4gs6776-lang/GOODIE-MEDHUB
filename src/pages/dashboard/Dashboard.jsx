@@ -4,7 +4,13 @@ import { supabase } from '../../lib/supabaseClient'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
-import { useOfflineTable, getAllSyncErrors, subscribeSyncErrors, flushTableQueue, skipStuckSyncItem } from '../../lib/useOfflineTable';
+import {
+  useOfflineTable,
+  getAllSyncErrors,
+  subscribeSyncErrors,
+  retryTableQueue,
+  skipStuckSyncItem,
+} from '../../lib/useOfflineTable';
 import Pharmacy from './Pharmacy'
 import Laboratory from './Laboratory'
 import Radiology from './Radiology'
