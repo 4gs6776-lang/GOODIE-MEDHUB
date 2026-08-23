@@ -263,6 +263,7 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
     <div>
       <AdmissionStatusCard request={admissionRequest} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        {detailRow('Registered', patient.created_at ? new Date(patient.created_at).toLocaleString() : null)}
         {detailRow('Gender', patient.gender)}
         {detailRow('Date of Birth', patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString() : null)}
         {detailRow('Marital Status', patient.marital_status)}
