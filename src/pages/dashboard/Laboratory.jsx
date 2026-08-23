@@ -7,7 +7,7 @@ export default function Laboratory(){
   const { profile, hospital } = useAuth()
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
   const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder } = useOfflineTable('lab_orders', hospital?.id)
-  const { records: patients } = useOfflineTable('patients', hospital?.id) // NEW: Fetch patients
+  const { records: patients } = useOfflineTable('patients', hospital?.id) 
   const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
   
   const loading = loadingTests || loadingOrders
@@ -15,13 +15,13 @@ export default function Laboratory(){
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
 
-  const [selectedPatient, setSelectedPatient] = useState(null) // NEW: For dropdown
-  const [patientSearch, setPatientSearch] = useState('') // NEW: For dropdown
+  const [selectedPatient, setSelectedPatient] = useState(null) 
+  const [patientSearch, setPatientSearch] = useState('') 
   const [testName, setTestName] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // NEW: Batch Results State
+  // Batch Results State
   const [showBatchModal, setShowBatchModal] = useState(false)
   const [batchPatient, setBatchPatient] = useState(null)
   const [batchResults, setBatchResults] = useState({})
@@ -47,7 +47,7 @@ export default function Laboratory(){
     setSaving(true)
     try {
       await addRecord({
-        patient_id: selectedPatient.id, // Link patient ID
+        patient_id: selectedPatient.id, 
         patient_name: selectedPatient.full_name,
         test_name: testName,
         status: 'pending',
@@ -65,38 +65,40 @@ export default function Laboratory(){
     }
   }
 
-  // NEW: Open Batch Results Grid
   function openBatchResults(test) {
-    // Find all pending tests for this exact patient
-    const patientTests = combined.filter(t => t.patient_name === test.patient_name && t.isPending)
-    setBatchPatient(test)
+    const patientDetails = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A' }
+    setBatchPatient(patientDetails)
     
     const initialResults = {}
-    patientTests.forEach(t => {
-      initialResults[t.id] = { result: t.result || '', price: '0' }
+    combined.filter(t => t.patient_id === test.patient_id && t.isPending).forEach(t => {
+      initialResults[t.id] = { result: t.result || '', price: '0', result_file: null, file_name: '' }
     })
     setBatchResults(initialResults)
     setShowBatchModal(true)
   }
 
-  // NEW: Save Batch Results
   async function handleSaveBatch() {
     setSaving(true)
     try {
-      const testsToUpdate = combined.filter(t => t.patient_name === batchPatient.patient_name && t.isPending)
+      const testsToUpdate = combined.filter(t => t.patient_id === batchPatient.id && t.isPending)
       
       for (const t of testsToUpdate) {
         const resData = batchResults[t.id]
         if (resData && resData.result.trim() !== '') {
           const price = parseFloat(resData.price) || 0
+          const payload = { 
+            status: 'completed', 
+            result: resData.result, 
+            result_file: resData.result_file || null,
+            updated_at: new Date().toISOString() 
+          }
           
           if (t.origin === 'doctor') {
-            await updateOrder(t.id, { status: 'completed', result: resData.result })
+            await updateOrder(t.id, payload)
           } else {
-            await updateRecord(t.id, { status: 'completed', result: resData.result })
+            await updateRecord(t.id, payload)
           }
 
-          // Send Charge to Billing
           await addBillableCharge({
             hospital_id: hospital.id, 
             patient_id: t.patient_id || null, 
@@ -127,6 +129,68 @@ export default function Laboratory(){
       ...prev,
       [testId]: { ...prev[testId], [field]: value }
     }))
+  }
+
+  function handleFileUpload(e, testId) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      updateBatchResult(testId, 'result_file', reader.result)
+      updateBatchResult(testId, 'file_name', file.name)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function handlePrintResult(test) {
+    const patient = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A' }
+    const html = `
+      <html><head><title>Lab Result - ${patient.full_name}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 40px; color: #111; max-width: 800px; margin: auto; }
+        .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
+        .h-name { font-size: 24px; font-weight: bold; text-transform: uppercase; }
+        .h-meta { font-size: 14px; color: #555; margin-top: 5px; }
+        .grid { display: flex; justify-content: space-between; margin-bottom: 30px; font-size: 14px; }
+        .box { background: #f8f9fa; padding: 15px; border-radius: 8px; width: 48%; }
+        .box h3 { margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; color: #888; }
+        .table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #f8f9fa; font-weight: bold; }
+        .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #888; }
+        .sign { margin-top: 60px; border-top: 1px solid #000; width: 200px; text-align: center; font-size: 12px; padding-top: 5px; }
+      </style></head><body>
+        <div class="header">
+          <div class="h-name">${hospital?.name || 'Hospital'}</div>
+          <div class="h-meta">Laboratory Test Report</div>
+        </div>
+        <div class="grid">
+          <div class="box">
+            <h3>Patient Details</h3>
+            <div><strong>Name:</strong> ${patient.full_name}</div>
+            <div><strong>Phone:</strong> ${patient.phone || 'N/A'}</div>
+            <div><strong>Patient ID:</strong> ${patient.id?.slice(0,8) || 'N/A'}</div>
+          </div>
+          <div class="box">
+            <h3>Report Details</h3>
+            <div><strong>Test:</strong> ${test.test_name}</div>
+            <div><strong>Date:</strong> ${new Date(test.updated_at || test.requested_at).toLocaleString()}</div>
+            <div><strong>Lab Scientist:</strong> ${profile?.full_name || 'N/A'}</div>
+          </div>
+        </div>
+        <table class="table">
+          <thead><tr><th>Test Parameter</th><th>Result</th></tr></thead>
+          <tbody><tr><td>${test.test_name}</td><td>${test.result || 'N/A'}</td></tr></tbody>
+        </table>
+        ${test.result_file ? `<div style="margin-bottom:20px;"><strong>Attached File:</strong> <a href="${test.result_file}" download>Download Attachment</a></div>` : ''}
+        <div class="sign">Authorized Signature</div>
+        <div class="footer">This is a computer generated report from ${hospital?.name || 'the laboratory'}.</div>
+      </body></html>`
+    const win = window.open('', '_blank')
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 500)
   }
 
   async function handleReopen(test){
@@ -205,10 +269,10 @@ export default function Laboratory(){
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No lab requests yet. Add your first one above.</div>
         ) : (
           <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
               <thead>
                 <tr>
-                  {['Patient', 'Test', 'Status', 'Result', ''].map(h => (
+                  {['Patient', 'Test', 'Status', 'Result', 'Date', ''].map(h => (
                     <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -242,12 +306,14 @@ export default function Laboratory(){
                     <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {test.result || '—'}
                     </td>
-                    <td style={{ padding: 12 }}>
-                      <button
-                        onClick={() => handleDelete(test)}
-                        style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
-                        title="Delete"
-                      >✕</button>
+                    <td style={{ padding: 12, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {new Date(test.updated_at || test.requested_at).toLocaleDateString()}
+                    </td>
+                    <td style={{ padding: 12, display: 'flex', gap: 6 }}>
+                      {!test.isPending && (
+                        <button onClick={() => handlePrintResult(test)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>🖨️ Print</button>
+                      )}
+                      <button onClick={() => handleDelete(test)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }} title="Delete">✕</button>
                     </td>
                   </tr>
                 ))}
@@ -264,7 +330,6 @@ export default function Laboratory(){
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>New Lab Request</div>
             {formError && <div className="error-box">{formError}</div>}
             <form onSubmit={handleAdd}>
-              {/* NEW: Patient Dropdown */}
               <div className="field" style={{ position: 'relative' }}>
                 <label>Select Patient</label>
                 <input type="text" value={selectedPatient ? selectedPatient.full_name : patientSearch} onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }} placeholder="Search patient name..." autoFocus disabled={!!selectedPatient} />
@@ -289,30 +354,52 @@ export default function Laboratory(){
         </div>
       )}
 
-      {/* NEW: BATCH RESULTS GRID MODAL */}
+      {/* BATCH RESULTS GRID MODAL (PROFESSIONAL FORM LAYOUT) */}
       {showBatchModal && batchPatient && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) setShowBatchModal(false) }}>
-          <div className="card" style={{ width: '100%', maxWidth: 600, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="card" style={{ width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            
+            <div style={{ padding: '20px 24px', borderBottom: '2px solid var(--teal)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>Enter Lab Results</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>{batchPatient.patient_name}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--teal)' }}>{hospital?.name || 'Hospital'}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>Laboratory Test Request & Result Form</div>
               </div>
               <button onClick={() => setShowBatchModal(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>✕</button>
             </div>
             
-            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+            <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+              {/* Auto-filled Patient Info Header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, background: 'var(--bg-elevated)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid var(--line-soft)' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Patient Name</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{batchPatient.full_name}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Phone Number</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{batchPatient.phone || 'N/A'}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Date / Time</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{new Date().toLocaleString()}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Lab Scientist</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{profile?.full_name || 'N/A'}</div>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 12, borderBottom: '1px solid var(--line-soft)', paddingBottom: 8 }}>
-                <div style={{ flex: 1.2 }}>Test Name</div>
-                <div style={{ flex: 1.8 }}>Result</div>
+                <div style={{ flex: 1.2 }}>Test Parameter</div>
+                <div style={{ flex: 1.5 }}>Result</div>
                 <div style={{ flex: 1, maxWidth: 100 }}>Price (₦)</div>
+                <div style={{ flex: 1, maxWidth: 120 }}>Upload File</div>
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {combined.filter(t => t.patient_name === batchPatient.patient_name && t.isPending).map(t => (
+                {combined.filter(t => t.patient_id === batchPatient.id && t.isPending).map(t => (
                   <div key={t.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                     <div style={{ flex: 1.2, fontSize: 13, fontWeight: 600 }}>{t.test_name}</div>
-                    <div style={{ flex: 1.8 }}>
+                    <div style={{ flex: 1.5 }}>
                       <input 
                         type="text" 
                         value={batchResults[t.id]?.result || ''} 
@@ -330,12 +417,21 @@ export default function Laboratory(){
                         style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px', color: 'var(--text)', fontSize: 13 }}
                       />
                     </div>
+                    <div style={{ flex: 1, maxWidth: 120 }}>
+                      <input 
+                        type="file" 
+                        accept="image/*, .pdf" 
+                        onChange={e => handleFileUpload(e, t.id)} 
+                        style={{ fontSize: 10, color: 'var(--muted)' }}
+                      />
+                      {batchResults[t.id]?.file_name && <div style={{ fontSize: 10, color: 'var(--teal)', marginTop: 2 }}>✓ {batchResults[t.id]?.file_name}</div>}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div style={{ padding: '16px 20px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleSaveBatch} disabled={saving}>
                 {saving ? 'Saving...' : 'Save All Results'}
               </button>
