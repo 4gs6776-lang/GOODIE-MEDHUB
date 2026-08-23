@@ -12,7 +12,6 @@ export default function Pharmacy() {
   
   // NEW: Fetch prescriptions to receive doctor's orders
   const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
-
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showDispenseModal, setShowDispenseModal] = useState(false)
