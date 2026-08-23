@@ -360,7 +360,6 @@ export default function Dashboard(){
     setSyncActionBusy(false)
   }
 }
-
   async function handleSkipStuck(table){
   if (!hospital?.id) return
   if (!confirm(
