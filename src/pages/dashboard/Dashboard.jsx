@@ -186,6 +186,7 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
     moon: <path d="M20.5 15.5A8 8 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>,
+    sun: <><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M2.5 12h3M18.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></>,
     chevron: <path d="m9 18 6-6-6-6"/>,
     more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
     plus: <><path d="M12 5v14M5 12h14"/></>,
@@ -258,6 +259,23 @@ export default function Dashboard(){
 
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('gmedhub-theme') === 'light' ? 'light' : 'dark'
+    } catch {
+      return 'dark'
+    }
+  })
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('light-mode', theme === 'light')
+    try { localStorage.setItem('gmedhub-theme', theme) } catch {}
+  }, [theme])
+
+  function toggleTheme(){
+    setTheme(current => current === 'light' ? 'dark' : 'light')
+  }
+
   const [syncErrors, setSyncErrors] = useState([]) // FIX: Initialize as empty array instead of running getAllSyncErrors() immediately
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [syncActionBusy, setSyncActionBusy] = useState(false)
@@ -695,10 +713,10 @@ export default function Dashboard(){
             {/* 1. Theme Toggle */}
             <button 
               className="dash-icon-btn" 
-              title="Toggle Theme" 
-              onClick={() => document.body.classList.toggle('light-mode')}
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              onClick={toggleTheme}
             >
-              <Icon name="moon" size={18}/>
+              <Icon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
             </button>
 
             {/* 2. Notifications Bell Popover */}
@@ -1125,8 +1143,8 @@ export default function Dashboard(){
           top: 42px;
           right: 0;
           width: 280px;
-          background: #0f172a;
-          border: 1px solid #1f2937;
+          background: var(--bg-elevated);
+          border: 1px solid var(--line);
           border-radius: 8px;
           box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
           z-index: 100;
@@ -1136,9 +1154,9 @@ export default function Dashboard(){
           padding: 10px 14px;
           font-size: 12px;
           font-weight: 600;
-          background: #1e293b;
-          border-bottom: 1px solid #1f2937;
-          color: #f3f4f6;
+          background: var(--bg-card-hover);
+          border-bottom: 1px solid var(--line);
+          color: var(--ivory);
         }
         .dash-popover-body {
           max-height: 220px;
@@ -1147,8 +1165,8 @@ export default function Dashboard(){
         .dash-popover-item {
           padding: 10px 14px;
           font-size: 12px;
-          border-bottom: 1px solid #1f2937;
-          color: #cbd5e1;
+          border-bottom: 1px solid var(--line);
+          color: var(--muted);
           line-height: 1.4;
         }
         .dash-popover-item:last-child {
