@@ -979,10 +979,10 @@ export default function Dashboard(){
 
                   <div className="field">
                     <label>Nationality</label>
-                    <input list="patient-african-countries" value={form.nationality} onChange={e => setField('nationality', e.target.value)} placeholder="Start typing…"/>
-                    <datalist id="patient-african-countries">
-                      {AFRICAN_COUNTRIES.map(c => <option key={c} value={c}/>)}
-                    </datalist>
+                    <select value={form.nationality} onChange={e => setField('nationality', e.target.value)}>
+                      <option value="">—</option>
+                      {AFRICAN_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   </div>
                   <div className="field">
                     <label>State of Origin</label>
