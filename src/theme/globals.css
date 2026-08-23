@@ -24,6 +24,32 @@
   --font-body:'Plus Jakarta Sans', sans-serif;
   --font-mono:'JetBrains Mono', monospace;
 }
+
+/* Light theme — activated by adding "light-mode" to <html>.
+   Same token names, so every component that already uses
+   var(--bg), var(--ivory), etc. adapts automatically. */
+html.light-mode{
+  color-scheme: light;
+  --bg:#F3F6F8;
+  --bg-elevated:#FFFFFF;
+  --bg-card:#FFFFFF;
+  --bg-card-hover:#F1F5F7;
+  --line:#E1E8EC;
+  --line-soft:#EAEFF2;
+  --teal:#00A6A6;
+  --teal-bright:#00C2C2;
+  --teal-soft:rgba(0,166,166,0.10);
+  --teal-border:rgba(0,166,166,0.22);
+  --gold:#B8860E;
+  --violet:#6842D6;
+  --blue:#2563EB;
+  --ivory:#101B23;
+  --muted:#5C6B76;
+  --muted-dim:#8B98A2;
+  --danger:#D8384A;
+  --danger-soft:rgba(216,56,74,0.10);
+  --success:#0FA875;
+}
 *{
   margin:0;
   padding:0;
