@@ -50,6 +50,7 @@ export default function Laboratory(){
   const [selectedPatient, setSelectedPatient] = useState(null) 
   const [patientSearch, setPatientSearch] = useState('') 
   const [testName, setTestName] = useState('')
+  const [customTestName, setCustomTestName] = useState('') // NEW: For custom input
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -69,7 +70,11 @@ export default function Laboratory(){
   async function handleAdd(e){
     e.preventDefault()
     setFormError('')
-    if (!selectedPatient || !testName) {
+    
+    // Determine final test name (from dropdown or custom input)
+    const finalTestName = testName === 'Other' ? customTestName : testName
+    
+    if (!selectedPatient || !finalTestName) {
       setFormError('Please select a patient and enter a test name.')
       return
     }
@@ -82,14 +87,14 @@ export default function Laboratory(){
       await addRecord({
         patient_id: selectedPatient.id, 
         patient_name: selectedPatient.full_name,
-        test_name: testName,
+        test_name: finalTestName,
         status: 'pending',
         result: null,
         requested_at: new Date().toISOString(),
         created_by: profile.id,
       })
       setShowModal(false)
-      setSelectedPatient(null); setPatientSearch(''); setTestName('')
+      setSelectedPatient(null); setPatientSearch(''); setTestName(''); setCustomTestName('')
       showToast(isOnline ? 'Test requested' : 'Test requested — will sync when back online')
     } catch (err) {
       setFormError(err.message || 'Could not save test request')
@@ -98,12 +103,10 @@ export default function Laboratory(){
     }
   }
 
-  // NEW: Open the Professional Result Form for all pending tests of a patient
   function openResultForm(test) {
     const patientDetails = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A', id: test.patient_id }
     setFormPatient(patientDetails)
     
-    // Get ALL pending tests for this patient
     const pending = combined.filter(t => t.patient_id === test.patient_id && t.isPending)
     setFormTests(pending)
     
@@ -371,19 +374,33 @@ export default function Laboratory(){
                 {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
               </div>
 
-              {/* NEW: Test Name Input with Dropdown Datalist */}
+              {/* NEW: Standard Select Dropdown for Test Name */}
               <div className="field">
                 <label>Test Name</label>
-                <input 
-                  list="common-lab-tests" 
+                <select 
                   value={testName} 
                   onChange={e => setTestName(e.target.value)} 
-                  placeholder="Select or type a test..." 
-                />
-                <datalist id="common-lab-tests">
-                  {COMMON_LAB_TESTS.map(test => <option key={test} value={test} />)}
-                </datalist>
+                  style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
+                >
+                  <option value="">Select a test...</option>
+                  {COMMON_LAB_TESTS.map(test => <option key={test} value={test}>{test}</option>)}
+                  <option value="Other">Other (Type manually)</option>
+                </select>
               </div>
+
+              {/* NEW: Show custom input if "Other" is selected */}
+              {testName === 'Other' && (
+                <div className="field">
+                  <label>Enter Custom Test Name</label>
+                  <input 
+                    type="text" 
+                    value={customTestName} 
+                    onChange={e => setCustomTestName(e.target.value)} 
+                    placeholder="e.g. Special Blood Smear" 
+                    style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
+                  />
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '0 16px' }} onClick={() => setShowModal(false)}>Cancel</button>
