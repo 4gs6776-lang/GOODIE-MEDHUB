@@ -351,30 +351,35 @@ export default function Dashboard(){
   }, [syncErrors]);
 
   async function handleRetrySync(table){
-    if (!hospital?.id) return
-    setSyncActionBusy(true)
-    try {
-      await flushTableQueue(table) 
-      setSyncErrors(getAllSyncErrors())
-    } finally {
-      setSyncActionBusy(false)
-    }
+  if (!hospital?.id) return
+  setSyncActionBusy(true)
+  try {
+    await retryTableQueue(table)
+    setSyncErrors(await getAllSyncErrors())
+  } finally {
+    setSyncActionBusy(false)
   }
+}
 
   async function handleSkipStuck(table){
-    if (!hospital?.id) return
-    if (!confirm(`Skip ALL stuck items for "${table}"? The local records stay — only these sync attempts are abandoned so the rest of the queue can proceed.`)) return
-    setSyncActionBusy(true)
-    try {
-      const errorsToSkip = syncErrors.filter(err => err.table_name === table)
-      for (const err of errorsToSkip) {
-        await skipStuckSyncItem(err.id)
-      }
-      setSyncErrors(getAllSyncErrors())
-    } finally {
-      setSyncActionBusy(false)
+  if (!hospital?.id) return
+  if (!confirm(
+    `Discard ALL stuck items for "${table}"?\n\n` +
+    `These changes will NOT reach the database. The local copies stay on this ` +
+    `device marked as discarded, and the rest of the queue can proceed.`
+  )) return
+  setSyncActionBusy(true)
+  try {
+    const errorsToSkip = syncErrors.filter(err => err.table_name === table)
+    for (const err of errorsToSkip) {
+      await skipStuckSyncItem(err.id)
     }
+    setSyncErrors(await getAllSyncErrors())
+  } finally {
+    setSyncActionBusy(false)
   }
+}
+
 
   function computeWeeklyCounts(patientList){
     const counts = [0,0,0,0,0,0,0]
