@@ -26,6 +26,7 @@ import IPD from './IPD'
 import Admissions from './Admissions'
 import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
+import Messages from './Messages'
 
 // Same option lists used in Reception's registration form, kept in sync
 // so a patient added here has the exact same fields/choices available.
@@ -119,6 +120,7 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
+  { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
   { key: 'settings', label: 'Settings', section: 'Operations', icon: 'settings' },
 ]
 
@@ -142,12 +144,13 @@ const PAGE_TITLES = {
   reception: 'Reception',
   admissions: 'Admissions',
   roster: 'Duty Roster',
+  messages: 'Messages',
 }
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // Every role can always reach these, regardless of department.
-const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'settings']
+const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
 
 // Which modules each department can see. Admin/owner always see everything
 const ROLE_ACCESS = {
@@ -201,6 +204,7 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
     building: <><path d="M4 21V5l8-3 8 3v16"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/></>,
     clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     phone: <><path d="M6 3h3l2 5-2 2a14 14 0 0 0 5 5l2-2 5 2v3c0 1-1 2-2 2C10 20 4 14 4 5c0-1 1-2 2-2Z"/></>,
+    chat: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></>,
   }
   return <svg {...common}>{paths[name] || paths.home}</svg>
 }
@@ -312,6 +316,10 @@ export default function Dashboard(){
 
   const [todayDuty, setTodayDuty] = useState([])
   const [loadingDuty, setLoadingDuty] = useState(true)
+
+  const { records: inventoryItems } = useOfflineTable('inventory_items', hospital?.id)
+  const { records: labTests } = useOfflineTable('lab_tests', hospital?.id)
+  const { records: allMessages } = useOfflineTable('messages', hospital?.id)
 
   useEffect(() => computeWeeklyCounts(patients), [patients])
   useEffect(() => subscribeSyncErrors(setSyncErrors), [])
@@ -595,6 +603,51 @@ export default function Dashboard(){
     return a.department || a.reason || a.type || a.service || 'General Consultation'
   }
 
+  const lowStockItems = useMemo(() => {
+    return (inventoryItems || []).filter(i => {
+      const qty = Number(i.quantity)
+      const reorder = Number(i.reorder_level ?? 10)
+      return !Number.isNaN(qty) && qty <= reorder
+    })
+  }, [inventoryItems])
+
+  const isSameDay = (a, b) => a && b && new Date(a).toDateString() === new Date(b).toDateString()
+
+  const readyLabTests = useMemo(() => {
+    const today = new Date()
+    return (labTests || [])
+      .filter(t => t.status === 'completed' && isSameDay(t.completed_at || t.updated_at, today))
+      .sort((a,b) => new Date(b.completed_at || b.updated_at) - new Date(a.completed_at || a.updated_at))
+  }, [labTests])
+
+  const notificationItems = useMemo(() => {
+    const items = []
+    if (lowStockItems.length > 0) {
+      const names = lowStockItems.slice(0,2).map(i => i.name).filter(Boolean).join(', ')
+      items.push({
+        icon: '⚠️',
+        text: <>Low stock: <strong>{lowStockItems.length} item{lowStockItems.length === 1 ? '' : 's'}</strong>{names ? ` (${names}${lowStockItems.length > 2 ? '…' : ''})` : ''} need reordering.</>,
+      })
+    }
+    readyLabTests.slice(0,3).forEach(t => {
+      items.push({ icon: '📌', text: <>Lab result ready for <strong>{t.patient_name || 'patient'}</strong> ({t.test_name || 'test'}).</> })
+    })
+    if (todayApptCount > 0) {
+      items.push({ icon: '📅', text: <><strong>{todayApptCount}</strong> appointment{todayApptCount === 1 ? '' : 's'} scheduled for today.</> })
+    }
+    return items
+  }, [lowStockItems, readyLabTests, todayApptCount])
+
+  const recentMessageCount = useMemo(() => {
+    if (!profile?.id) return 0
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000
+    return (allMessages || []).filter(m =>
+      m.sender_id !== profile.id &&
+      (m.channel_type === 'department' || m.recipient_id === profile.id) &&
+      new Date(m.created_at).getTime() >= cutoff
+    ).length
+  }, [allMessages, profile?.id])
+
   const upcoming = appointments
     .filter(a => {
       const d = new Date(a.appointment_time)
@@ -737,42 +790,32 @@ export default function Dashboard(){
                 onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
               >
                 <Icon name="bell" size={18}/>
-                <span>8</span>
+                {notificationItems.length > 0 && <span>{notificationItems.length}</span>}
               </button>
 
               {activeMenu === 'notifs' && (
                 <div className="dash-popover-menu">
-                  <div className="dash-popover-header">Notifications (8)</div>
+                  <div className="dash-popover-header">Notifications ({notificationItems.length})</div>
                   <div className="dash-popover-body">
-                    <div className="dash-popover-item">⚠️ <strong>8 inventory items</strong> are low on stock.</div>
-                    <div className="dash-popover-item">📌 Lab results ready for Samuel O.</div>
-                    <div className="dash-popover-item">📅 2 appointments scheduled for today.</div>
+                    {notificationItems.length > 0 ? notificationItems.map((n, i) => (
+                      <div className="dash-popover-item" key={i}>{n.icon} {n.text}</div>
+                    )) : (
+                      <div className="dash-popover-item" style={{ color: 'var(--muted)' }}>You're all caught up — nothing needs attention right now.</div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
 
-            {/* 3. Messages / Tasks Document Popover */}
-            <div style={{ position: 'relative' }}>
-              <button 
-                className="dash-icon-btn dash-notify dash-message" 
-                title="Pending Documents & Tasks"
-                onClick={() => setActiveMenu(activeMenu === 'messages' ? null : 'messages')}
-              >
-                <Icon name="billing" size={18}/>
-                <span>4</span>
-              </button>
-
-              {activeMenu === 'messages' && (
-                <div className="dash-popover-menu">
-                  <div className="dash-popover-header">Pending Clinical Tasks (4)</div>
-                  <div className="dash-popover-body">
-                    <div className="dash-popover-item">📝 2 prescriptions pending approval</div>
-                    <div className="dash-popover-item">💳 2 invoices waiting payment</div>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* 3. Messages */}
+            <button
+              className="dash-icon-btn dash-notify dash-message"
+              title="Messages"
+              onClick={() => { setTab('messages'); setActiveMenu(null) }}
+            >
+              <Icon name="chat" size={18}/>
+              {recentMessageCount > 0 && <span>{recentMessageCount > 9 ? '9+' : recentMessageCount}</span>}
+            </button>
 
             <div className="dash-hospital-selector">
               <Icon name="building" size={17}/>
@@ -1012,6 +1055,7 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
+          {tab === 'messages' && <Messages />}
           {tab === 'settings' && <Settings />}
 
         </div>
