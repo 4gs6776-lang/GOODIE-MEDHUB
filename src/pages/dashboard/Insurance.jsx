@@ -96,6 +96,20 @@ export default function Insurance(){
   const approvedTotal = claims.filter(c => c.status === 'approved').reduce((sum, c) => sum + Number(c.amount), 0)
   const rejectedCount = claims.filter(c => c.status === 'rejected').length
 
+  // How much is still owed by each HMO — pending (submitted) claims
+  // grouped by provider, so month-end reconciliation is a glance away.
+  const owedByProvider = Object.values(
+    claims
+      .filter(c => c.status === 'submitted')
+      .reduce((acc, c) => {
+        const key = c.provider || 'Unknown'
+        if (!acc[key]) acc[key] = { provider: key, count: 0, total: 0 }
+        acc[key].count += 1
+        acc[key].total += Number(c.amount) || 0
+        return acc
+      }, {})
+  ).sort((a, b) => b.total - a.total)
+
   return (
     <>
       <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
@@ -130,6 +144,26 @@ export default function Insurance(){
           </div>
         </div>
       </div>
+
+      {owedByProvider.length > 0 && (
+        <div className="dash-panel" style={{ marginBottom: 20 }}>
+          <div className="dash-panel-head">
+            <div>
+              <div className="dash-panel-title">Amount Owed by Each HMO</div>
+              <div className="dash-panel-sub">Pending claims not yet approved/received</div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            {owedByProvider.map(row => (
+              <div key={row.provider} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{row.provider}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--gold)' }}>{formatMoney(row.total)}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{row.count} claim{row.count === 1 ? '' : 's'} pending</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="dash-panel">
         <div className="dash-panel-head">
