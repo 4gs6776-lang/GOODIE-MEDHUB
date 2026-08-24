@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import CashierWorkspace from '../../components/CashierWorkspace'
 
 export default function Billing() {
   const { profile, hospital } = useAuth()
   const { records: invoices, loading, isOnline, pendingCount } = useOfflineTable('invoices', hospital?.id)
-  const { records: billableCharges } = useOfflineTable('billable_charges', hospital?.id)
+  const { records: billableCharges, syncFromServer: syncCharges } = useOfflineTable('billable_charges', hospital?.id)
   
   const [toast, setToast] = useState(null)
   const [search, setSearch] = useState('')
@@ -14,6 +15,13 @@ export default function Billing() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // Live alert — the instant Pharmacy, Lab, or any module sends a new
+  // charge, the cashier sees it immediately without refreshing.
+  useRealtimeAlert('billable_charges', hospital?.id, (newRow) => {
+    showToast(`💳 New ${newRow.category || 'charge'} added for ${newRow.patient_name || 'a patient'} (${formatMoney(newRow.total)})`)
+    syncCharges()
+  })
 
   const kpis = useMemo(() => {
     const tStr = new Date().toDateString()
