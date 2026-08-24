@@ -35,7 +35,6 @@ const COMMON_LAB_TESTS = [
   'MRI Scan',
   'ECG',
 ]
-
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
