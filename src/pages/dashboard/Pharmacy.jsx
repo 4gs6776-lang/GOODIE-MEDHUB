@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 
 export default function Pharmacy() {
@@ -11,7 +12,7 @@ export default function Pharmacy() {
   const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
   
   // NEW: Fetch prescriptions to receive doctor's orders
-  const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
+  const { records: prescriptions, updateRecord: updatePrescription, syncFromServer: syncPrescriptions } = useOfflineTable('prescriptions', hospital?.id)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showDispenseModal, setShowDispenseModal] = useState(false)
@@ -24,6 +25,15 @@ export default function Pharmacy() {
   const [activeRx, setActiveRx] = useState(null) // Tracks if dispensing from a doctor's order
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  // Live alert — the instant a doctor finalizes a prescription anywhere
+  // in the hospital, show a toast here and pull the fresh record down.
+  useRealtimeAlert('prescriptions', hospital?.id, (newRow) => {
+    if (newRow.status === 'active') {
+      showToast(`💊 New prescription received for ${newRow.patient_name || 'a patient'}`)
+      syncPrescriptions()
+    }
+  })
   
   // Doctor's Prescription Queue
   const pendingRx = prescriptions.filter(p => p.status === 'active').sort((a,b) => new Date(a.prescribed_at) - new Date(b.prescribed_at))
