@@ -1,27 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 :root{
-  --bg:#070F14;
-  --bg-elevated:#081118;
-  --bg-card:#0C151D;
-  --bg-card-hover:#101D26;
-  --line:#17252F;
-  --line-soft:#1B2B35;
-  --teal:#00C7C7;
-  --teal-bright:#00E0D0;
-  --teal-soft:rgba(0,199,199,0.12);
-  --teal-border:rgba(0,199,199,0.25);
-  --gold:#E8B82E;
-  --violet:#7657E8;
+  --bg:#0B1620;
+  --bg-elevated:#101E2A;
+  --bg-card:#121F2C;
+  --bg-card-hover:#182633;
+  --sidebar-bg:#0D1A24;
+  --header-bg:#0F1D28;
+  --line:#1E2E3C;
+  --line-soft:#25384A;
+  --teal:#2DD4CF;
+  --teal-bright:#5EEAE5;
+  --teal-soft:rgba(45,212,207,0.12);
+  --teal-active:rgba(45,212,207,0.16);
+  --teal-border:rgba(45,212,207,0.25);
+  --gold:#F0B429;
+  --violet:#7C5CFC;
   --blue:#3B82F6;
-  --ivory:#F1F6FA;
-  --muted:#9AAAB7;
-  --muted-dim:#667784;
-  --danger:#F04F5F;
-  --danger-soft:rgba(240,79,95,0.12);
-  --success:#18D99B;
+  --ivory:#F5F8FA;
+  --muted:#8B9AAB;
+  --muted-dim:#64758A;
+  --danger:#E5484D;
+  --danger-soft:rgba(229,72,77,0.12);
+  --success:#2DD9A3;
+  --success-soft:rgba(45,217,163,0.12);
+  --warning:#F5A623;
+  --warning-soft:rgba(245,166,35,0.12);
   --radius:12px;
-  --font-display:'Plus Jakarta Sans', sans-serif;
-  --font-body:'Plus Jakarta Sans', sans-serif;
+  --font-display:'Inter', sans-serif;
+  --font-body:'Inter', sans-serif;
   --font-mono:'JetBrains Mono', monospace;
 }
 
@@ -34,12 +40,15 @@ html.light-mode{
   --bg-elevated:#FFFFFF;
   --bg-card:#FFFFFF;
   --bg-card-hover:#F1F5F7;
+  --sidebar-bg:#FFFFFF;
+  --header-bg:#FFFFFF;
   --line:#E1E8EC;
   --line-soft:#EAEFF2;
-  --teal:#00A6A6;
-  --teal-bright:#00C2C2;
-  --teal-soft:rgba(0,166,166,0.10);
-  --teal-border:rgba(0,166,166,0.22);
+  --teal:#0EA9A3;
+  --teal-bright:#12C2BB;
+  --teal-soft:rgba(14,169,163,0.10);
+  --teal-active:rgba(14,169,163,0.14);
+  --teal-border:rgba(14,169,163,0.22);
   --gold:#B8860E;
   --violet:#6842D6;
   --blue:#2563EB;
@@ -49,6 +58,9 @@ html.light-mode{
   --danger:#D8384A;
   --danger-soft:rgba(216,56,74,0.10);
   --success:#0FA875;
+  --success-soft:rgba(15,168,117,0.10);
+  --warning:#C77D0E;
+  --warning-soft:rgba(199,125,14,0.10);
 }
 *{
   margin:0;
