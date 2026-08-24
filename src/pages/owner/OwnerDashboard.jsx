@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 
@@ -133,11 +134,18 @@ export default function OwnerDashboard(){
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {hospitals.map(h => (
               <div key={h.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                <div>
+                <Link to={`/owner/hospitals/${h.id}`} style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{h.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{h.subdomain}</div>
-                </div>
+                </Link>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <Link
+                    to={`/owner/hospitals/${h.id}`}
+                    className="btn btn-ghost"
+                    style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}
+                  >
+                    View
+                  </Link>
                   <span style={{
                     fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
                     background: statusBg[h.status], color: statusColor[h.status], textTransform: 'capitalize',
