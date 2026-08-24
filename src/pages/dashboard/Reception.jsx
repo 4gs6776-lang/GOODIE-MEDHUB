@@ -62,6 +62,8 @@ const QUEUE_STAGES = [
   },
 ]
 
+const HMO_PROVIDERS = ['Self-Pay (No HMO)', 'NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
+
 const EMPTY_FORM = {
   surname: '',
   otherNames: '',
@@ -94,6 +96,11 @@ const EMPTY_FORM = {
   nokAddress: '',
 
   genotype: '',
+
+  hmoProvider: 'Self-Pay (No HMO)',
+  hmoPlan: '',
+  hmoNumber: '',
+  hmoCoveragePercent: '',
 }
 
 function compressImage(file, maxWidth = 240) {
@@ -458,6 +465,18 @@ export default function Reception() {
 
         next_of_kin_address:
           form.nokAddress?.trim() || null,
+
+        hmo_provider:
+          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? form.hmoProvider : null,
+
+        hmo_plan:
+          form.hmoPlan?.trim() || null,
+
+        hmo_number:
+          form.hmoNumber?.trim() || null,
+
+        hmo_coverage_percent:
+          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? (parseFloat(form.hmoCoveragePercent) || 0) : null,
 
         photo_data:
           photoData || null,
@@ -1737,6 +1756,81 @@ export default function Reception() {
                 </>
 
               )}
+
+              {/* HMO / INSURANCE */}
+
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--gold)',
+                  textTransform:
+                    'uppercase',
+                  letterSpacing: 1,
+                  fontWeight: 800,
+                  marginTop: 18,
+                  marginBottom: 10,
+                  paddingBottom: 6,
+                  borderBottom:
+                    '1px solid var(--line-soft)',
+                }}
+              >
+                HMO / Insurance
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    '1fr 1fr',
+                  gap: 10,
+                }}
+              >
+
+                <div className="field">
+                  <label>HMO Provider</label>
+                  <select
+                    value={form.hmoProvider}
+                    onChange={event => set('hmoProvider', event.target.value)}
+                  >
+                    {HMO_PROVIDERS.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {form.hmoProvider !== 'Self-Pay (No HMO)' && (
+                  <>
+                    <div className="field">
+                      <label>Plan / Tier</label>
+                      <input
+                        value={form.hmoPlan}
+                        onChange={event => set('hmoPlan', event.target.value)}
+                        placeholder="e.g. Silver Plan"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Enrollee / Policy No.</label>
+                      <input
+                        value={form.hmoNumber}
+                        onChange={event => set('hmoNumber', event.target.value)}
+                        placeholder="e.g. NHIS-2024-00123"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>HMO Covers (%)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={form.hmoCoveragePercent}
+                        onChange={event => set('hmoCoveragePercent', event.target.value)}
+                        placeholder="e.g. 80"
+                      />
+                    </div>
+                  </>
+                )}
+
+              </div>
 
               {/* NEXT OF KIN */}
 
