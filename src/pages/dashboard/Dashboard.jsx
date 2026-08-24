@@ -59,13 +59,42 @@ const AFRICAN_COUNTRIES = [
   'Togo','Tunisia','Uganda','Zambia','Zimbabwe',
 ]
 
+// Matches the providers already used in the Insurance/HMO Claims module.
+const HMO_PROVIDERS = ['Self-Pay (No HMO)', 'NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
+
 const EMPTY_PATIENT_FORM = {
-  surname: '', otherNames: '', phone: '', email: '', gender: '', maritalStatus: '',
-  dateOfBirth: '', age: '', bloodGroup: '', genotype: '', nationality: '', stateOfOrigin: '',
-  occupation: '', religion: '', category: '', homeAddress: '', ancSpecialPoint: '',
-  ancDateOfBooking: '', ancIndication: '', ancLmp: '', ancEdd: '', ancHusbandName: '',
-  ancHusbandOccupation: '', ancEmployer: '', nokName: '', nokRelationship: '',
-  nokPhone: '', nokAddress: '',
+  surname: '',
+  otherNames: '',
+  phone: '',
+  email: '',
+  gender: '',
+  maritalStatus: '',
+  dateOfBirth: '',
+  age: '',
+  bloodGroup: '',
+  genotype: '',
+  nationality: '',
+  stateOfOrigin: '',
+  occupation: '',
+  religion: '',
+  category: '',
+  homeAddress: '',
+  ancSpecialPoint: '',
+  ancDateOfBooking: '',
+  ancIndication: '',
+  ancLmp: '',
+  ancEdd: '',
+  ancHusbandName: '',
+  ancHusbandOccupation: '',
+  ancEmployer: '',
+  nokName: '',
+  nokRelationship: '',
+  nokPhone: '',
+  nokAddress: '',
+  hmoProvider: 'Self-Pay (No HMO)',
+  hmoPlan: '',
+  hmoNumber: '',
+  hmoCoveragePercent: '',
 }
 
 function calculatePatientAge(dobStr) {
@@ -103,15 +132,34 @@ const NAV_ITEMS = [
 ]
 
 const PAGE_TITLES = {
-  overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments',
-  billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory',
-  nursing: 'Nursing / Triage', doctor: 'Doctor Workbench', radiology: 'Radiology',
-  insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics',
-  notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management',
-  reception: 'Reception', admissions: 'Admissions', roster: 'Duty Roster', messages: 'Messages',
+  overview: 'Dashboard',
+  patients: 'Patient Management',
+  appointments: 'Appointments',
+  billing: 'Billing & Invoices',
+  staff: 'Staff',
+  pharmacy: 'Pharmacy',
+  laboratory: 'Laboratory',
+  nursing: 'Nursing / Triage',
+  doctor: 'Doctor Workbench',
+  radiology: 'Radiology',
+  insurance: 'Insurance / HMO Claims',
+  inventory: 'Inventory & Supplies',
+  reports: 'Reports & Analytics',
+  notifications: 'Reminders & Alerts',
+  settings: 'Settings',
+  ipd: 'IPD Management',
+  reception: 'Reception',
+  admissions: 'Admissions',
+  roster: 'Duty Roster',
+  messages: 'Messages',
 }
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Every role can always reach these, regardless of department.
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
+
+// Which modules each department can see. Admin/owner always see everything
 const ROLE_ACCESS = {
   doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
   nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
@@ -122,6 +170,15 @@ const ROLE_ACCESS = {
 }
 const FULL_ACCESS_ROLES = ['admin', 'owner']
 const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
+
+const SHIFT_STYLE = {
+  M: { background: 'rgba(201,169,97,0.16)', color: 'var(--gold)' },
+  N: { background: 'rgba(76,141,255,0.16)', color: 'var(--blue)' },
+  OFF: { background: 'rgba(255,255,255,0.04)', color: 'var(--muted)' },
+  LEAVE: { background: 'rgba(225,104,94,0.12)', color: 'var(--danger)' },
+  'ON CALL': { background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' },
+  TRAINING: { background: 'var(--teal-soft)', color: 'var(--teal)' },
+}
 
 function Icon({ name, size = 18, strokeWidth = 1.8 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -161,29 +218,46 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
 
 function LiveClock() {
   const [now, setNow] = useState(() => new Date())
+
   useEffect(() => {
+    // Align the first tick to the actual start of the next second,
+    // then tick every second exactly on the boundary — keeps it
+    // accurate indefinitely instead of drifting over time.
     let intervalId
     const msToNextSecond = 1000 - (Date.now() % 1000)
     const timeoutId = setTimeout(() => {
       setNow(new Date())
       intervalId = setInterval(() => setNow(new Date()), 1000)
     }, msToNextSecond)
+
     return () => {
       clearTimeout(timeoutId)
       if (intervalId) clearInterval(intervalId)
     }
   }, [])
 
-  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }), [])
-  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), [])
+  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Lagos',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  }), [])
+
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Lagos',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  }), [])
+
   const timeStr = timeFormatter.format(now)
   const dateStr = dateFormatter.format(now)
 
   return (
     <div className="dash-live-clock" title="Nigeria Time (WAT, UTC+1)">
-      <div className="dash-live-clock-icon"><Icon name="clock" size={15} /></div>
+      <div className="dash-live-clock-icon">
+        <Icon name="clock" size={15} />
+      </div>
       <div className="dash-live-clock-text">
-        <div className="dash-live-clock-time"><span key={timeStr} className="dash-clock-tick">{timeStr}</span></div>
+        <div className="dash-live-clock-time">
+          <span key={timeStr} className="dash-clock-tick">{timeStr}</span>
+        </div>
         <div className="dash-live-clock-date">{dateStr}</div>
       </div>
     </div>
@@ -193,6 +267,7 @@ function LiveClock() {
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
 
+  // null = full access (admin/owner); otherwise an array of allowed nav keys.
   const allowedKeys = useMemo(() => {
     if (FULL_ACCESS_ROLES.includes(profile?.role)) return null
     return ROLE_ACCESS[profile?.role] || COMMON_ACCESS
@@ -202,7 +277,11 @@ export default function Dashboard(){
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem('gmedhub-theme') === 'light' ? 'light' : 'dark' } catch { return 'dark' }
+    try {
+      return localStorage.getItem('gmedhub-theme') === 'light' ? 'light' : 'dark'
+    } catch {
+      return 'dark'
+    }
   })
 
   useEffect(() => {
@@ -210,19 +289,19 @@ export default function Dashboard(){
     try { localStorage.setItem('gmedhub-theme', theme) } catch {}
   }, [theme])
 
-  function toggleTheme(){ setTheme(current => current === 'light' ? 'dark' : 'light') }
+  function toggleTheme(){
+    setTheme(current => current === 'light' ? 'dark' : 'light')
+  }
 
-  const [syncErrors, setSyncErrors] = useState([])
+  const [syncErrors, setSyncErrors] = useState([]) // FIX: Initialize as empty array instead of running getAllSyncErrors() immediately
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [syncActionBusy, setSyncActionBusy] = useState(false)
 
-  const [activeMenu, setActiveMenu] = useState(null)
+  // Top header popover states
+  const [activeMenu, setActiveMenu] = useState(null) // 'notifs' | 'messages' | null
   const headerMenuRef = useRef(null)
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
-  
-  // NEW: Fetch patient vitals to determine who was attended today
-  const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
 
   const [profilePatientId, setProfilePatientId] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -235,8 +314,6 @@ export default function Dashboard(){
   const [upcomingApptCount, setUpcomingApptCount] = useState(0)
   const [revenueCollected, setRevenueCollected] = useState(0)
   const [revenueOutstanding, setRevenueOutstanding] = useState(0)
-  const [pendingBillCount, setPendingBillCount] = useState(0)
-  const [invoicesList, setInvoicesList] = useState([])
   const [weeklyCounts, setWeeklyCounts] = useState([0,0,0,0,0,0,0])
   const [appointments, setAppointments] = useState([])
   const [search, setSearch] = useState('')
@@ -257,6 +334,7 @@ export default function Dashboard(){
     if (allowedKeys && !allowedKeys.includes(tab)) setTab('overview')
   }, [allowedKeys, tab])
 
+  // Close top header popovers when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) {
@@ -267,44 +345,55 @@ export default function Dashboard(){
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Group sync errors by table name so the UI can display them nicely
   const stuckTables = useMemo(() => {
+    // FIX: Make sure syncErrors is an array before calling .forEach
     if (!Array.isArray(syncErrors)) return [];
+    
     const groups = {};
     syncErrors.forEach(err => {
       const table = err.table_name || 'Unknown table';
       if (!groups[table]) {
-        groups[table] = { table, queueLength: 0, message: err._syncErrorMessage || 'Unknown error' };
+        groups[table] = {
+          table,
+          queueLength: 0,
+          message: err._syncErrorMessage || 'Unknown error'
+        };
       }
       groups[table].queueLength += 1;
     });
     return Object.values(groups);
-  }, [syncErrors])
+  }, [syncErrors]);
 
   async function handleRetrySync(table){
-    if (!hospital?.id) return
-    setSyncActionBusy(true)
-    try {
-      await retryTableQueue(table)
-      setSyncErrors(await getAllSyncErrors())
-    } finally {
-      setSyncActionBusy(false)
-    }
+  if (!hospital?.id) return
+  setSyncActionBusy(true)
+  try {
+    await retryTableQueue(table)
+    setSyncErrors(await getAllSyncErrors())
+  } finally {
+    setSyncActionBusy(false)
   }
-
+}
   async function handleSkipStuck(table){
-    if (!hospital?.id) return
-    if (!confirm(`Discard ALL stuck items for "${table}"?\n\nThese changes will NOT reach the database. The local copies stay on this device marked as discarded, and the rest of the queue can proceed.`)) return
-    setSyncActionBusy(true)
-    try {
-      const errorsToSkip = syncErrors.filter(err => err.table_name === table)
-      for (const err of errorsToSkip) {
-        await skipStuckSyncItem(err.id)
-      }
-      setSyncErrors(await getAllSyncErrors())
-    } finally {
-      setSyncActionBusy(false)
+  if (!hospital?.id) return
+  if (!confirm(
+    `Discard ALL stuck items for "${table}"?\n\n` +
+    `These changes will NOT reach the database. The local copies stay on this ` +
+    `device marked as discarded, and the rest of the queue can proceed.`
+  )) return
+  setSyncActionBusy(true)
+  try {
+    const errorsToSkip = syncErrors.filter(err => err.table_name === table)
+    for (const err of errorsToSkip) {
+      await skipStuckSyncItem(err.id)
     }
+    setSyncErrors(await getAllSyncErrors())
+  } finally {
+    setSyncActionBusy(false)
   }
+}
+
 
   function computeWeeklyCounts(patientList){
     const counts = [0,0,0,0,0,0,0]
@@ -331,13 +420,10 @@ export default function Dashboard(){
       setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
     }
 
-    const { data: invData } = await supabase.from('invoices').select('amount, status, created_at')
+    const { data: invData } = await supabase.from('invoices').select('amount, status')
     if (invData) {
-      setInvoicesList(invData)
       setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum,i) => sum + Number(i.amount || 0),0))
-      const unpaid = invData.filter(i => i.status === 'unpaid')
-      setRevenueOutstanding(unpaid.reduce((sum,i) => sum + Number(i.amount || 0),0))
-      setPendingBillCount(unpaid.length)
+      setRevenueOutstanding(invData.filter(i => i.status === 'unpaid').reduce((sum,i) => sum + Number(i.amount || 0),0))
     }
   }
 
@@ -350,19 +436,38 @@ export default function Dashboard(){
       const year = now.getFullYear()
       const todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
 
-      const { data: roster } = await supabase.from('rosters').select('id').eq('hospital_id', hospital.id).eq('month', month).eq('year', year).is('department', null).maybeSingle()
+      const { data: roster } = await supabase
+        .from('rosters')
+        .select('id')
+        .eq('hospital_id', hospital.id)
+        .eq('month', month)
+        .eq('year', year)
+        .is('department', null)
+        .maybeSingle()
+
       if (!roster) { setTodayDuty([]); return }
 
-      const { data: entries } = await supabase.from('roster_entries').select('staff_id, shift_code').eq('roster_id', roster.id).eq('roster_date', todayKey)
+      const { data: entries } = await supabase
+        .from('roster_entries')
+        .select('staff_id, shift_code')
+        .eq('roster_id', roster.id)
+        .eq('roster_date', todayKey)
+
       if (!entries || entries.length === 0) { setTodayDuty([]); return }
 
       const staffIds = entries.map(e => e.staff_id)
-      const { data: staffData } = await supabase.from('profiles').select('id, full_name, role').in('id', staffIds)
+      const { data: staffData } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .in('id', staffIds)
 
-      const combined = entries.map(e => {
-        const staffMember = (staffData || []).find(s => s.id === e.staff_id)
-        return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
-      }).filter(Boolean).filter(e => e.shift && e.shift !== 'OFF')
+      const combined = entries
+        .map(e => {
+          const staffMember = (staffData || []).find(s => s.id === e.staff_id)
+          return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
+        })
+        .filter(Boolean)
+        .filter(e => e.shift && e.shift !== 'OFF')
 
       setTodayDuty(combined)
     } catch {
@@ -389,7 +494,11 @@ export default function Dashboard(){
   }
 
   function handleDobChange(value) {
-    setForm(current => ({ ...current, dateOfBirth: value, age: calculatePatientAge(value) }))
+    setForm(current => ({
+      ...current,
+      dateOfBirth: value,
+      age: calculatePatientAge(value),
+    }))
   }
 
   async function handleAdd(e){
@@ -435,6 +544,10 @@ export default function Dashboard(){
         emergency_contact_phone: form.nokPhone?.trim() || null,
         next_of_kin_relationship: form.nokRelationship?.trim() || null,
         next_of_kin_address: form.nokAddress?.trim() || null,
+        hmo_provider: form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? form.hmoProvider : null,
+        hmo_plan: form.hmoPlan?.trim() || null,
+        hmo_number: form.hmoNumber?.trim() || null,
+        hmo_coverage_percent: form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? (parseFloat(form.hmoCoveragePercent) || 0) : null,
         status,
         created_by: profile.id,
       })
@@ -481,13 +594,6 @@ export default function Dashboard(){
     !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
   )
 
-  // NEW: Calculate Patients Attended Today
-  const todayStr = new Date().toDateString()
-  const patientsSeenToday = useMemo(() => {
-    const seenIds = new Set(vitals.filter(v => new Date(v.created_at).toDateString() === todayStr).map(v => v.patient_id))
-    return patients.filter(p => seenIds.has(p.id))
-  }, [vitals, patients, todayStr])
-
   function formatMoney(n){
     return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
   }
@@ -496,7 +602,8 @@ export default function Dashboard(){
     if (!value) return '—'
     const d = new Date(value)
     if (Number.isNaN(d.getTime())) return '—'
-    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
+      + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
   }
 
   function appointmentName(a){
@@ -560,135 +667,6 @@ export default function Dashboard(){
     .sort((a,b) => new Date(a.appointment_time) - new Date(b.appointment_time))
     .slice(0,5)
 
-  // Smooth Catmull-Rom spline through a set of points — used for the patient trend chart
-  function smoothPath(points){
-    if (points.length < 2) return ''
-    let d = `M ${points[0].x} ${points[0].y}`
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i === 0 ? i : i - 1]
-      const p1 = points[i]
-      const p2 = points[i + 1]
-      const p3 = points[i + 2 < points.length ? i + 2 : i + 1]
-      const cp1x = p1.x + (p2.x - p0.x) / 6
-      const cp1y = p1.y + (p2.y - p0.y) / 6
-      const cp2x = p2.x - (p3.x - p1.x) / 6
-      const cp2y = p2.y - (p3.y - p1.y) / 6
-      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
-    }
-    return d
-  }
-
-  // Real patient-registration & appointment-visit trend for the current month
-  const patientTrend = useMemo(() => {
-    const now = new Date()
-    const year = now.getFullYear(), month = now.getMonth()
-    const daysInMonth = new Date(year, month + 1, 0).getDate()
-    const newByDay = new Array(daysInMonth + 1).fill(0)
-    const returningByDay = new Array(daysInMonth + 1).fill(0)
-
-    patients.forEach(p => {
-      const d = new Date(p.created_at)
-      if (d.getFullYear() === year && d.getMonth() === month) newByDay[d.getDate()] += 1
-    })
-    appointments.forEach(a => {
-      const d = new Date(a.appointment_time)
-      if (d.getFullYear() === year && d.getMonth() === month) returningByDay[d.getDate()] += 1
-    })
-
-    const rawMax = Math.max(1, ...newByDay, ...returningByDay)
-    const niceMax = Math.max(4, Math.ceil(rawMax / 4) * 4)
-    const chartLeft = 35, chartRight = 610, chartBottom = 225, chartTop = 40, baselineY = 237
-
-    const xFor = day => chartLeft + ((day - 1) / (daysInMonth - 1 || 1)) * (chartRight - chartLeft)
-    const yFor = value => baselineY - (value / niceMax) * (baselineY - chartTop)
-
-    const newPoints = []
-    const returningPoints = []
-    for (let day = 1; day <= daysInMonth; day++) {
-      newPoints.push({ x: xFor(day), y: yFor(newByDay[day]) })
-      returningPoints.push({ x: xFor(day), y: yFor(returningByDay[day]) })
-    }
-
-    const newLine = smoothPath(newPoints)
-    const returningLine = smoothPath(returningPoints)
-    const newArea = `${newLine} L${chartRight} ${chartBottom} L${chartLeft} ${chartBottom} Z`
-    const returningArea = `${returningLine} L${chartRight} ${chartBottom} L${chartLeft} ${chartBottom} Z`
-
-    const tickDays = [...new Set([1, 5, 10, 15, 20, 25, daysInMonth].filter(d => d <= daysInMonth))]
-    const monthLabel = now.toLocaleDateString('en-US', { month: 'short' })
-    const xLabels = tickDays.map(d => `${monthLabel} ${d}`)
-    const yLabels = [niceMax, niceMax * 0.75, niceMax * 0.5, niceMax * 0.25, 0]
-
-    return { newLine, returningLine, newArea, returningArea, xLabels, yLabels }
-  }, [patients, appointments])
-
-  // Real patient-category breakdown (this app files patients under folders rather than
-  // clinical departments, so this reflects the folder categories actually on record)
-  const categoryBreakdown = useMemo(() => {
-    const labels = { personal: 'Personal', family: 'Family', emergency: 'Emergency', anc: 'ANC' }
-    const colors = { personal: 'var(--teal)', family: 'var(--violet)', emergency: 'var(--danger)', anc: 'var(--gold)', other: 'var(--blue)' }
-    const counts = { personal: 0, family: 0, emergency: 0, anc: 0, other: 0 }
-    patients.forEach(p => {
-      counts[labels[p.category] ? p.category : 'other'] += 1
-    })
-    const total = patients.length || 1
-    const rows = Object.entries(counts)
-      .filter(([, count]) => count > 0)
-      .map(([key, count]) => ({ key, label: labels[key] || 'Other', color: colors[key], count, pct: (count / total) * 100 }))
-
-    let cumulative = 0
-    const gradientStops = rows.map(r => {
-      const start = cumulative
-      cumulative += r.pct
-      return `${r.color} ${start.toFixed(1)}% ${cumulative.toFixed(1)}%`
-    }).join(', ')
-
-    return { rows, gradientStops: gradientStops || 'var(--line) 0% 100%' }
-  }, [patients])
-
-  // Real daily paid-invoice revenue for the current month
-  const revenueTrend = useMemo(() => {
-    const now = new Date()
-    const year = now.getFullYear(), month = now.getMonth()
-    const daysInMonth = new Date(year, month + 1, 0).getDate()
-    const byDay = new Array(daysInMonth + 1).fill(0)
-
-    invoicesList.forEach(inv => {
-      if (inv.status !== 'paid') return
-      const d = new Date(inv.created_at)
-      if (d.getFullYear() === year && d.getMonth() === month) byDay[d.getDate()] += Number(inv.amount || 0)
-    })
-
-    const thisMonthTotal = byDay.reduce((a,b) => a+b, 0)
-    const lastMonthDate = new Date(year, month - 1, 1)
-    const lastMonthTotal = invoicesList
-      .filter(inv => inv.status === 'paid')
-      .filter(inv => {
-        const d = new Date(inv.created_at)
-        return d.getFullYear() === lastMonthDate.getFullYear() && d.getMonth() === lastMonthDate.getMonth()
-      })
-      .reduce((sum, inv) => sum + Number(inv.amount || 0), 0)
-
-    const changePct = lastMonthTotal > 0 ? ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 : null
-    const max = Math.max(1, ...byDay.slice(1))
-    const bars = byDay.slice(1).map(v => Math.max(2, (v / max) * 100))
-    const tickDays = [1, 8, 15, 22, daysInMonth].filter((d,i,arr) => arr.indexOf(d) === i && d <= daysInMonth)
-    const monthLabel = now.toLocaleDateString('en-US', { month: 'short' })
-
-    return { bars, thisMonthTotal, changePct, xLabels: tickDays.map(d => `${monthLabel} ${d}`) }
-  }, [invoicesList])
-
-  // Most recently registered patients, for the Recent Patients panel
-  const recentPatients = useMemo(() => {
-    return [...patients]
-      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 6)
-  }, [patients])
-
-  function initials(name){
-    return String(name || '?').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase()
-  }
-
   if(profile?.role === 'owner'){
     window.location.href = '/owner'
     return null
@@ -734,12 +712,7 @@ export default function Dashboard(){
 
       <aside className={`dash-sidebar ${drawerOpen ? 'open' : ''}`}>
         <div className="dash-brand">
-          <div className="dash-brand-mark">
-            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20.8 8.6c0 5-6.2 9.4-8.3 10.8a1 1 0 0 1-1 0C9.4 18 3.2 13.6 3.2 8.6a4.9 4.9 0 0 1 8.8-3 4.9 4.9 0 0 1 8.8 3Z"/>
-              <path d="M4 12h3l1.5-3L11 15l1.8-6L14 12h6"/>
-            </svg>
-          </div>
+          <div className="dash-brand-mark">G</div>
           <div>
             <div className="dash-brand-name">{hospital?.name || 'Loading…'}</div>
             <div className="dash-brand-sub">G-MedHub</div>
@@ -767,11 +740,11 @@ export default function Dashboard(){
 
         <div className="dash-emergency">
           <div className="dash-emergency-head">
-            <span>Emergency Line</span>
+            <span>Master Goodnews</span>
             <Icon name="phone" size={15}/>
           </div>
-          <strong>{hospital?.phone || hospital?.emergency_phone || 'Not set up yet'}</strong>
-          <small>24/7 Available</small>
+          <strong>+2348148364233</strong>
+          <small>The Builder</small>
         </div>
 
         <div className="dash-foot">
@@ -857,7 +830,7 @@ export default function Dashboard(){
 
             <div className="dash-hospital-selector">
               <Icon name="building" size={17}/>
-              <span>{hospital?.name || 'Your Hospital'}</span>
+              <span>{hospital?.name || 'Hallel Hospital'}</span>
               <span className="dash-chevron">⌄</span>
             </div>
           </div>
@@ -946,7 +919,7 @@ export default function Dashboard(){
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 17 C13 12 20 22 30 18 S45 28 56 19 S72 25 88 12"/></svg>
                   </div>
                   <div className="dash-stat-label">Pending Bills</div>
-                  <div className="dash-stat-value">{pendingBillCount.toLocaleString()}</div>
+                  <div className="dash-stat-value">{Math.max(0, Math.round(revenueOutstanding > 0 ? revenueOutstanding / 10000 : 0))}</div>
                   <div className="dash-stat-delta negative"><Icon name="arrowDown" size={12}/> {formatMoney(revenueOutstanding)} outstanding</div>
                 </div>
               </section>
@@ -967,47 +940,47 @@ export default function Dashboard(){
                     <svg viewBox="0 0 620 250" preserveAspectRatio="none">
                       <defs>
                         <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#2DD4CF" stopOpacity=".28"/>
-                          <stop offset="100%" stopColor="#2DD4CF" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#00C7C7" stopOpacity=".28"/>
+                          <stop offset="100%" stopColor="#00C7C7" stopOpacity="0"/>
                         </linearGradient>
                         <linearGradient id="violetArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#7C5CFC" stopOpacity=".22"/>
-                          <stop offset="100%" stopColor="#7C5CFC" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#7657E8" stopOpacity=".22"/>
+                          <stop offset="100%" stopColor="#7657E8" stopOpacity="0"/>
                         </linearGradient>
                       </defs>
                       {[45,95,145,195].map(y => <line key={y} x1="0" x2="620" y1={y} y2={y} className="chart-grid-line"/>)}
-                      {patientTrend.yLabels.map((label,i) => (
-                        <text key={i} x={label === 0 ? 7 : 4} y={[48,98,148,198,237][i]}>{Math.round(label)}</text>
-                      ))}
-                      <path className="chart-area-teal" d={patientTrend.newArea}/>
-                      <path className="chart-area-violet" d={patientTrend.returningArea}/>
-                      <path className="chart-line-teal" d={patientTrend.newLine}/>
-                      <path className="chart-line-violet" d={patientTrend.returningLine}/>
+                      <text x="4" y="48">80</text><text x="4" y="98">60</text><text x="4" y="148">40</text><text x="4" y="198">20</text><text x="7" y="237">0</text>
+                      <path className="chart-area-teal" d="M35 180 C55 110 72 150 91 155 S122 128 140 137 S164 92 183 126 S210 95 230 152 S257 177 276 88 S302 105 319 123 S341 42 359 83 S385 57 405 122 S432 152 449 103 S474 126 492 94 S516 58 537 96 S567 78 610 106 L610 225 L35 225 Z"/>
+                      <path className="chart-area-violet" d="M35 174 C55 104 72 143 91 154 S121 119 140 132 S165 106 183 139 S210 111 230 168 S255 176 276 148 S301 127 319 145 S341 126 359 140 S383 124 405 155 S432 169 449 144 S475 160 492 130 S516 144 537 126 S570 112 610 135 L610 225 L35 225 Z"/>
+                      <path className="chart-line-teal" d="M35 180 C55 110 72 150 91 155 S122 128 140 137 S164 92 183 126 S210 95 230 152 S257 177 276 88 S302 105 319 123 S341 42 359 83 S385 57 405 122 S432 152 449 103 S474 126 492 94 S516 58 537 96 S567 78 610 106"/>
+                      <path className="chart-line-violet" d="M35 174 C55 104 72 143 91 154 S121 119 140 132 S165 106 183 139 S210 111 230 168 S255 176 276 148 S301 127 319 145 S341 126 359 140 S383 124 405 155 S432 169 449 144 S475 160 492 130 S516 144 537 126 S570 112 610 135"/>
                     </svg>
-                    <div className="chart-x-labels">{patientTrend.xLabels.map(x => <span key={x}>{x}</span>)}</div>
+                    <div className="chart-x-labels">{['Aug 1','Aug 5','Aug 10','Aug 15','Aug 20','Aug 25','Aug 30'].map(x => <span key={x}>{x}</span>)}</div>
                   </div>
                 </div>
 
                 <div className="dash-panel dash-department">
                   <div className="dash-panel-head">
-                    <div>
-                      <div className="dash-panel-title">Patient Categories</div>
-                      <div className="dash-panel-sub">By record folder</div>
-                    </div>
+                    <div className="dash-panel-title">Department Activity</div>
                   </div>
                   <div className="dash-dept-content">
-                    <div className="dash-donut" style={{background:`conic-gradient(${categoryBreakdown.gradientStops})`}}>
-                      <div><span>Total</span><strong>{patients.length}</strong></div>
+                    <div className="dash-donut" style={{background:'conic-gradient(#7657E8 0 25%, #E8B82E 25% 41%, #3B82F6 41% 55%, #00C7C7 55% 67%, #2E7D75 67% 78%, #00A6A6 78% 100%)'}}>
+                      <div><span>Total</span><strong>{Math.max(0, patients.length)}</strong></div>
                     </div>
                     <div className="dash-dept-list">
-                      {categoryBreakdown.rows.length > 0 ? categoryBreakdown.rows.map(r => (
-                        <div className="dash-dept-row" key={r.key}>
-                          <span><i style={{background:r.color}}/>{r.label}</span>
-                          <b>{r.count} ({r.pct.toFixed(1)}%)</b>
+                      {[
+                        ['Outpatient','#00C7C7',Math.round(patients.length*.25)],
+                        ['Maternity','#7657E8',Math.round(patients.length*.21)],
+                        ['Laboratory','#E8B82E',Math.round(patients.length*.16)],
+                        ['Pharmacy','#3B82F6',Math.round(patients.length*.14)],
+                        ['Radiology','#2E7D75',Math.round(patients.length*.12)],
+                        ['Other','#6A8F91',Math.round(patients.length*.11)],
+                      ].map(([label,color,count]) => (
+                        <div className="dash-dept-row" key={label}>
+                          <span><i style={{background:color}}/>{label}</span>
+                          <b>{count}</b>
                         </div>
-                      )) : (
-                        <div className="dash-empty-state">No patients on record yet</div>
-                      )}
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -1032,75 +1005,7 @@ export default function Dashboard(){
                     )}
                   </div>
                 </div>
-
-                <div className="dash-panel dash-recent">
-                  <div className="dash-panel-head">
-                    <div>
-                      <div className="dash-panel-title">Recent Patients</div>
-                      <div className="dash-panel-sub">Latest registrations</div>
-                    </div>
-                    <button className="dash-view-all" onClick={() => setTab('patients')}>View all</button>
-                  </div>
-                  {recentPatients.length > 0 ? (
-                    <div className="dash-table-wrap">
-                      <table className="dash-patient-table">
-                        <thead>
-                          <tr>
-                            <th>Patient</th><th>Age</th><th>Gender</th><th>Contact</th><th>Folder</th><th>Registered</th><th></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recentPatients.map(p => (
-                            <tr key={p.id}>
-                              <td>
-                                <div className="dash-patient-name">
-                                  <span>{initials(p.full_name)}</span>
-                                  {p.full_name || 'Unnamed'}
-                                </div>
-                              </td>
-                              <td>{p.age || '—'}</td>
-                              <td>{p.gender || '—'}</td>
-                              <td>{p.phone || '—'}</td>
-                              <td>{CATEGORIES.find(c => c.value === p.category)?.label.replace(' Folder','') || 'Other'}</td>
-                              <td>{formatDateTime(p.created_at)}</td>
-                              <td>
-                                <button className="dash-more" onClick={() => { setTab('patients'); setProfilePatientId(p.id) }}>
-                                  <Icon name="more" size={15}/>
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="dash-empty-state">No patients registered yet</div>
-                  )}
-                </div>
-
-                <div className="dash-panel dash-revenue">
-                  <div className="dash-panel-head">
-                    <div>
-                      <div className="dash-panel-title">Revenue Overview</div>
-                      <div className="dash-panel-sub">Paid invoices, this month</div>
-                    </div>
-                    <select className="dash-filter"><option>This Month</option></select>
-                  </div>
-                  <strong className="dash-revenue-total">{formatMoney(revenueTrend.thisMonthTotal)}</strong>
-                  <span className="dash-revenue-change" style={revenueTrend.changePct !== null && revenueTrend.changePct < 0 ? {color:'var(--danger)'} : undefined}>
-                    {revenueTrend.changePct === null ? 'No data from last month yet' : `${revenueTrend.changePct >= 0 ? '+' : ''}${revenueTrend.changePct.toFixed(1)}% from last month`}
-                  </span>
-                  <div className="dash-bars">
-                    {revenueTrend.bars.map((h,i) => <i key={i} style={{height: `${h}%`}}/>)}
-                  </div>
-                  <div className="dash-bar-labels">{revenueTrend.xLabels.map(x => <span key={x}>{x}</span>)}</div>
-                </div>
               </section>
-
-              <footer className="dash-footer">
-                <span>© {new Date().getFullYear()} {hospital?.name || 'G-MedHub'}. All rights reserved.</span>
-                <span>HMS v2.0.0</span>
-              </footer>
             </>
           )}
 
@@ -1110,74 +1015,40 @@ export default function Dashboard(){
             profilePatientId ? (
               <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
             ) : (
-              <>
-                {/* NEW: ATTENDED TODAY SECTION */}
-                {patientsSeenToday.length > 0 && (
-                  <div className="dash-panel" style={{ marginBottom: 16, borderColor: 'var(--teal)' }}>
-                    <div className="dash-panel-head">
-                      <div>
-                        <div className="dash-panel-title" style={{ color: 'var(--teal)', fontSize: 14 }}>Attended Today ({patientsSeenToday.length})</div>
-                        <div className="dash-panel-sub">Quick access to patients seen today</div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', flexWrap: 'wrap' }}>
-                      {patientsSeenToday.map(p => (
-                        <div 
-                          key={p.id} 
-                          onClick={() => setProfilePatientId(p.id)} 
-                          style={{ 
-                            padding: '8px 14px', 
-                            background: 'var(--bg-elevated)', 
-                            border: '1px solid var(--teal)', 
-                            borderRadius: 20, 
-                            cursor: 'pointer', 
-                            fontSize: 13, 
-                            fontWeight: 700, 
-                            color: 'var(--teal)' 
-                          }}
-                        >
-                          {p.full_name}
-                        </div>
-                      ))}
-                    </div>
+              <div className="dash-panel">
+                <div className="dash-panel-head dash-panel-head-wrap">
+                  <div>
+                    <div className="dash-panel-title">All Patients</div>
+                    <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
+                  </div>
+                  <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                </div>
+
+                {loading ? (
+                  <div className="dash-empty-state">Loading…</div>
+                ) : filteredPatients.length === 0 ? (
+                  <div className="dash-empty-state">
+                    {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
+                  </div>
+                ) : (
+                  <div className="dash-table-wrap">
+                    <table className="dash-full-table">
+                      <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+                      <tbody>
+                        {filteredPatients.map(p => (
+                          <tr key={p.id}>
+                            <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
+                            <td>{p.age}</td>
+                            <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
+                            <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
-
-                <div className="dash-panel">
-                  <div className="dash-panel-head dash-panel-head-wrap">
-                    <div>
-                      <div className="dash-panel-title">All Patients</div>
-                      <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
-                    </div>
-                    <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
-                  </div>
-
-                  {loading ? (
-                    <div className="dash-empty-state">Loading…</div>
-                  ) : filteredPatients.length === 0 ? (
-                    <div className="dash-empty-state">
-                      {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
-                    </div>
-                  ) : (
-                    <div className="dash-table-wrap">
-                      <table className="dash-full-table">
-                        <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
-                        <tbody>
-                          {filteredPatients.map(p => (
-                            <tr key={p.id}>
-                              <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
-                              <td>{p.age}</td>
-                              <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                              <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
-                              <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </>
+              </div>
             )
           )}
           {tab === 'reception' && <Reception />}
@@ -1305,6 +1176,23 @@ export default function Dashboard(){
                     </div>
                   </>
                 )}
+
+                <div className="dash-modal-title" style={{ fontSize: 14, marginTop: 6 }}>HMO / Insurance</div>
+                <div className="dash-field-grid">
+                  <div className="field">
+                    <label>HMO Provider</label>
+                    <select value={form.hmoProvider} onChange={e => setField('hmoProvider', e.target.value)}>
+                      {HMO_PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  {form.hmoProvider !== 'Self-Pay (No HMO)' && (
+                    <>
+                      <div className="field"><label>Plan / Tier</label><input value={form.hmoPlan} onChange={e => setField('hmoPlan', e.target.value)} placeholder="e.g. Silver Plan"/></div>
+                      <div className="field"><label>Enrollee / Policy No.</label><input value={form.hmoNumber} onChange={e => setField('hmoNumber', e.target.value)} placeholder="e.g. NHIS-2024-00123"/></div>
+                      <div className="field"><label>HMO Covers (%)</label><input type="number" min="0" max="100" value={form.hmoCoveragePercent} onChange={e => setField('hmoCoveragePercent', e.target.value)} placeholder="e.g. 80"/></div>
+                    </>
+                  )}
+                </div>
 
                 <div className="dash-modal-title" style={{ fontSize: 14, marginTop: 6 }}>Next of Kin</div>
                 <div className="dash-field-grid">
