@@ -1,0 +1,175 @@
+/* =========================================================
+   G-MEDHUB — GLOBAL MOBILE / RESPONSIVE LAYER
+   ---------------------------------------------------------
+   This file is the single place that controls how EVERY
+   dashboard section (Overview, Reception, Billing, Pharmacy,
+   Laboratory, Radiology, Inventory, IPD, Admissions, Staff,
+   Nursing, Roster, Reports, Insurance, Messages, Settings…)
+   behaves on small screens.
+
+   Why a separate file instead of editing every page:
+   All sections render inside the same shell (.dash-shell /
+   .dash-sidebar / .dash-topbar / .dash-content) and reuse the
+   same shared classes (.dash-panel, .dash-stats, .field,
+   .btn, tables, .dash-modal…). Fixing those shared classes in
+   one place fixes the layout everywhere they're used, without
+   touching each page's JSX. Rules that use `!important` are
+   only the ones needed to override per-section inline styles
+   (e.g. `style={{gridTemplateColumns:'1fr 1fr'}}`) that would
+   otherwise ignore a plain class-based override.
+
+   Load order: this file must be imported LAST (after
+   globals.css, components.css, dashboard.css) so these rules
+   win the cascade at each breakpoint.
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   0. SAFETY NET — applies at every width
+   --------------------------------------------------------- */
+html, body{ overflow-x:hidden; width:100%; }
+#root{ overflow-x:hidden; }
+*{ -webkit-tap-highlight-color:transparent; }
+
+/* Any flex/grid child can force its parent wider than the
+   viewport unless min-width is reset — this is the #1 cause
+   of horizontal scrolling/cut-off content on mobile. */
+.dash-shell, .dash-main, .dash-content,
+.dash-main-grid > *, .dash-stats > *, .dash-panel,
+.dash-panel *{ min-width:0; }
+
+img, svg{ max-width:100%; }
+
+/* ---------------------------------------------------------
+   1. TABLETS / SMALL LAPTOPS  (≤1024px)
+   --------------------------------------------------------- */
+@media (max-width:1024px){
+  .dash-content{ padding:16px 20px 46px; }
+
+  /* Any fixed-column inline grid (stat cards, summary rows,
+     etc.) that ISN'T already an auto-fit/auto-fill grid gets
+     capped at 3 columns so cards don't get squeezed too thin. */
+  .dash-content [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]){
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+  }
+}
+
+/* ---------------------------------------------------------
+   2. TABLET / LARGE PHONE  (≤900px) — sidebar becomes a drawer
+   --------------------------------------------------------- */
+@media (max-width:900px){
+  .dash-content{ padding:16px 14px 48px; }
+
+  /* Sidebar drawer */
+  .dash-sidebar{
+    max-width:85vw;
+    box-shadow:20px 0 50px -20px rgba(0,0,0,.65);
+  }
+
+  /* Topbar: give the search bar room, shrink the hospital
+     name so it can't push icons off-screen. */
+  .dash-topbar{ gap:10px; padding:0 14px; }
+  .dash-brand-name{ max-width:110px; }
+
+  /* Any panel header row that mixes a title with filters/
+     buttons stacks instead of squeezing horizontally. */
+  .dash-panel-head{ flex-wrap:wrap; }
+
+  /* Popovers/dropdown menus (notifications, account menu…)
+     must never render wider than the viewport. */
+  .dash-popover-menu{
+    max-width:calc(100vw - 28px);
+    right:14px !important;
+    left:auto !important;
+  }
+
+  /* Generic fixed inline grids → 2 columns */
+  .dash-content [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]){
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  }
+
+  /* Tables: guarantee horizontal scroll even on pages that
+     didn't wrap their <table> in .dash-table-wrap. */
+  .dash-panel table,
+  .dash-content table{
+    display:block;
+    width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .dash-panel table thead,
+  .dash-panel table tbody,
+  .dash-content table thead,
+  .dash-content table tbody{ display:table; width:100%; }
+
+  /* Cards/panels: reclaim padding for content */
+  .dash-panel{ padding:15px; }
+  .card{ padding:20px; }
+}
+
+/* ---------------------------------------------------------
+   3. PHONES  (≤600px)
+   --------------------------------------------------------- */
+@media (max-width:600px){
+  .dash-content{ padding:14px 12px 46px; }
+
+  h1, .dash-welcome h1{ font-size:20px !important; }
+
+  /* Panel + card headers: title, subtitle and any action
+     button stack cleanly instead of wrapping mid-word. */
+  .dash-panel-head, .dash-panel-head-wrap{
+    flex-direction:column;
+    align-items:stretch !important;
+    gap:10px;
+  }
+  .dash-panel-head-wrap .btn,
+  .dash-panel-head .btn{ width:100%; }
+
+  /* Every fixed inline grid collapses to a single readable
+     column on phones (auto-fit/auto-fill grids are left
+     alone — they already reflow naturally). */
+  .dash-content [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]){
+    grid-template-columns:1fr !important;
+  }
+
+  /* Tables get denser type so more columns stay legible
+     before the user needs to scroll horizontally. */
+  .dash-panel table th, .dash-content table th,
+  .dash-panel table td, .dash-content table td{
+    font-size:10.5px;
+    padding:8px 6px;
+  }
+
+  /* Modals go edge-to-edge with a small margin */
+  .dash-modal-backdrop{ padding:0; align-items:flex-end; }
+  .dash-modal{
+    max-width:100%;
+    width:100%;
+    max-height:92vh;
+    border-radius:16px 16px 0 0;
+  }
+
+  /* Search input in the topbar collapses to an icon-only
+     tap target; the dedicated search page/section still
+     works, this just saves header space. */
+  .dash-search{ max-width:none; }
+
+  /* Touch targets: keep inputs/buttons comfortably tappable */
+  .field input, .field select, .field textarea,
+  .btn, .dash-filter{ min-height:44px; }
+}
+
+/* ---------------------------------------------------------
+   4. SMALL PHONES  (≤420px)
+   --------------------------------------------------------- */
+@media (max-width:420px){
+  .dash-content{ padding-left:10px; padding-right:10px; }
+  .dash-panel{ padding:12px; }
+  .dash-panel-title{ font-size:13px; }
+
+  /* Two side-by-side modal action buttons ("Cancel"/"Save")
+     stack on the narrowest phones so labels never truncate. */
+  .dash-modal-actions{ flex-direction:column; }
+  .dash-modal-actions .btn{ width:100%; }
+
+  .dash-brand-sub{ display:none; }
+}
