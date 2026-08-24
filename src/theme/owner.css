@@ -1,0 +1,161 @@
+/* =========================================================
+   OWNER PORTAL — premium shell
+   Distinct gold-accented identity (matches OwnerLogin.jsx)
+   layered on the same dark-card tokens the rest of the app
+   already uses, so it feels like part of the same product
+   instead of a bolted-on admin screen.
+   ========================================================= */
+
+.owner-shell{
+  min-height:100vh;
+  background:#000000;
+  color:var(--ivory);
+}
+
+.owner-fullpage-msg{
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:13px;
+}
+
+/* ---------- Top bar ---------- */
+.owner-topbar{
+  display:flex; align-items:center; gap:14px;
+  padding:18px 28px;
+  border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,0.015);
+  position:sticky; top:0; z-index:10;
+  backdrop-filter:blur(14px);
+}
+.owner-brand{ display:flex; align-items:center; gap:12px; }
+.owner-brand-mark{
+  width:38px; height:38px; border-radius:11px; flex-shrink:0;
+  background:linear-gradient(150deg,var(--gold),#8a713f);
+  color:#2A1F00;
+  display:flex; align-items:center; justify-content:center;
+}
+.owner-brand-name{
+  font-family:var(--font-display); font-size:15px; font-weight:700;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;
+}
+.owner-brand-sub{
+  font-size:9px; letter-spacing:1.6px; text-transform:uppercase;
+  color:var(--gold); margin-top:2px; font-weight:700;
+}
+
+.owner-icon-btn{
+  width:36px; height:36px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--line); border-radius:9px;
+  background:transparent; color:var(--muted); cursor:pointer;
+  transition:.15s;
+}
+.owner-icon-btn:hover{ color:var(--ivory); border-color:rgba(255,255,255,0.22); background:rgba(255,255,255,0.03); }
+.owner-icon-btn-danger:hover{ color:var(--danger); border-color:rgba(225,104,94,0.4); background:var(--danger-soft); }
+.owner-icon-btn-inline{
+  width:auto; height:auto; padding:6px 12px; font-size:11px; font-weight:700; border-radius:7px;
+}
+
+/* ---------- Content ---------- */
+.owner-content{
+  max-width:1100px; margin:0 auto;
+  padding:26px 28px 60px;
+}
+
+/* ---------- Summary stat strip ---------- */
+.owner-stats{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:14px;
+  margin-bottom:22px;
+}
+.owner-stat-card{
+  background:var(--bg-card); border:1px solid var(--line); border-radius:12px;
+  padding:16px 18px;
+  transition:border-color .18s, transform .18s;
+}
+.owner-stat-card:hover{ border-color:var(--teal-border); transform:translateY(-2px); }
+.owner-stat-value{
+  font-family:var(--font-mono); font-size:24px; font-weight:700;
+}
+.owner-stat-label{
+  font-size:10.5px; letter-spacing:1px; text-transform:uppercase;
+  color:var(--muted); font-weight:700; margin-top:5px;
+}
+
+/* ---------- Panels ---------- */
+.owner-panel{
+  background:var(--bg-card); border:1px solid var(--line); border-radius:12px;
+  padding:20px; margin-bottom:20px;
+}
+.owner-panel-head{
+  display:flex; justify-content:space-between; align-items:center;
+  gap:12px; flex-wrap:wrap; margin-bottom:16px;
+}
+.owner-panel-title{
+  font-family:var(--font-display); font-size:15.5px; font-weight:700;
+}
+.owner-empty{
+  text-align:center; padding:36px 10px; color:var(--muted); font-size:12px;
+}
+
+/* ---------- Hospital list rows ---------- */
+.owner-hospital-list{ display:flex; flex-direction:column; gap:10px; }
+.owner-hospital-row{
+  display:flex; justify-content:space-between; align-items:center;
+  gap:14px; flex-wrap:wrap;
+  padding:14px 16px;
+  border:1px solid var(--line); border-radius:11px;
+  background:rgba(255,255,255,0.012);
+  transition:border-color .18s;
+}
+.owner-hospital-row:hover{ border-color:var(--teal-border); }
+
+.owner-hospital-identity{
+  display:flex; align-items:center; gap:12px; min-width:0; flex:1;
+}
+.owner-hospital-avatar{
+  width:40px; height:40px; border-radius:11px; flex-shrink:0;
+  background:var(--teal-soft); border:1px solid var(--teal-border); color:var(--teal);
+  display:flex; align-items:center; justify-content:center;
+}
+.owner-hospital-name{
+  font-size:14px; font-weight:700;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.owner-hospital-sub{
+  font-size:11px; color:var(--muted); margin-top:2px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.owner-hospital-actions{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+}
+
+.owner-status-pill{
+  font-size:10.5px; font-weight:700; padding:5px 12px; border-radius:20px;
+  text-transform:capitalize; white-space:nowrap;
+}
+.owner-tier-select{
+  height:36px; background:var(--bg-elevated); color:var(--ivory);
+  border:1px solid var(--line); border-radius:8px; padding:0 10px;
+  font-size:12px; font-weight:700;
+}
+
+/* ---------- Toast ---------- */
+.owner-toast{
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  background:var(--bg-elevated); border:1px solid var(--gold); color:var(--gold);
+  padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700;
+  z-index:60; max-width:85vw; text-align:center;
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width:900px){
+  .owner-content{ padding:20px 16px 50px; }
+  .owner-stats{ grid-template-columns:repeat(2,1fr); }
+}
+
+@media (max-width:600px){
+  .owner-topbar{ padding:14px 16px; }
+  .owner-brand-name{ max-width:140px; }
+  .owner-stats{ gap:10px; }
+  .owner-hospital-row{ flex-direction:column; align-items:stretch; }
+  .owner-hospital-actions{ justify-content:space-between; }
+}
