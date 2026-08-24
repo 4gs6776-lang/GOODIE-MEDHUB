@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import CashierWorkspace from '../../components/CashierWorkspace'
+
 export default function Billing() {
   const { profile, hospital } = useAuth()
   const { records: invoices, loading, isOnline, pendingCount } = useOfflineTable('invoices', hospital?.id)
