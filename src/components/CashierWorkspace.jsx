@@ -7,6 +7,8 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const { records: charges, addRecord: addCharge, updateRecord: updateCharge } = useOfflineTable('billable_charges', hospital?.id)
   const { addRecord: addInvoice } = useOfflineTable('invoices', hospital?.id)
   const { addRecord: addInvoiceItem } = useOfflineTable('invoice_items', hospital?.id)
+  const { records: patients } = useOfflineTable('patients', hospital?.id)
+  const { addRecord: addInsuranceClaim } = useOfflineTable('insurance_claims', hospital?.id)
 
   const [selectedIds, setSelectedIds] = useState([])
   const [discount, setDiscount] = useState('')
@@ -14,6 +16,13 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const [paymentMethod, setPaymentMethod] = useState('Cash')
   const [amountPaid, setAmountPaid] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // The patient list here only has {id, name}, so look up the full
+  // record ourselves to get their HMO details for the split calc.
+  const patientRecord = useMemo(() => patients.find(p => p.id === patientId) || null, [patients, patientId])
+  const hmoProvider = patientRecord?.hmo_provider || null
+  const hmoCoveragePercent = Math.min(100, Math.max(0, Number(patientRecord?.hmo_coverage_percent) || 0))
+  const hasHmo = !!hmoProvider && hmoCoveragePercent > 0
 
   const pendingCharges = useMemo(() => {
     return charges.filter(c => c.patient_id === patientId && c.status === 'pending')
@@ -23,6 +32,7 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   useEffect(() => {
     setSelectedIds(pendingCharges.map(c => c.id))
   }, [pendingCharges])
+
 
   function toggleCharge(id) {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
@@ -47,18 +57,28 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const taxAmt = Number(tax) || 0
   const grandTotal = Math.max(0, subtotal - discountAmt + taxAmt)
 
+  // HMO split — the patient only pays their share at the counter; the
+  // HMO's share becomes a receivable tracked in Insurance/HMO Claims.
+  const hmoAmount = hasHmo ? Math.round(grandTotal * (hmoCoveragePercent / 100) * 100) / 100 : 0
+  const patientAmount = Math.max(0, grandTotal - hmoAmount)
+  const amountOwedByPatient = hasHmo ? patientAmount : grandTotal
+
   async function handleGenerateInvoice() {
     if (selectedCharges.length === 0) return alert('No charges selected.')
     setSaving(true)
     try {
       const pAmt = Number(amountPaid) || 0
-      const bal = grandTotal - pAmt
-      const status = pAmt >= grandTotal ? 'paid' : (pAmt > 0 ? 'partial' : 'unpaid')
+      const bal = amountOwedByPatient - pAmt
+      const status = pAmt >= amountOwedByPatient ? 'paid' : (pAmt > 0 ? 'partial' : 'unpaid')
       
       const newInv = await addInvoice({
         hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
         invoice_number: `INV-${Date.now().toString().slice(-8)}`, subtotal,
         discount: discountAmt, tax: taxAmt, grand_total: grandTotal,
+        hmo_provider: hasHmo ? hmoProvider : null,
+        hmo_coverage_percent: hasHmo ? hmoCoveragePercent : null,
+        hmo_amount: hasHmo ? hmoAmount : 0,
+        patient_amount: amountOwedByPatient,
         amount_paid: pAmt, balance: bal, payment_method: paymentMethod, status, created_by: profile?.id
       })
 
@@ -70,7 +90,26 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
         await updateCharge(charge.id, { status: 'invoiced' })
       }
 
-      alert('Invoice generated successfully! The patient has been billed.')
+      // Auto-file the HMO's portion as a claim, so it shows up in
+      // Insurance/HMO Claims without anyone re-typing it by hand.
+      if (hasHmo && hmoAmount > 0) {
+        await addInsuranceClaim({
+          hospital_id: hospital.id,
+          patient_id: patientId,
+          patient_name: patientName,
+          provider: hmoProvider,
+          policy_number: patientRecord?.hmo_number || null,
+          invoice_id: newInv.id,
+          amount: hmoAmount,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          created_by: profile?.id,
+        })
+      }
+
+      alert(hasHmo
+        ? `Invoice generated! Patient pays ${formatMoney(amountOwedByPatient)} — ${hmoProvider} billed ${formatMoney(hmoAmount)} (claim auto-filed).`
+        : 'Invoice generated successfully! The patient has been billed.')
       onClose()
     } catch (err) {
       alert(err.message || 'Failed to generate invoice')
@@ -137,12 +176,31 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}><span>Subtotal</span><span>{formatMoney(subtotal)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--danger)', marginBottom: 4 }}><span>Discount</span><span>- {formatMoney(discountAmt)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--gold)', marginBottom: 12 }}><span>Tax / VAT</span><span>+ {formatMoney(taxAmt)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 800, borderTop: '1px solid var(--line-soft)', paddingTop: 8, marginBottom: 16 }}>
-              <span>Grand Total</span><span style={{ color: 'var(--teal)' }}>{formatMoney(grandTotal)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 800, borderTop: '1px solid var(--line-soft)', paddingTop: 8, marginBottom: hasHmo ? 12 : 16 }}>
+              <span>Total Bill</span><span style={{ color: 'var(--teal)' }}>{formatMoney(grandTotal)}</span>
             </div>
 
+            {hasHmo && (
+              <div style={{ background: 'rgba(0,199,199,0.06)', border: '1px solid var(--teal-border)', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  {hmoProvider} Coverage ({hmoCoveragePercent}%)
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: 'var(--muted)' }}>HMO Covers</span>
+                  <span style={{ fontWeight: 700, color: 'var(--teal)' }}>{formatMoney(hmoAmount)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800 }}>
+                  <span>Patient Pays</span>
+                  <span style={{ color: 'var(--gold)' }}>{formatMoney(patientAmount)}</span>
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 6 }}>
+                  The HMO's share will be auto-filed as a claim in Insurance / HMO Claims.
+                </div>
+              </div>
+            )}
+
             <div className="field"><label>Payment Method</label><select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }}>{METHODS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
-            <div className="field"><label>Amount Paid (₦)</label><input type="number" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} placeholder={grandTotal.toFixed(2)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)', fontSize: 16, fontWeight: 700 }} /></div>
+            <div className="field"><label>{hasHmo ? 'Amount Paid by Patient (₦)' : 'Amount Paid (₦)'}</label><input type="number" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} placeholder={amountOwedByPatient.toFixed(2)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)', fontSize: 16, fontWeight: 700 }} /></div>
           </div>
         </div>
 
