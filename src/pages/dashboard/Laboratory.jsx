@@ -253,7 +253,14 @@ export default function Laboratory(){
     ...orders.map(o => ({ ...o, origin: 'doctor', isPending: o.status !== 'completed' })),
   ]
 
-  const sorted = [...combined].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
+  const priorityWeight = { stat: 0, urgent: 1, routine: 2 }
+  const sorted = [...combined].sort((a, b) => {
+    if (a.isPending && b.isPending) {
+      const pw = (priorityWeight[a.priority] ?? 2) - (priorityWeight[b.priority] ?? 2)
+      if (pw !== 0) return pw
+    }
+    return new Date(b.requested_at) - new Date(a.requested_at)
+  })
   const labSearch = searchTerm.trim().toLowerCase()
   const visibleSorted = labSearch ? sorted.filter(t => [t.patient_name, t.patient_id, t.test_name, t.request_number, t.status, t.result].some(v => String(v || '').toLowerCase().includes(labSearch))) : sorted
   const pendingCountStat = combined.filter(t => t.isPending).length
@@ -321,6 +328,11 @@ export default function Laboratory(){
                       {test.origin === 'doctor' && (
                         <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)', verticalAlign: 'middle' }}>
                           DOCTOR
+                        </span>
+                      )}
+                      {(test.priority === 'urgent' || test.priority === 'stat') && (
+                        <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: test.priority === 'stat' ? 'var(--danger-soft)' : 'rgba(201,169,97,0.14)', color: test.priority === 'stat' ? 'var(--danger)' : 'var(--gold)', verticalAlign: 'middle' }}>
+                          {test.priority === 'stat' ? 'STAT' : 'URGENT'}
                         </span>
                       )}
                     </td>
