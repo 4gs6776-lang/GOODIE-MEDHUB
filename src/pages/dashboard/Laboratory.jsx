@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 
 // NEW: List of common lab tests for the dropdown
@@ -38,7 +39,7 @@ const COMMON_LAB_TESTS = [
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
-  const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder } = useOfflineTable('lab_orders', hospital?.id)
+  const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder, syncFromServer: syncOrders } = useOfflineTable('lab_orders', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id) 
   const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
   
@@ -46,6 +47,19 @@ export default function Laboratory(){
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+
+  function showToast(msg){
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  // Live alert — the instant a doctor sends a lab order anywhere in
+  // the hospital, it shows up here without needing a page refresh.
+  useRealtimeAlert('lab_orders', hospital?.id, (newRow) => {
+    showToast(`🧪 New lab order: ${newRow.test_name || 'test'} for ${newRow.patient_name || 'a patient'}`)
+    syncOrders()
+  })
+
 
   const [selectedPatient, setSelectedPatient] = useState(null) 
   const [patientSearch, setPatientSearch] = useState('') 
@@ -59,11 +73,6 @@ export default function Laboratory(){
   const [formPatient, setFormPatient] = useState(null)
   const [formTests, setFormTests] = useState([])
   const [formResults, setFormResults] = useState({})
-
-  function showToast(msg){
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
 
   const filteredPatients = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
 
