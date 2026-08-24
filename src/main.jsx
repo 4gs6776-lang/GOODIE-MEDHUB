@@ -5,6 +5,7 @@ import App from './App'
 import './theme/globals.css'
 import './theme/components.css'
 import './theme/dashboard.css'
+import './theme/mobile.css'
 
 registerSW({ immediate: true })
 
