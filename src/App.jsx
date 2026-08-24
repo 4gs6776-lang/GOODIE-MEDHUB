@@ -6,6 +6,7 @@ import Login from './pages/auth/Login'
 import Dashboard from './pages/dashboard/Dashboard'
 import OwnerDashboard from './pages/owner/OwnerDashboard'
 import OwnerLogin from './pages/owner/OwnerLogin'
+import HospitalDetails from './pages/owner/HospitalDetails'
 
 export default function App(){
   return (
@@ -22,6 +23,9 @@ export default function App(){
           <Route path="/gm-owner-portal" element={<OwnerLogin />} />
           <Route path="/owner" element={
             <OwnerRoute><OwnerDashboard /></OwnerRoute>
+          } />
+          <Route path="/owner/hospitals/:id" element={
+            <OwnerRoute><HospitalDetails /></OwnerRoute>
           } />
         </Routes>
       </AuthProvider>
