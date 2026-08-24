@@ -1,507 +1,1166 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { useOfflineTable } from '../../lib/useOfflineTable'
-import { TagAutocomplete } from '../../components/ClinicalAutocomplete'
-import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
-import AdmissionRequestModal from '../../components/AdmissionRequestModal'
+import { supabase } from '../../lib/supabaseClient'
+import Billing from './Billing'
+import Staff from './Staff'
+import Appointments from './Appointments'
+import {
+  useOfflineTable,
+  getAllSyncErrors,
+  subscribeSyncErrors,
+  retryTableQueue,
+  skipStuckSyncItem,
+} from '../../lib/useOfflineTable';
+import Pharmacy from './Pharmacy'
+import Laboratory from './Laboratory'
+import Radiology from './Radiology'
+import Insurance from './Insurance'
+import Inventory from './Inventory'
+import Reports from './Reports'
+import Notifications from './Notifications'
+import Settings from './Settings'
+import DoctorWorkbench from './DoctorWorkbench'
+import Nursing from './Nursing'
+import DutyRoster from './DutyRoster'
+import IPD from './IPD'
+import Admissions from './Admissions'
+import Reception from './Reception'
+import PatientProfile from '../../components/PatientProfile'
+import Messages from './Messages'
 
-// NEW: Global Medication Reference List (allows searching even if hospital has 0 stock)
-const GLOBAL_MEDICATIONS = [
-  { id: 'GMED-001', name: 'Ceftriaxone 1g Injection', generic: 'Ceftriaxone', strength: '1g', form: 'Injection', route: 'IV/IM' },
-  { id: 'GMED-002', name: 'Ceftriaxone 500mg Injection', generic: 'Ceftriaxone', strength: '500mg', form: 'Injection', route: 'IV/IM' },
-  { id: 'GMED-003', name: 'Amoxicillin 500mg Capsule', generic: 'Amoxicillin', strength: '500mg', form: 'Capsule', route: 'Oral' },
-  { id: 'GMED-004', name: 'Paracetamol 500mg Tablet', generic: 'Paracetamol', strength: '500mg', form: 'Tablet', route: 'Oral' },
-  { id: 'GMED-005', name: 'Artesunate 120mg Injection', generic: 'Artesunate', strength: '120mg', form: 'Injection', route: 'IV' },
-  { id: 'GMED-006', name: 'Methyldopa 250mg Tablet', generic: 'Methyldopa', strength: '250mg', form: 'Tablet', route: 'Oral' },
-  // Can be expanded or moved to a database table later
+// Same option lists used in Reception's registration form, kept in sync
+// so a patient added here has the exact same fields/choices available.
+const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown']
+const GENOTYPES = ['AA','AS','SS','AC']
+const MARITAL_STATUSES = ['Single','Married','Widow','Widower','Divorced']
+const RELIGIONS = ['Christianity','Islam','Traditional','Other']
+const CATEGORIES = [
+  { value: 'personal', label: 'Personal Folder' },
+  { value: 'family', label: 'Family Folder' },
+  { value: 'emergency', label: 'Emergency Folder' },
+  { value: 'anc', label: 'ANC Folder' },
+]
+const NIGERIAN_STATES = [
+  'Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
+  'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)',
+  'Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara',
+  'Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers',
+  'Sokoto','Taraba','Yobe','Zamfara',
+]
+const AFRICAN_COUNTRIES = [
+  'Algeria','Angola','Benin','Botswana','Burkina Faso','Burundi','Cabo Verde',
+  'Cameroon','Central African Republic','Chad','Comoros','Congo (Republic)',
+  'Congo (DRC)','Djibouti','Egypt','Equatorial Guinea','Eritrea','Eswatini',
+  'Ethiopia','Gabon','Gambia','Ghana','Guinea','Guinea-Bissau','Ivory Coast',
+  'Kenya','Lesotho','Liberia','Libya','Madagascar','Malawi','Mali',
+  'Mauritania','Mauritius','Morocco','Mozambique','Namibia','Niger',
+  'Nigeria','Rwanda','Sao Tome and Principe','Senegal','Seychelles',
+  'Sierra Leone','Somalia','South Africa','South Sudan','Sudan','Tanzania',
+  'Togo','Tunisia','Uganda','Zambia','Zimbabwe',
 ]
 
-// Matches the hospital's printed Laboratory Test Request Form categories,
-// so a doctor can select several tests at once instead of one at a time.
-const LAB_TEST_CATEGORIES = [
-  { category: 'Haematology', tests: ['Full Blood Count (FBC)', 'ESR', 'Peripheral Smear', 'Bleeding Time', 'Clotting Time', 'PCV/Haematocrit', 'Blood Group & Rh'] },
-  { category: 'Chemistry', tests: ['Fasting Blood Sugar', 'Random Blood Sugar', 'HbA1c', 'Urea', 'Creatinine', 'Uric Acid', 'Lipid Profile', 'Liver Function Test', 'Electrolytes (Na, K, Cl, HCO3)', 'Calcium', 'Phosphorus'] },
-  { category: 'Serology / Immunology', tests: ['HIV 1 & 2', 'Hepatitis B (HBsAg)', 'Hepatitis C (HCV)', 'VDRL', 'Widal Test', 'ASO Titre', 'CRP', 'RF Factor', 'Malaria Parasite', 'Typhoid IgM / IgG', 'Dengue NS1 / IgM / IgG'] },
-  { category: 'Microbiology', tests: ['Urine MCS', 'Stool MCS', 'Sputum MCS', 'Wound Swab MCS', 'Blood Culture', 'High Vaginal Swab', 'GeneXpert (TB)'] },
-  { category: 'Urinalysis', tests: ['Urinalysis (Routine)', 'Pregnancy Test (Urine)', 'Microalbumin'] },
-  { category: 'Parasitology', tests: ['Stool Ova & Parasite', 'Malaria Parasite (Stool/Blood)'] },
-]
-
-const EMPTY_MED = { 
-  inventory_item_id: null, global_med_id: null, drugName: '', dose: '', route: '', frequency: '', frequencyCustom: '', 
-  duration: '', quantity: '', instructions: '', stock_at_prescription: 0, 
-  availability_status: null, accepted_unavailable: false 
+const EMPTY_PATIENT_FORM = {
+  surname: '', otherNames: '', phone: '', email: '', gender: '', maritalStatus: '',
+  dateOfBirth: '', age: '', bloodGroup: '', genotype: '', nationality: '', stateOfOrigin: '',
+  occupation: '', religion: '', category: '', homeAddress: '', ancSpecialPoint: '',
+  ancDateOfBooking: '', ancIndication: '', ancLmp: '', ancEdd: '', ancHusbandName: '',
+  ancHusbandOccupation: '', ancEmployer: '', nokName: '', nokRelationship: '',
+  nokPhone: '', nokAddress: '',
 }
 
-export default function DoctorWorkbench() {
-  const { profile, hospital } = useAuth()
-  const { records: patients, loading: loadingPatients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
-  const { records: vitals, loading: loadingVitals, updateRecord: updateVitals } = useOfflineTable('patient_vitals', hospital?.id)
-  const { records: labOrders, loading: loadingLabOrders, addRecord: addLabOrder } = useOfflineTable('lab_orders', hospital?.id)
-  const { records: prescriptions, loading: loadingPrescriptions, addRecord: addPrescription, updateRecord: updatePrescription, deleteRecord: deletePrescription } = useOfflineTable('prescriptions', hospital?.id)
-  const { records: inventoryItems } = useOfflineTable('inventory_items', hospital?.id)
-  const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
-  const { records: admissionRequests, addRecord: addAdmissionRequest } = useOfflineTable('admission_requests', hospital?.id)
-  const { addRecord: addTimelineEvent } = useOfflineTable('admission_timeline_events', hospital?.id)
-  const { addRecord: addPharmacyOrder } = useOfflineTable('pharmacy_orders', hospital?.id)
-  
-  const [showAdmissionModal, setShowAdmissionModal] = useState(false)
-  const loading = loadingPatients || loadingVitals || loadingLabOrders || loadingPrescriptions
-  const [activeVitalsId, setActiveVitalsId] = useState(null)
-  const [toast, setToast] = useState(null)
-  const [completing, setCompleting] = useState(false)
+function calculatePatientAge(dobStr) {
+  if (!dobStr) return ''
+  const dob = new Date(dobStr)
+  if (Number.isNaN(dob.getTime())) return ''
+  const today = new Date()
+  let age = today.getFullYear() - dob.getFullYear()
+  const m = today.getMonth() - dob.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--
+  return age >= 0 ? String(age) : ''
+}
 
-  const [chiefComplaints, setChiefComplaints] = useState('')
-  const [historyPresenting, setHistoryPresenting] = useState('')
-  const [pastMedicalHistory, setPastMedicalHistory] = useState('')
-  const [pastSurgicalHistory, setPastSurgicalHistory] = useState('')
-  const [drugHistory, setDrugHistory] = useState('')
-  const [allergyHistory, setAllergyHistory] = useState('')
-  const [familySocialHistory, setFamilySocialHistory] = useState('')
-  const [examinationFindings, setExaminationFindings] = useState('')
-  const [clinicalNotes, setClinicalNotes] = useState('')
-  const [treatmentPlan, setTreatmentPlan] = useState('')
-  const [followUpNotes, setFollowUpNotes] = useState('')
-  const [symptoms, setSymptoms] = useState([])
-  const [diagnoses, setDiagnoses] = useState([])
+const NAV_ITEMS = [
+  { key: 'overview', label: 'Dashboard', section: 'Main', icon: 'home' },
+  { key: 'appointments', label: 'Appointments', section: 'Main', icon: 'calendar' },
+  { key: 'patients', label: 'Patients', section: 'Main', icon: 'users' },
+  { key: 'reception', label: 'Reception', section: 'Main', icon: 'reception' },
+  { key: 'billing', label: 'Billing & Invoices', section: 'Main', icon: 'billing' },
+  { key: 'laboratory', label: 'Laboratory', section: 'Main', icon: 'lab' },
+  { key: 'pharmacy', label: 'Pharmacy', section: 'Main', icon: 'pharmacy' },
+  { key: 'radiology', label: 'Radiology', section: 'Main', icon: 'radiology' },
+  { key: 'inventory', label: 'Inventory', section: 'Main', icon: 'inventory' },
+  { key: 'staff', label: 'Staff', section: 'Operations', icon: 'users' },
+  { key: 'doctor', label: 'Doctor Workbench', section: 'Operations', icon: 'doctor' },
+  { key: 'nursing', label: 'Nursing / Triage', section: 'Operations', icon: 'nurse' },
+  { key: 'ipd', label: 'IPD Management', section: 'Operations', icon: 'bed' },
+  { key: 'admissions', label: 'Admissions', section: 'Operations', icon: 'bed' },
+  { key: 'insurance', label: 'Insurance / HMO', section: 'Operations', icon: 'insurance' },
+  { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
+  { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
+  { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
+  { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
+  { key: 'settings', label: 'Settings', section: 'Operations', icon: 'settings' },
+]
 
-  const [selectedLabTests, setSelectedLabTests] = useState([])
-  const [otherLabTests, setOtherLabTests] = useState('')
-  const [labPriority, setLabPriority] = useState('routine')
-  const [labNotes, setLabNotes] = useState('')
-  const [savingLabOrder, setSavingLabOrder] = useState(false)
+const PAGE_TITLES = {
+  overview: 'Dashboard', patients: 'Patient Management', appointments: 'Appointments',
+  billing: 'Billing & Invoices', staff: 'Staff', pharmacy: 'Pharmacy', laboratory: 'Laboratory',
+  nursing: 'Nursing / Triage', doctor: 'Doctor Workbench', radiology: 'Radiology',
+  insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics',
+  notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management',
+  reception: 'Reception', admissions: 'Admissions', roster: 'Duty Roster', messages: 'Messages',
+}
 
-  const [medications, setMedications] = useState([])
-  const [medBuilder, setMedBuilder] = useState(EMPTY_MED)
-  const [editingMedLocalId, setEditingMedLocalId] = useState(null)
-  const [selectedTemplateId, setSelectedTemplateId] = useState('')
-  const [showPreview, setShowPreview] = useState(false)
-  const [savingPrescriptions, setSavingPrescriptions] = useState(false)
-  const [drugSearch, setDrugSearch] = useState('')
+const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
+const ROLE_ACCESS = {
+  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
+  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
+  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
+  pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory'],
+  lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology'],
+  billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance'],
+}
+const FULL_ACCESS_ROLES = ['admin', 'owner']
+const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
-
-  // NEW: Search Global Medications first, then cross-reference with Hospital Inventory
-  const drugSearchResults = useMemo(() => {
-    if (!drugSearch.trim()) return []
-    const q = drugSearch.toLowerCase()
-    
-    // Combine Global Meds + Hospital Inventory into one searchable list
-    const combinedResults = {}
-    
-    // Add matching hospital items
-    inventoryItems.forEach(it => {
-      if (String(it.category).toLowerCase() === 'drug' && (String(it.name).toLowerCase().includes(q) || String(it.generic_name).toLowerCase().includes(q))) {
-        combinedResults[it.name] = {
-          id: it.id, global_med_id: null, name: it.name, generic: it.generic_name || 'Generic',
-          strength: it.strength || '', form: it.dosage_form || '', route: '',
-          stock: Number(it.quantity || 0)
-        }
-      }
-    })
-
-    // Add matching global meds (if not already added by hospital inventory)
-    GLOBAL_MEDICATIONS.forEach(gm => {
-      if (gm.name.toLowerCase().includes(q) || gm.generic.toLowerCase().includes(q)) {
-        if (!combinedResults[gm.name]) {
-          // Check if hospital has this global med in stock
-          const hospMatch = inventoryItems.find(it => it.name.toLowerCase() === gm.name.toLowerCase())
-          combinedResults[gm.name] = {
-            id: hospMatch?.id || null, global_med_id: gm.id, name: gm.name, generic: gm.generic,
-            strength: gm.strength, form: gm.form, route: gm.route,
-            stock: hospMatch ? Number(hospMatch.quantity || 0) : 0
-          }
-        }
-      }
-    })
-
-    return Object.values(combinedResults).slice(0, 8)
-  }, [drugSearch, inventoryItems])
-
-  function selectDrug(item) {
-    setMedBuilder(b => ({
-      ...b, 
-      inventory_item_id: item.id, 
-      global_med_id: item.global_med_id,
-      drugName: item.name, 
-      dose: item.strength || b.dose,
-      route: item.route || item.form || b.route, 
-      stock_at_prescription: item.stock,
-      availability_status: item.stock > 0 ? 'AVAILABLE' : 'UNAVAILABLE', 
-      accepted_unavailable: false
-    }))
-    setDrugSearch('')
+function Icon({ name, size = 18, strokeWidth = 1.8 }) {
+  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' }
+  const paths = {
+    home: <><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/></>,
+    calendar: <><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 9h18"/></>,
+    users: <><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3-6.5 7-6.5s7 2.9 7 6.5"/><path d="M16 5.5a3.2 3.2 0 0 1 0 6.2M18 14c2.4.8 4 2.9 4 6"/></>,
+    reception: <><path d="M4 11h16v9H4z"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><path d="M9 15h6"/></>,
+    billing: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></>,
+    lab: <><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M8 15h8"/></>,
+    pharmacy: <><path d="M4 8h16v12H4z"/><path d="M8 8V5h8v3M12 11v6M9 14h6"/></>,
+    radiology: <><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5M5 16l5-2M19 16l-5-2"/></>,
+    inventory: <><path d="m3 7 9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></>,
+    doctor: <><circle cx="12" cy="7" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/><path d="M18 10v4M16 12h4"/></>,
+    nurse: <><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M12 13v5M9.5 15.5h5"/></>,
+    bed: <><path d="M3 18v-8M3 15h18v6M6 15V9a2 2 0 0 1 2-2h4a3 3 0 0 1 3 3v5M15 15V9h3a3 3 0 0 1 3 3v3"/></>,
+    insurance: <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z"/><path d="m9 12 2 2 4-4"/></>,
+    reports: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/><path d="M3 6h4M13 3h4M19 10h3"/></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V20h-2.6v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H6v-2.6h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V5h2.6v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v2.6h-.1a1.7 1.7 0 0 0-1.6 1Z"/></>,
+    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
+    menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
+    moon: <path d="M20.5 15.5A8 8 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>,
+    sun: <><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M2.5 12h3M18.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></>,
+    chevron: <path d="m9 18 6-6-6-6"/>,
+    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+    plus: <><path d="M12 5v14M5 12h14"/></>,
+    arrowUp: <><path d="m6 15 6-6 6 6"/></>,
+    arrowDown: <><path d="m6 9 6 6 6-6"/></>,
+    building: <><path d="M4 21V5l8-3 8 3v16"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/></>,
+    clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+    phone: <><path d="M6 3h3l2 5-2 2a14 14 0 0 0 5 5l2-2 5 2v3c0 1-1 2-2 2C10 20 4 14 4 5c0-1 1-2 2-2Z"/></>,
+    chat: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></>,
   }
+  return <svg {...common}>{paths[name] || paths.home}</svg>
+}
 
-  const queue = vitals.filter(v => v.status === 'waiting').sort((a, b) => {
-    const order = { Emergency: 0, Urgent: 1, Routine: 2 }
-    const urgencyDiff = (order[a.urgency] ?? 3) - (order[b.urgency] ?? 3)
-    if (urgencyDiff !== 0) return urgencyDiff
-    return new Date(a.recorded_at || a.created_at) - new Date(b.recorded_at || b.created_at)
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    let intervalId
+    const msToNextSecond = 1000 - (Date.now() % 1000)
+    const timeoutId = setTimeout(() => {
+      setNow(new Date())
+      intervalId = setInterval(() => setNow(new Date()), 1000)
+    }, msToNextSecond)
+    return () => {
+      clearTimeout(timeoutId)
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [])
+
+  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }), [])
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), [])
+  const timeStr = timeFormatter.format(now)
+  const dateStr = dateFormatter.format(now)
+
+  return (
+    <div className="dash-live-clock" title="Nigeria Time (WAT, UTC+1)">
+      <div className="dash-live-clock-icon"><Icon name="clock" size={15} /></div>
+      <div className="dash-live-clock-text">
+        <div className="dash-live-clock-time"><span key={timeStr} className="dash-clock-tick">{timeStr}</span></div>
+        <div className="dash-live-clock-date">{dateStr}</div>
+      </div>
+    </div>
+  )
+}
+
+export default function Dashboard(){
+  const { profile, hospital, signOut } = useAuth()
+
+  const allowedKeys = useMemo(() => {
+    if (FULL_ACCESS_ROLES.includes(profile?.role)) return null
+    return ROLE_ACCESS[profile?.role] || COMMON_ACCESS
+  }, [profile?.role])
+  const visibleNavItems = allowedKeys ? NAV_ITEMS.filter(item => allowedKeys.includes(item.key)) : NAV_ITEMS
+
+  const [tab, setTab] = useState('overview')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('gmedhub-theme') === 'light' ? 'light' : 'dark' } catch { return 'dark' }
   })
 
-  const activeVitals = vitals.find(v => v.id === activeVitalsId) || null
-  const activePatient = activeVitals ? patients.find(p => p.id === activeVitals.patient_id) || null : null
-  const activePatientLabOrders = activeVitals ? labOrders.filter(o => o.patient_vitals_id === activeVitals.id) : []
-  const allTemplates = [...DEFAULT_TEMPLATES, ...hospitalTemplates.map(t => ({ ...t, builtin: false }))]
+  useEffect(() => {
+    document.documentElement.classList.toggle('light-mode', theme === 'light')
+    try { localStorage.setItem('gmedhub-theme', theme) } catch {}
+  }, [theme])
 
-  function openConsultation(v) {
-    setActiveVitalsId(v.id)
-    setChiefComplaints(v.chief_complaints || ''); setHistoryPresenting(v.history_presenting_complaint || '')
-    setPastMedicalHistory(v.past_medical_history || ''); setPastSurgicalHistory(v.past_surgical_history || '')
-    setDrugHistory(v.drug_history || ''); setAllergyHistory(v.allergy_history || '')
-    setFamilySocialHistory(v.family_social_history || ''); setExaminationFindings(v.examination_findings || v.observations || '')
-    setClinicalNotes(v.clinical_notes || ''); setTreatmentPlan(v.treatment_plan || ''); setFollowUpNotes(v.follow_up_notes || '')
-    setSymptoms(Array.isArray(v.symptoms) ? v.symptoms : []); setDiagnoses(Array.isArray(v.diagnoses) ? v.diagnoses : [])
-    
-    const existing = prescriptions.filter(p => p.patient_vitals_id === v.id && p.status !== 'cancelled').map(p => ({
-      localId: p.id, dbId: p.id, inventory_item_id: p.inventory_item_id, drugName: p.drug_name, dose: p.dosage, 
-      route: p.route || '', frequency: p.frequency || '', frequencyCustom: '', duration: p.duration || '', 
-      quantity: p.quantity || '', instructions: p.instructions || '', stock_at_prescription: p.stock_at_prescription || 0,
-      availability_status: p.availability_status || 'AVAILABLE', accepted_unavailable: p.availability_status === 'UNAVAILABLE'
-    }))
-    setMedications(existing); resetMedBuilder(); setShowPreview(false); setSelectedTemplateId('')
-  }
+  function toggleTheme(){ setTheme(current => current === 'light' ? 'dark' : 'light') }
 
-  function clearWorkbench() {
-    setActiveVitalsId(null); setChiefComplaints(''); setHistoryPresenting(''); setPastMedicalHistory(''); setPastSurgicalHistory('')
-    setDrugHistory(''); setAllergyHistory(''); setFamilySocialHistory(''); setExaminationFindings(''); setClinicalNotes('')
-    setTreatmentPlan(''); setFollowUpNotes(''); setSymptoms([]); setDiagnoses([]); setSelectedLabTests([]); setOtherLabTests(''); setLabPriority('routine'); setLabNotes('')
-    setMedications([]); resetMedBuilder(); setSelectedTemplateId(''); setShowPreview(false)
-  }
+  const [syncErrors, setSyncErrors] = useState([])
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false)
+  const [syncActionBusy, setSyncActionBusy] = useState(false)
 
-  function resetMedBuilder() { setMedBuilder(EMPTY_MED); setEditingMedLocalId(null); setDrugSearch('') }
+  const [activeMenu, setActiveMenu] = useState(null)
+  const headerMenuRef = useRef(null)
 
-  function toggleLabTest(name) {
-    setSelectedLabTests(prev => prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name])
-  }
+  const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
+  
+  // NEW: Fetch patient vitals to determine who was attended today
+  const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
 
-  async function handleSendLabOrders(e) {
-    e.preventDefault()
-    const extras = otherLabTests.split(',').map(s => s.trim()).filter(Boolean)
-    const allTests = [...selectedLabTests, ...extras]
-    if (!activeVitals || allTests.length === 0) return
-    if (!hospital || !profile) return showToast('Still loading your account...')
-    setSavingLabOrder(true)
-    try {
-      // Every test in this submission shares one request_group id, so
-      // Laboratory can treat them as a single request even though each
-      // test is still its own row (needed for individual result entry).
-      const requestGroup = crypto.randomUUID()
-      for (const testName of allTests) {
-        await addLabOrder({
-          patient_vitals_id: activeVitals.id,
-          patient_id: activePatient?.id || null,
-          patient_name: activePatient?.full_name || 'Unknown',
-          test_name: testName,
-          notes: labNotes || null,
-          priority: labPriority,
-          request_group: requestGroup,
-          status: 'requested',
-          requested_at: new Date().toISOString(),
-          created_by: profile.id,
-        })
+  const [profilePatientId, setProfilePatientId] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+  const [form, setForm] = useState(EMPTY_PATIENT_FORM)
+  const [status, setStatus] = useState('stable')
+  const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState(null)
+
+  const [todayApptCount, setTodayApptCount] = useState(0)
+  const [upcomingApptCount, setUpcomingApptCount] = useState(0)
+  const [revenueCollected, setRevenueCollected] = useState(0)
+  const [revenueOutstanding, setRevenueOutstanding] = useState(0)
+  const [weeklyCounts, setWeeklyCounts] = useState([0,0,0,0,0,0,0])
+  const [appointments, setAppointments] = useState([])
+  const [search, setSearch] = useState('')
+  const [pending, setPending] = useState(null)
+  const pendingTimeoutRef = useRef(null)
+  const pendingIntervalRef = useRef(null)
+
+  const [todayDuty, setTodayDuty] = useState([])
+  const [loadingDuty, setLoadingDuty] = useState(true)
+
+  const { records: inventoryItems } = useOfflineTable('inventory_items', hospital?.id)
+  const { records: labTests } = useOfflineTable('lab_tests', hospital?.id)
+  const { records: allMessages } = useOfflineTable('messages', hospital?.id)
+
+  useEffect(() => computeWeeklyCounts(patients), [patients])
+  useEffect(() => subscribeSyncErrors(setSyncErrors), [])
+  useEffect(() => {
+    if (allowedKeys && !allowedKeys.includes(tab)) setTab('overview')
+  }, [allowedKeys, tab])
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) {
+        setActiveMenu(null)
       }
-      setSelectedLabTests([]); setOtherLabTests(''); setLabPriority('routine'); setLabNotes('')
-      showToast(`${allTests.length} lab test${allTests.length === 1 ? '' : 's'} sent to laboratory`)
-    } catch (err) { showToast(err.message) } finally { setSavingLabOrder(false) }
-  }
-
-  function handleAddOrUpdateMedToDraft() {
-    if (!medBuilder.drugName.trim() || !medBuilder.dose.trim()) return showToast('Drug name and dose are required')
-    if (medBuilder.availability_status === 'UNAVAILABLE' && !medBuilder.accepted_unavailable) return showToast('Please choose whether to continue prescribing or remove the unavailable medication.')
-    
-    if (editingMedLocalId) {
-      setMedications(meds => meds.map(m => m.localId === editingMedLocalId ? { ...m, ...medBuilder, localId: m.localId, dbId: m.dbId } : m))
-    } else {
-      setMedications(meds => [...meds, { ...medBuilder, localId: crypto.randomUUID(), dbId: null }])
     }
-    resetMedBuilder()
-  }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
-  function getActiveAdmissionRequest(patientId) {
-    if (!patientId) return null
-    return admissionRequests.filter(r => r.patient_id === patientId && r.status !== 'cancelled' && r.status !== 'rejected').sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
-  }
-
-  async function handleSubmitAdmissionRequest(payload) {
-    if (!activePatient || !hospital || !profile) return showToast('Still loading your account...')
-    const request = await addAdmissionRequest({ patient_id: activePatient.id, doctor_id: profile.id, doctor_name: profile.full_name || null, status: 'pending', ...payload })
-    try { await addTimelineEvent({ patient_id: activePatient.id, admission_request_id: request?.id || null, event_type: 'recommended', description: `Dr. ${profile.full_name || 'Unknown'} recommended admission${payload.diagnosis ? ` — ${payload.diagnosis}` : ''}.`, created_by: profile.id }) } catch {}
-    setShowAdmissionModal(false); showToast('Admission recommendation submitted.')
-  }
-
-  function handleEditMed(m) {
-    setMedBuilder({ ...m }); setEditingMedLocalId(m.localId); setDrugSearch('')
-  }
-
-  async function handleRemoveMed(m) {
-    if (m.dbId) { if (!confirm(`Remove ${m.drugName}?`)) return; await deletePrescription(m.dbId) }
-    setMedications(meds => meds.filter(x => x.localId !== m.localId))
-    if (editingMedLocalId === m.localId) resetMedBuilder()
-  }
-
-  function handleApplyTemplate() {
-    const template = allTemplates.find(t => t.id === selectedTemplateId)
-    if (!template) return
-    const loaded = template.medications.map(med => ({ localId: crypto.randomUUID(), dbId: null, inventory_item_id: null, drugName: med.drug_name, dose: med.dose, route: med.route || '', frequency: med.frequency || '', frequencyCustom: '', duration: med.duration || '', quantity: med.quantity || '', instructions: med.instructions || '', stock_at_prescription: 0, availability_status: 'AVAILABLE', accepted_unavailable: false }))
-    setMedications(meds => [...meds, ...loaded]); setSelectedTemplateId(''); showToast(`Loaded "${template.name}"`)
-  }
-
-  async function handleSaveAsTemplate() {
-    if (medications.length === 0) return
-    const name = prompt('Template name:')
-    if (!name) return
-    const category = prompt('Category (optional):') || null
-    try {
-      await addTemplate({ name, category, medications: medications.map(m => ({ drug_name: m.drugName, dose: m.dose, route: m.route, frequency: m.frequency === 'Custom' ? m.frequencyCustom : m.frequency, duration: m.duration, quantity: m.quantity, instructions: m.instructions })), created_by: profile?.id })
-      showToast('Template saved')
-    } catch (err) { showToast(err.message) }
-  }
-
-  async function handleSavePrescriptions(status) {
-    if (!activeVitals || medications.length === 0) return
-    if (!hospital || !profile) return showToast('Still loading account...')
-    
-    const unaccepted = medications.find(m => m.availability_status === 'UNAVAILABLE' && !m.accepted_unavailable)
-    if (unaccepted) return showToast('Some medications are unavailable. Please accept or remove them first.')
-
-    setSavingPrescriptions(true)
-    try {
-      const updated = []
-      for (const m of medications) {
-        const payload = {
-          patient_vitals_id: activeVitals.id, patient_id: activeVitals.patient_id, patient_name: activePatient?.full_name || 'Unknown',
-          encounter_id: activeVitals.id, doctor_id: profile?.id, inventory_item_id: m.inventory_item_id, drug_name: m.drugName,
-          dosage: m.dose, route: m.route || null, frequency: (m.frequency === 'Custom' ? m.frequencyCustom : m.frequency) || null,
-          duration: m.duration || null, quantity: m.quantity || null, instructions: m.instructions || null,
-          availability_status: m.availability_status || 'AVAILABLE', stock_at_prescription: m.stock_at_prescription || 0,
-          status, prescribed_at: new Date().toISOString(), created_by: profile.id
-        }
-        if (m.dbId) { await updatePrescription(m.dbId, payload); updated.push(m) } 
-        else {
-          const saved = await addPrescription(payload)
-          if (status === 'active' && saved?.id) {
-            await addPharmacyOrder({ hospital_id: hospital.id, prescription_id: saved.id, patient_id: activeVitals.patient_id, patient_name: payload.patient_name, encounter_id: activeVitals.id, doctor_id: profile?.id, doctor_name: profile?.full_name, status: 'pending_pharmacy' })
-          }
-          updated.push({ ...m, dbId: saved?.id || null })
-        }
+  const stuckTables = useMemo(() => {
+    if (!Array.isArray(syncErrors)) return [];
+    const groups = {};
+    syncErrors.forEach(err => {
+      const table = err.table_name || 'Unknown table';
+      if (!groups[table]) {
+        groups[table] = { table, queueLength: 0, message: err._syncErrorMessage || 'Unknown error' };
       }
-      setMedications(updated)
-      showToast(status === 'draft' ? 'Draft saved' : 'Prescription finalized & sent to Pharmacy')
-    } catch (err) { showToast(err.message) } finally { setSavingPrescriptions(false) }
-  }
+      groups[table].queueLength += 1;
+    });
+    return Object.values(groups);
+  }, [syncErrors])
 
-  function handlePrint() {
-    if (medications.length === 0) return
-    const patientName = activePatient?.full_name || 'Patient'
-    const rows = medications.map((m, i) => `<li><strong>${i + 1}. ${m.drugName}</strong><br/>${m.dose} ${m.route || ''} ${m.frequency || ''}${m.duration ? ` for ${m.duration}` : ''}.${m.instructions ? `<br/><em>${m.instructions}</em>` : ''}</li>`).join('')
-    const html = `<html><head><title>Prescription</title><style>body{font-family:sans-serif;padding:32px;color:#111}h1{font-size:18px}.meta{color:#555;font-size:13px;margin-bottom:20px}ol{padding-left:20px}li{margin-bottom:14px}</style></head><body><h1>${hospital?.name || 'Prescription'}</h1><div class="meta">Patient: ${patientName} · Date: ${new Date().toLocaleDateString()} · Dr: ${profile?.full_name || ''}</div><ol>${rows}</ol></body></html>`
-    const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); win.print()
-  }
-
-  async function handleCompleteConsultation() {
-    if (!activeVitals) return
-    if (!confirm(`Complete consultation for ${activePatient?.full_name}?`)) return
-    setCompleting(true)
+  async function handleRetrySync(table){
+    if (!hospital?.id) return
+    setSyncActionBusy(true)
     try {
-      if (medications.length > 0) await handleSavePrescriptions('active')
-      const diagnosisSummary = diagnoses.map(d => d.code ? `${d.label} — ${d.code}` : d.label).join('; ')
-      await updateVitals(activeVitals.id, {
-        status: 'completed', chief_complaints: chiefComplaints || null, history_presenting_complaint: historyPresenting || null,
-        past_medical_history: pastMedicalHistory || null, past_surgical_history: pastSurgicalHistory || null, drug_history: drugHistory || null,
-        allergy_history: allergyHistory || null, family_social_history: familySocialHistory || null, examination_findings: examinationFindings || null,
-        observations: examinationFindings || null, clinical_notes: clinicalNotes || null, treatment_plan: treatmentPlan || null,
-        follow_up_notes: followUpNotes || null, symptoms, diagnoses, diagnosis: diagnosisSummary || null,
-        completed_at: new Date().toISOString(), completed_by: profile?.id || null
+      await retryTableQueue(table)
+      setSyncErrors(await getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
+
+  async function handleSkipStuck(table){
+    if (!hospital?.id) return
+    if (!confirm(`Discard ALL stuck items for "${table}"?\n\nThese changes will NOT reach the database. The local copies stay on this device marked as discarded, and the rest of the queue can proceed.`)) return
+    setSyncActionBusy(true)
+    try {
+      const errorsToSkip = syncErrors.filter(err => err.table_name === table)
+      for (const err of errorsToSkip) {
+        await skipStuckSyncItem(err.id)
+      }
+      setSyncErrors(await getAllSyncErrors())
+    } finally {
+      setSyncActionBusy(false)
+    }
+  }
+
+  function computeWeeklyCounts(patientList){
+    const counts = [0,0,0,0,0,0,0]
+    const now = new Date()
+    const sevenDaysAgo = new Date(now)
+    sevenDaysAgo.setDate(now.getDate() - 6)
+    sevenDaysAgo.setHours(0,0,0,0)
+
+    patientList.forEach(p => {
+      const created = new Date(p.created_at)
+      if (!Number.isNaN(created.getTime()) && created >= sevenDaysAgo) counts[created.getDay()] += 1
+    })
+    setWeeklyCounts(counts)
+  }
+
+  async function loadOverviewSummary(){
+    const now = new Date()
+    const todayStr = now.toDateString()
+
+    const { data: apptData } = await supabase.from('appointments').select('*')
+    if (apptData) {
+      setAppointments(apptData)
+      setTodayApptCount(apptData.filter(a => new Date(a.appointment_time).toDateString() === todayStr).length)
+      setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
+    }
+
+    const { data: invData } = await supabase.from('invoices').select('amount, status')
+    if (invData) {
+      setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum,i) => sum + Number(i.amount || 0),0))
+      setRevenueOutstanding(invData.filter(i => i.status === 'unpaid').reduce((sum,i) => sum + Number(i.amount || 0),0))
+    }
+  }
+
+  async function loadTodayDuty(){
+    if (!hospital?.id) return
+    setLoadingDuty(true)
+    try {
+      const now = new Date()
+      const month = now.getMonth() + 1
+      const year = now.getFullYear()
+      const todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+
+      const { data: roster } = await supabase.from('rosters').select('id').eq('hospital_id', hospital.id).eq('month', month).eq('year', year).is('department', null).maybeSingle()
+      if (!roster) { setTodayDuty([]); return }
+
+      const { data: entries } = await supabase.from('roster_entries').select('staff_id, shift_code').eq('roster_id', roster.id).eq('roster_date', todayKey)
+      if (!entries || entries.length === 0) { setTodayDuty([]); return }
+
+      const staffIds = entries.map(e => e.staff_id)
+      const { data: staffData } = await supabase.from('profiles').select('id, full_name, role').in('id', staffIds)
+
+      const combined = entries.map(e => {
+        const staffMember = (staffData || []).find(s => s.id === e.staff_id)
+        return staffMember ? { name: staffMember.full_name, role: staffMember.role, shift: e.shift_code } : null
+      }).filter(Boolean).filter(e => e.shift && e.shift !== 'OFF')
+
+      setTodayDuty(combined)
+    } catch {
+      setTodayDuty([])
+    } finally {
+      setLoadingDuty(false)
+    }
+  }
+
+  useEffect(() => {
+    if (hospital?.id) {
+      loadOverviewSummary()
+      loadTodayDuty()
+    }
+  }, [hospital?.id])
+
+  function showToast(msg){
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  function setField(field, value) {
+    setForm(current => ({ ...current, [field]: value }))
+  }
+
+  function handleDobChange(value) {
+    setForm(current => ({ ...current, dateOfBirth: value, age: calculatePatientAge(value) }))
+  }
+
+  async function handleAdd(e){
+    e.preventDefault()
+    const surname = form.surname.trim()
+    const otherNames = form.otherNames.trim()
+    const fullName = `${surname} ${otherNames}`.trim()
+    if (!surname) return
+    if (!hospital || !profile) {
+      showToast('Still loading your account — wait a moment and try again')
+      return
+    }
+    setSaving(true)
+    try {
+      const isAnc = form.category === 'anc'
+      await addRecord({
+        full_name: fullName,
+        surname,
+        other_names: otherNames || null,
+        age: form.age ? parseInt(form.age, 10) : null,
+        gender: form.gender || null,
+        phone: form.phone?.trim() || null,
+        email: form.email?.trim() || null,
+        marital_status: form.maritalStatus || null,
+        date_of_birth: form.dateOfBirth || null,
+        blood_group: form.bloodGroup || null,
+        genotype: form.genotype || null,
+        nationality: form.nationality?.trim() || null,
+        state_of_origin: form.stateOfOrigin || null,
+        occupation: form.occupation?.trim() || null,
+        religion: form.religion || null,
+        category: form.category || null,
+        address: form.homeAddress?.trim() || null,
+        anc_special_point: isAnc ? form.ancSpecialPoint?.trim() || null : null,
+        anc_date_of_booking: isAnc ? form.ancDateOfBooking || null : null,
+        anc_indication: isAnc ? form.ancIndication?.trim() || null : null,
+        anc_lmp: isAnc ? form.ancLmp || null : null,
+        anc_edd: isAnc ? form.ancEdd || null : null,
+        anc_husband_name: isAnc ? form.ancHusbandName?.trim() || null : null,
+        anc_husband_occupation: isAnc ? form.ancHusbandOccupation?.trim() || null : null,
+        anc_employer: isAnc ? form.ancEmployer?.trim() || null : null,
+        emergency_contact_name: form.nokName?.trim() || null,
+        emergency_contact_phone: form.nokPhone?.trim() || null,
+        next_of_kin_relationship: form.nokRelationship?.trim() || null,
+        next_of_kin_address: form.nokAddress?.trim() || null,
+        status,
+        created_by: profile.id,
       })
-      if (activePatient) {
-        const hasLabOrders = activePatientLabOrders.length > 0
-        await updatePatient(activePatient.id, { queue_status: hasLabOrders ? 'in_lab' : 'discharged', queue_updated_at: new Date().toISOString() })
-      }
-      showToast('Consultation completed'); clearWorkbench()
-    } catch (err) { showToast(err.message) } finally { setCompleting(false) }
+      setShowModal(false)
+      setForm(EMPTY_PATIENT_FORM)
+      setStatus('stable')
+      showToast(isOnline ? `${fullName} added` : `${fullName} added — will sync when back online`)
+    } catch(err){
+      showToast(err.message || 'Could not save patient')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  function vitalRow(label, value, unit) {
-    return <div><div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div><div style={{ fontSize: 14, fontWeight: 700 }}>{value ? `${value}${unit ? ' ' + unit : ''}` : '—'}</div></div>
-  }
-  function summaryRow(label, value) {
-    return <div style={{ display: 'flex', gap: 12, paddingBottom: 10, borderBottom: '1px solid var(--line-soft)' }}><div style={{ width: 120, color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase' }}>{label}</div><div style={{ flex: 1, fontSize: 13 }}>{value || <span style={{ color: 'var(--muted)' }}>—</span>}</div></div>
+  function handleDelete(patient){
+    if (pending) commitPendingDelete(pending.patient)
+    let secondsLeft = 5
+    setPending({patient,secondsLeft})
+    pendingIntervalRef.current = setInterval(() => {
+      secondsLeft -= 1
+      setPending(prev => prev ? {...prev,secondsLeft} : prev)
+      if(secondsLeft <= 0) clearInterval(pendingIntervalRef.current)
+    },1000)
+    pendingTimeoutRef.current = setTimeout(() => commitPendingDelete(patient),5000)
   }
 
-  const historySummary = [chiefComplaints && `Chief complaint: ${chiefComplaints}`, historyPresenting && `HPC: ${historyPresenting}`, pastMedicalHistory && `PMH: ${pastMedicalHistory}`, pastSurgicalHistory && `PSH: ${pastSurgicalHistory}`, drugHistory && `Drug Hx: ${drugHistory}`, allergyHistory && `Allergies: ${allergyHistory}`, familySocialHistory && `Family/Social: ${familySocialHistory}`].filter(Boolean).join(' · ')
+  async function commitPendingDelete(patient){
+    clearTimeout(pendingTimeoutRef.current)
+    clearInterval(pendingIntervalRef.current)
+    setPending(null)
+    await deleteRecord(patient.id)
+  }
+
+  function handleUndo(){
+    if(!pending) return
+    clearTimeout(pendingTimeoutRef.current)
+    clearInterval(pendingIntervalRef.current)
+    setPending(null)
+    showToast(`${pending.patient.full_name} restored`)
+  }
+
+  const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
+  const filteredPatients = displayedPatients.filter(p =>
+    !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
+  )
+
+  // NEW: Calculate Patients Attended Today
+  const todayStr = new Date().toDateString()
+  const patientsSeenToday = useMemo(() => {
+    const seenIds = new Set(vitals.filter(v => new Date(v.created_at).toDateString() === todayStr).map(v => v.patient_id))
+    return patients.filter(p => seenIds.has(p.id))
+  }, [vitals, patients, todayStr])
+
+  function formatMoney(n){
+    return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
+  }
+
+  function formatDateTime(value){
+    if (!value) return '—'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return '—'
+    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function appointmentName(a){
+    return a.patient_name || a.patient || a.full_name || a.name || 'Patient'
+  }
+
+  function appointmentReason(a){
+    return a.department || a.reason || a.type || a.service || 'General Consultation'
+  }
+
+  const lowStockItems = useMemo(() => {
+    return (inventoryItems || []).filter(i => {
+      const qty = Number(i.quantity)
+      const reorder = Number(i.reorder_level ?? 10)
+      return !Number.isNaN(qty) && qty <= reorder
+    })
+  }, [inventoryItems])
+
+  const isSameDay = (a, b) => a && b && new Date(a).toDateString() === new Date(b).toDateString()
+
+  const readyLabTests = useMemo(() => {
+    const today = new Date()
+    return (labTests || [])
+      .filter(t => t.status === 'completed' && isSameDay(t.completed_at || t.updated_at, today))
+      .sort((a,b) => new Date(b.completed_at || b.updated_at) - new Date(a.completed_at || a.updated_at))
+  }, [labTests])
+
+  const notificationItems = useMemo(() => {
+    const items = []
+    if (lowStockItems.length > 0) {
+      const names = lowStockItems.slice(0,2).map(i => i.name).filter(Boolean).join(', ')
+      items.push({
+        icon: '⚠️',
+        text: <>Low stock: <strong>{lowStockItems.length} item{lowStockItems.length === 1 ? '' : 's'}</strong>{names ? ` (${names}${lowStockItems.length > 2 ? '…' : ''})` : ''} need reordering.</>,
+      })
+    }
+    readyLabTests.slice(0,3).forEach(t => {
+      items.push({ icon: '📌', text: <>Lab result ready for <strong>{t.patient_name || 'patient'}</strong> ({t.test_name || 'test'}).</> })
+    })
+    if (todayApptCount > 0) {
+      items.push({ icon: '📅', text: <><strong>{todayApptCount}</strong> appointment{todayApptCount === 1 ? '' : 's'} scheduled for today.</> })
+    }
+    return items
+  }, [lowStockItems, readyLabTests, todayApptCount])
+
+  const recentMessageCount = useMemo(() => {
+    if (!profile?.id) return 0
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000
+    return (allMessages || []).filter(m =>
+      m.sender_id !== profile.id &&
+      (m.channel_type === 'department' || m.recipient_id === profile.id) &&
+      new Date(m.created_at).getTime() >= cutoff
+    ).length
+  }, [allMessages, profile?.id])
+
+  const upcoming = appointments
+    .filter(a => {
+      const d = new Date(a.appointment_time)
+      return !Number.isNaN(d.getTime()) && d >= new Date()
+    })
+    .sort((a,b) => new Date(a.appointment_time) - new Date(b.appointment_time))
+    .slice(0,5)
+
+  if(profile?.role === 'owner'){
+    window.location.href = '/owner'
+    return null
+  }
+
+  if(profile && profile.active === false){
     return (
-    <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.3 7-6.3s7 2.8 7 6.3"/></svg></div><div><div className="dash-stat-label">Waiting for Doctor</div><div className="dash-stat-value">{queue.length}</div><div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged</div></div></div>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg></div><div><div className="dash-stat-label">Completed</div><div className="dash-stat-value">{vitals.filter(v => v.status === 'completed').length}</div><div className="dash-stat-delta">total</div></div></div>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg></div><div style={{ flex: 1 }}><div className="dash-stat-label">Active Consultation</div><div className="dash-stat-value" style={{ fontSize: 17 }}>{activePatient?.full_name || 'None'}</div><div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select'}</div>{activePatient && (() => { const req = getActiveAdmissionRequest(activePatient.id); if (!req) return <button type="button" className="btn btn-ghost" style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }} onClick={() => setShowAdmissionModal(true)}>Recommend Admission</button>; const l = { pending: 'Requested', approved: 'Approved', converted: 'Admitted' }; const c = { pending: 'var(--gold)', approved: 'var(--teal)', converted: 'var(--teal)' }; return <div style={{ marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, color: c[req.status] || 'var(--muted)', background: 'var(--bg-elevated)', border: `1px solid ${c[req.status]}` }}>{l[req.status] || req.status}</div> })()}</div></div>
+      <div className="dash-account-state">
+        <div className="card">
+          <div className="dash-state-title">Account deactivated</div>
+          <div className="dash-state-text">
+            Your access has been deactivated by an administrator at {hospital?.name || 'your hospital'}. Contact them if you believe this is a mistake.
+          </div>
+          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
+        </div>
       </div>
+    )
+  }
 
-      <div className="dash-row dash-row-2">
-        <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Queue</div><div className="dash-panel-sub">Triaged patients</div></div></div>{loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : queue.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients waiting.</div> : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{queue.map(v => { const p = patients.find(pt => pt.id === v.patient_id); const isActive = activeVitalsId === v.id; return <div key={v.id} onClick={() => openConsultation(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '10px 14px', borderRadius: 10, background: isActive ? 'var(--teal-soft)' : 'var(--bg-elevated)', border: isActive ? '1px solid var(--teal)' : '1px solid var(--line-soft)' }}><div><div style={{ fontWeight: 700, color: isActive ? 'var(--teal)' : undefined }}>{p?.full_name || v.patient_name}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>BP {v.blood_pressure || '—'} · Pulse {v.pulse_rate || '—'}</div></div><span style={{ fontSize: 11, fontWeight: 700, color: v.urgency === 'Emergency' ? 'var(--danger)' : 'var(--gold)' }}>{v.urgency || 'Waiting'}</span></div> })}</div>}</div>
-        <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Recorded Vitals</div><div className="dash-panel-sub">{activePatient?.full_name || 'No patient selected'}</div></div></div>{!activeVitals ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Select a patient from the queue.</div> : <><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>{vitalRow('Blood Pressure', activeVitals.blood_pressure)}{vitalRow('Pulse', activeVitals.pulse_rate, 'bpm')}{vitalRow('Temperature', activeVitals.temperature, '°C')}{vitalRow('SpO2', activeVitals.spo2, '%')}{vitalRow('Resp Rate', activeVitals.respiratory_rate, 'bpm')}{vitalRow('Weight', activeVitals.weight, 'kg')}{vitalRow('Height', activeVitals.height, 'cm')}{vitalRow('Urgency', activeVitals.urgency)}</div>{activeVitals.nurse_notes && <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line-soft)', fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>Nurse note: "{activeVitals.nurse_notes}"</div>}</>}</div>
+  if(hospital && hospital.status !== 'active'){
+    return (
+      <div className="dash-account-state">
+        <div className="card">
+          <div className="dash-state-title">
+            {hospital.status === 'pending' ? 'Account pending approval' : 'Account suspended'}
+          </div>
+          <div className="dash-state-text">
+            {hospital.status === 'pending'
+              ? "Your hospital's account is being reviewed. You'll be able to log in fully once it's approved."
+              : 'Please contact the platform administrator for help.'}
+          </div>
+          <button className="btn btn-ghost" onClick={signOut}>Sign Out</button>
+        </div>
       </div>
+    )
+  }
 
-      {activeVitals && (
-        <>
-          <div className="dash-panel" style={{ marginTop: 20 }}>
-            <div className="dash-panel-head"><div><div className="dash-panel-title">History & Clinical Notes</div><div className="dash-panel-sub">Consultation record</div></div></div>
-            <div className="field"><label>Chief Complaint</label><textarea rows={2} value={chiefComplaints} onChange={e => setChiefComplaints(e.target.value)} placeholder="e.g. Fever and headache for 3 days" /></div>
-            <div className="field"><label>History of Presenting Complaint</label><textarea rows={3} value={historyPresenting} onChange={e => setHistoryPresenting(e.target.value)} placeholder="Onset, duration, character, associated symptoms…" /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field"><label>Past Medical History</label><textarea rows={2} value={pastMedicalHistory} onChange={e => setPastMedicalHistory(e.target.value)} placeholder="e.g. Hypertension diagnosed 2019" /></div>
-              <div className="field"><label>Past Surgical History</label><textarea rows={2} value={pastSurgicalHistory} onChange={e => setPastSurgicalHistory(e.target.value)} placeholder="e.g. Appendectomy 2015" /></div>
-              <div className="field"><label>Drug History</label><textarea rows={2} value={drugHistory} onChange={e => setDrugHistory(e.target.value)} placeholder="Current / regular medications" /></div>
-              <div className="field"><label>Allergy History</label><textarea rows={2} value={allergyHistory} onChange={e => setAllergyHistory(e.target.value)} placeholder="e.g. Penicillin — rash" /></div>
+  let currentSection = null
+
+  return (
+    <div className="dash-shell">
+      <div className={`dash-overlay ${drawerOpen ? 'show' : ''}`} onClick={() => setDrawerOpen(false)} />
+
+      <aside className={`dash-sidebar ${drawerOpen ? 'open' : ''}`}>
+        <div className="dash-brand">
+          <div className="dash-brand-mark">G</div>
+          <div>
+            <div className="dash-brand-name">{hospital?.name || 'Loading…'}</div>
+            <div className="dash-brand-sub">G-MedHub</div>
+          </div>
+        </div>
+
+        <nav className="dash-nav">
+          {visibleNavItems.map((item,i) => {
+            const showLabel = item.section !== currentSection
+            currentSection = item.section
+            return (
+              <div key={i}>
+                {showLabel && <div className="dash-nav-label">{item.section}</div>}
+                <div
+                  className={`dash-nav-item ${tab === item.key ? 'active' : ''}`}
+                  onClick={() => { setTab(item.key); setDrawerOpen(false) }}
+                >
+                  <Icon name={item.icon} size={17}/>
+                  <span>{item.label}</span>
+                </div>
+              </div>
+            )
+          })}
+        </nav>
+
+        <div className="dash-emergency">
+          <div className="dash-emergency-head">
+            <span>Master Goodnews</span>
+            <Icon name="phone" size={15}/>
+          </div>
+          <strong>+2348148364233</strong>
+          <small>The Builder</small>
+        </div>
+
+        <div className="dash-foot">
+          <div className="dash-foot-user">
+            <div className="dash-foot-avatar">
+              {(profile?.full_name || 'D').charAt(0).toUpperCase()}
             </div>
-            <div className="field"><label>Family / Social History</label><textarea rows={2} value={familySocialHistory} onChange={e => setFamilySocialHistory(e.target.value)} placeholder="Smoking, alcohol, occupation, family conditions…" /></div>
-            <div className="field"><label>Symptoms</label><TagAutocomplete options={SYMPTOM_OPTIONS} value={symptoms} onChange={setSymptoms} placeholder="Type to search symptoms, e.g. fev…" /></div>
-            <div className="field"><label>Diagnosis</label><TagAutocomplete options={DIAGNOSIS_OPTIONS} value={diagnoses} onChange={setDiagnoses} placeholder="Type to search diagnoses, e.g. mala…" /></div>
-            <div className="field"><label>Examination Findings</label><textarea rows={3} value={examinationFindings} onChange={e => setExaminationFindings(e.target.value)} placeholder="On examination…" /></div>
-            <div className="field"><label>Clinical Notes</label><textarea rows={3} value={clinicalNotes} onChange={e => setClinicalNotes(e.target.value)} placeholder="Additional notes…" /></div>
-            <div className="field"><label>Treatment Plan</label><textarea rows={2} value={treatmentPlan} onChange={e => setTreatmentPlan(e.target.value)} placeholder="e.g. Antipyretics, rest, review in 3 days" /></div>
-            <div className="field"><label>Follow-up Notes</label><textarea rows={2} value={followUpNotes} onChange={e => setFollowUpNotes(e.target.value)} placeholder="e.g. Return in 1 week, sooner if symptoms worsen" /></div>
+            <div className="dash-foot-user-info">
+              <div className="dash-foot-name">{profile?.full_name || 'Administrator'}</div>
+              <div className="dash-foot-role">{ROLE_LABELS[profile?.role] || 'Staff'}</div>
+            </div>
+            <span className="dash-foot-chevron">⌄</span>
+          </div>
+          <button className="btn btn-ghost dash-signout" onClick={signOut}>Sign Out</button>
+        </div>
+      </aside>
+
+      <main className="dash-main">
+        {/* Top Header Bar */}
+        <header className="dash-topbar">
+          <div className="dash-burger" onClick={() => setDrawerOpen(true)}>
+            <Icon name="menu" size={21}/>
           </div>
 
-          <div className="dash-row dash-row-2" style={{ marginTop: 20 }}>
-            <div className="dash-panel">
-              <div className="dash-panel-head"><div><div className="dash-panel-title">Lab Orders</div><div className="dash-panel-sub">Select all tests needed — sent as one request</div></div></div>
-              <form onSubmit={handleSendLabOrders}>
-                <div className="field">
-                  <label>Test(s) Requested</label>
-                  <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 10, background: 'var(--bg-elevated)' }}>
-                    {LAB_TEST_CATEGORIES.map(cat => (
-                      <div key={cat.category} style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{cat.category}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px' }}>
-                          {cat.tests.map(testItem => (
-                            <label key={testItem} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: 'var(--ivory)' }}>
-                              <input type="checkbox" checked={selectedLabTests.includes(testItem)} onChange={() => toggleLabTest(testItem)} />
-                              {testItem}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="field"><label>Other Tests</label><input value={otherLabTests} onChange={e => setOtherLabTests(e.target.value)} placeholder="Comma-separated, e.g. Special Stain" /></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="field">
-                    <label>Priority</label>
-                    <select value={labPriority} onChange={e => setLabPriority(e.target.value)}>
-                      <option value="routine">Routine</option>
-                      <option value="urgent">Urgent</option>
-                      <option value="stat">Stat (Very Urgent)</option>
-                    </select>
-                  </div>
-                  <div className="field"><label>Clinical Notes</label><input value={labNotes} onChange={e => setLabNotes(e.target.value)} placeholder="Optional" /></div>
-                </div>
-                {(() => {
-                  const extraCount = otherLabTests.split(',').map(s => s.trim()).filter(Boolean).length
-                  const total = selectedLabTests.length + extraCount
-                  return total > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>{total} test{total === 1 ? '' : 's'} selected</div>
-                })()}
-                <button type="submit" className="btn btn-primary" disabled={savingLabOrder || (selectedLabTests.length === 0 && !otherLabTests.trim())}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
-              </form>
-              {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: o.priority === 'stat' ? 'var(--danger)' : o.priority === 'urgent' ? 'var(--gold)' : 'var(--teal)' }} />{o.test_name}</span><span className="dash-legend-val">{o.status}</span></li>)}</ul>}
-            </div>
+          <div className="dash-search">
+            <Icon name="search" size={17}/>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search patients, invoices, appointments..."
+            />
+            <kbd>⌘ K</kbd>
+          </div>
 
-            <div className="dash-panel">
-              <div className="dash-panel-head"><div><div className="dash-panel-title">Prescription</div><div className="dash-panel-sub">Build medications</div></div></div>
-              <div className="field"><label>Load Template</label><div style={{ display: 'flex', gap: 8 }}><select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)} style={{ flex: 1 }}><option value="">Select…</option><optgroup label="Built-in">{DEFAULT_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>{hospitalTemplates.length > 0 && <optgroup label="Hospital">{hospitalTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>}</select><button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handleApplyTemplate} disabled={!selectedTemplateId}>Load</button></div></div>
+          {/* Interactive Actions Icons & Popovers */}
+          <div className="dash-top-actions" ref={headerMenuRef} style={{ position: 'relative' }}>
 
-              <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 14, marginTop: 6 }}>
-                <div className="field" style={{ position: 'relative' }}>
-                  <label>Drug / Medication Search</label>
-                  <input value={drugSearch} onChange={e => setDrugSearch(e.target.value)} placeholder="Search medication by generic or brand name..." />
-                  {drugSearchResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, marginTop: 4, zIndex: 10, maxHeight: 240, overflowY: 'auto' }}>
-                      {drugSearchResults.map(it => { const stock = Number(it.stock || 0); return <div key={it.global_med_id || it.id} onClick={() => selectDrug(it)} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)' }}><div style={{ fontWeight: 700, fontSize: 13 }}>{it.name}</div><div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 11, color: 'var(--muted)' }}>{it.generic} • {it.form || 'N/A'}</span><span style={{ fontSize: 11, color: stock > 0 ? 'var(--teal)' : 'var(--danger)', fontWeight: 700 }}>{stock > 0 ? `🟢 In Stock: ${stock}` : '🔴 Out of Stock'}</span></div></div> })}
-                    </div>
-                  )}
-                </div>
+            <LiveClock />
 
-                {medBuilder.availability_status === 'UNAVAILABLE' && (
-                  <div style={{ border: '1px solid var(--danger)', background: 'rgba(235,87,87,0.05)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-                    <div style={{ color: 'var(--danger)', fontWeight: 800, marginBottom: 6 }}>🔴 Medication Unavailable</div>
-                    <div style={{ fontSize: 13, marginBottom: 8 }}>This medication is not available in the hospital.</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Current hospital stock: 0</div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button type="button" className="btn btn-primary" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setMedBuilder(b => ({ ...b, accepted_unavailable: true }))}>Continue Prescribing</button>
-                      <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12, border: '1px solid var(--danger)', color: 'var(--danger)' }} onClick={resetMedBuilder}>Remove Medication</button>
-                    </div>
+            {/* 1. Theme Toggle */}
+            <button 
+              className="dash-icon-btn" 
+              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              onClick={toggleTheme}
+            >
+              <Icon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
+            </button>
+
+            {/* 2. Notifications Bell Popover */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                className="dash-icon-btn dash-notify" 
+                title="Notifications"
+                onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
+              >
+                <Icon name="bell" size={18}/>
+                {notificationItems.length > 0 && <span>{notificationItems.length}</span>}
+              </button>
+
+              {activeMenu === 'notifs' && (
+                <div className="dash-popover-menu">
+                  <div className="dash-popover-header">Notifications ({notificationItems.length})</div>
+                  <div className="dash-popover-body">
+                    {notificationItems.length > 0 ? notificationItems.map((n, i) => (
+                      <div className="dash-popover-item" key={i}>{n.icon} {n.text}</div>
+                    )) : (
+                      <div className="dash-popover-item" style={{ color: 'var(--muted)' }}>You're all caught up — nothing needs attention right now.</div>
+                    )}
                   </div>
-                )}
-                {medBuilder.accepted_unavailable && <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 12, fontWeight: 700 }}>⚠ UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
-                {medBuilder.availability_status === 'AVAILABLE' && medBuilder.drugName && <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 12, fontWeight: 700 }}>🟢 AVAILABLE (Hospital Stock: {medBuilder.stock_at_prescription})</div>}
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="field"><label>Dose</label><input value={medBuilder.dose} onChange={e => setMedBuilder(b => ({ ...b, dose: e.target.value }))} placeholder="e.g. 500 mg" /></div>
-                  <div className="field"><label>Route</label><select value={medBuilder.route} onChange={e => setMedBuilder(b => ({ ...b, route: e.target.value }))}><option value="">Select route…</option>{ROUTE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                  <div className="field"><label>Frequency</label><select value={medBuilder.frequency} onChange={e => setMedBuilder(b => ({ ...b, frequency: e.target.value }))}><option value="">Select frequency…</option>{FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
-                  {medBuilder.frequency === 'Custom' && <div className="field"><label>Custom Freq</label><input value={medBuilder.frequencyCustom} onChange={e => setMedBuilder(b => ({ ...b, frequencyCustom: e.target.value }))} placeholder="e.g. Every other day" /></div>}
-                  <div className="field"><label>Duration</label><input value={medBuilder.duration} onChange={e => setMedBuilder(b => ({ ...b, duration: e.target.value }))} placeholder="e.g. 7 days" /></div>
-                  <div className="field"><label>Quantity</label><input value={medBuilder.quantity} onChange={e => setMedBuilder(b => ({ ...b, quantity: e.target.value }))} placeholder="e.g. 21 tablets" /></div>
-                </div>
-                <div className="field"><label>Instructions</label><input value={medBuilder.instructions} onChange={e => setMedBuilder(b => ({ ...b, instructions: e.target.value }))} placeholder="e.g. Take 1 tablet after meals" /></div>
-                <button type="button" className="btn btn-primary" onClick={handleAddOrUpdateMedToDraft}>{editingMedLocalId ? 'Update Medication' : '+ Add Medication'}</button>
-                {editingMedLocalId && <button type="button" className="btn btn-ghost" style={{ marginTop: 8 }} onClick={resetMedBuilder}>Cancel Edit</button>}
-              </div>
-
-              {medications.length > 0 && (
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>Medications ({medications.length})</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {medications.map(m => (
-                      <div key={m.localId} style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{m.drugName}</div>
-                            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{m.dose} · {m.route || '—'} · {m.frequency}{m.duration ? ` · ${m.duration}` : ''}</div>
-                            {m.availability_status === 'AVAILABLE' && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 6, fontWeight: 700 }}>🟢 AVAILABLE</div>}
-                            {m.availability_status === 'UNAVAILABLE' && m.accepted_unavailable && <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6, fontWeight: 700 }}>⚠ UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
-                          </div>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button type="button" onClick={() => handleEditMed(m)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>Edit</button>
-                            <button type="button" onClick={() => handleRemoveMed(m)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--danger)', borderRadius: 8, width: 28, height: 28, cursor: 'pointer' }}>✕</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setShowPreview(s => !s)}>{showPreview ? 'Hide' : 'Preview'}</button>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => handleSavePrescriptions('draft')} disabled={savingPrescriptions}>Save Draft</button>
-                    <button type="button" className="btn btn-primary" style={{ width: 'auto' }} onClick={() => handleSavePrescriptions('active')} disabled={savingPrescriptions}>Finalize</button>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handlePrint}>Print</button>
-                    <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handleSaveAsTemplate}>Save as Template</button>
-                  </div>
-                  {showPreview && <div style={{ marginTop: 16, padding: 16, borderRadius: 10, background: 'var(--bg-elevated)' }}><ol style={{ paddingLeft: 20 }}>{medications.map(m => <li key={m.localId} style={{ fontSize: 13.5, marginBottom: 8 }}><strong>{m.drugName}</strong> - {m.dose} {m.route} {m.frequency}</li>)}</ol></div>}
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="dash-panel" style={{ marginTop: 20 }}>
-            <div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Summary</div></div></div>
-            <div>{summaryRow('Patient', activePatient?.full_name)}{summaryRow('History', historySummary)}{summaryRow('Symptoms', symptoms.map(s => s.label).join(', '))}{summaryRow('Vitals', `BP ${activeVitals.blood_pressure || '—'} · Pulse ${activeVitals.pulse_rate || '—'}`)}{summaryRow('Diagnosis', diagnoses.map(d => d.label).join(', '))}{summaryRow('Prescription', medications.map(m => m.drugName).join('; '))}{summaryRow('Plan', treatmentPlan)}</div>
-          </div>
+            {/* 3. Messages */}
+            <button
+              className="dash-icon-btn dash-notify dash-message"
+              title="Messages"
+              onClick={() => { setTab('messages'); setActiveMenu(null) }}
+            >
+              <Icon name="chat" size={18}/>
+              {recentMessageCount > 0 && <span>{recentMessageCount > 9 ? '9+' : recentMessageCount}</span>}
+            </button>
 
-          <div className="dash-panel" style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><div className="dash-panel-title">Finish Up</div><div className="dash-panel-sub">Finalizes meds and completes visit</div></div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-ghost" onClick={clearWorkbench}>Cancel</button>
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleCompleteConsultation} disabled={completing}>{completing ? 'Completing…' : 'Complete Consultation'}</button>
+            <div className="dash-hospital-selector">
+              <Icon name="building" size={17}/>
+              <span>{hospital?.name || 'Hallel Hospital'}</span>
+              <span className="dash-chevron">⌄</span>
             </div>
           </div>
-        </>
+        </header>
+
+        <div className="dash-content">
+          {stuckTables.length > 0 && (
+            <div className="dash-sync-alert">
+              <div>
+                <strong>⚠ Sync needs attention</strong>
+                <span>{stuckTables.length} table{stuckTables.length > 1 ? 's' : ''} has pending records.</span>
+              </div>
+              <button onClick={() => setSyncPanelOpen(v => !v)}>Review</button>
+            </div>
+          )}
+
+          {syncPanelOpen && stuckTables.length > 0 && (
+            <div className="dash-sync-panel">
+              <div className="dash-panel-title">Sync queue</div>
+              {stuckTables.map(err => (
+                <div className="dash-sync-item" key={err.table}>
+                  <div>
+                    <strong>{err.table}</strong>
+                    <small>{err.queueLength} item{err.queueLength === 1 ? '' : 's'} waiting</small>
+                    <code>{err.message}</code>
+                  </div>
+                  <div>
+                    <button className="btn btn-ghost" disabled={syncActionBusy} onClick={() => handleRetrySync(err.table)}>Retry</button>
+                    <button className="btn btn-ghost dash-danger-btn" disabled={syncActionBusy} onClick={() => handleSkipStuck(err.table)}>Skip</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === 'overview' && (
+            <>
+              <section className="dash-welcome">
+                <div>
+                  <h1>Welcome back, {profile?.full_name ? `Dr. ${profile.full_name.replace(/^Dr\.\s*/i,'')}` : 'Doctor'} <span>👋</span></h1>
+                  <p>Here's what's happening at {hospital?.name || 'your hospital'} today.</p>
+                </div>
+                <div className="dash-date-card">
+                  <Icon name="calendar" size={18}/>
+                  <div>
+                    <strong>{new Date().toLocaleDateString('en-NG',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</strong>
+                    <span>{new Date().toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</span>
+                  </div>
+                </div>
+              </section>
+
+              <section className="dash-stats premium-stats">
+                <div className="dash-stat-card premium-stat teal-stat">
+                  <div className="dash-stat-top">
+                    <div className="dash-stat-icon"><Icon name="users" size={20}/></div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 28 C12 18 18 31 28 23 S40 6 50 22 S64 29 72 14 S82 19 88 12"/></svg>
+                  </div>
+                  <div className="dash-stat-label">Total Patients</div>
+                  <div className="dash-stat-value">{patients.length.toLocaleString()}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Live patient count</div>
+                </div>
+
+                <div className="dash-stat-card premium-stat violet-stat">
+                  <div className="dash-stat-top">
+                    <div className="dash-stat-icon"><Icon name="calendar" size={20}/></div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"/></svg>
+                  </div>
+                  <div className="dash-stat-label">Appointments</div>
+                  <div className="dash-stat-value">{todayApptCount}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> {upcomingApptCount} upcoming</div>
+                </div>
+
+                <div className="dash-stat-card premium-stat gold-stat">
+                  <div className="dash-stat-top">
+                    <div className="dash-stat-icon money-icon">₦</div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 29 C10 27 16 30 24 21 S36 26 44 28 S54 7 64 22 S76 16 88 10"/></svg>
+                  </div>
+                  <div className="dash-stat-label">Today's Revenue</div>
+                  <div className="dash-stat-value">{formatMoney(revenueCollected)}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Collected to date</div>
+                </div>
+
+                <div className="dash-stat-card premium-stat red-stat">
+                  <div className="dash-stat-top">
+                    <div className="dash-stat-icon"><Icon name="billing" size={20}/></div>
+                    <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 17 C13 12 20 22 30 18 S45 28 56 19 S72 25 88 12"/></svg>
+                  </div>
+                  <div className="dash-stat-label">Pending Bills</div>
+                  <div className="dash-stat-value">{Math.max(0, Math.round(revenueOutstanding > 0 ? revenueOutstanding / 10000 : 0))}</div>
+                  <div className="dash-stat-delta negative"><Icon name="arrowDown" size={12}/> {formatMoney(revenueOutstanding)} outstanding</div>
+                </div>
+              </section>
+
+              <section className="dash-main-grid">
+                <div className="dash-panel dash-patient-chart">
+                  <div className="dash-panel-head">
+                    <div>
+                      <div className="dash-panel-title">Patient Overview</div>
+                      <div className="dash-chart-legend">
+                        <span><i className="legend-teal"/> New Patients</span>
+                        <span><i className="legend-violet"/> Returning Patients</span>
+                      </div>
+                    </div>
+                    <select className="dash-filter"><option>This Month</option><option>Last Month</option><option>This Year</option></select>
+                  </div>
+                  <div className="dash-large-chart">
+                    <svg viewBox="0 0 620 250" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#00C7C7" stopOpacity=".28"/>
+                          <stop offset="100%" stopColor="#00C7C7" stopOpacity="0"/>
+                        </linearGradient>
+                        <linearGradient id="violetArea" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#7657E8" stopOpacity=".22"/>
+                          <stop offset="100%" stopColor="#7657E8" stopOpacity="0"/>
+                        </linearGradient>
+                      </defs>
+                      {[45,95,145,195].map(y => <line key={y} x1="0" x2="620" y1={y} y2={y} className="chart-grid-line"/>)}
+                      <text x="4" y="48">80</text><text x="4" y="98">60</text><text x="4" y="148">40</text><text x="4" y="198">20</text><text x="7" y="237">0</text>
+                      <path className="chart-area-teal" d="M35 180 C55 110 72 150 91 155 S122 128 140 137 S164 92 183 126 S210 95 230 152 S257 177 276 88 S302 105 319 123 S341 42 359 83 S385 57 405 122 S432 152 449 103 S474 126 492 94 S516 58 537 96 S567 78 610 106 L610 225 L35 225 Z"/>
+                      <path className="chart-area-violet" d="M35 174 C55 104 72 143 91 154 S121 119 140 132 S165 106 183 139 S210 111 230 168 S255 176 276 148 S301 127 319 145 S341 126 359 140 S383 124 405 155 S432 169 449 144 S475 160 492 130 S516 144 537 126 S570 112 610 135 L610 225 L35 225 Z"/>
+                      <path className="chart-line-teal" d="M35 180 C55 110 72 150 91 155 S122 128 140 137 S164 92 183 126 S210 95 230 152 S257 177 276 88 S302 105 319 123 S341 42 359 83 S385 57 405 122 S432 152 449 103 S474 126 492 94 S516 58 537 96 S567 78 610 106"/>
+                      <path className="chart-line-violet" d="M35 174 C55 104 72 143 91 154 S121 119 140 132 S165 106 183 139 S210 111 230 168 S255 176 276 148 S301 127 319 145 S341 126 359 140 S383 124 405 155 S432 169 449 144 S475 160 492 130 S516 144 537 126 S570 112 610 135"/>
+                    </svg>
+                    <div className="chart-x-labels">{['Aug 1','Aug 5','Aug 10','Aug 15','Aug 20','Aug 25','Aug 30'].map(x => <span key={x}>{x}</span>)}</div>
+                  </div>
+                </div>
+
+                <div className="dash-panel dash-department">
+                  <div className="dash-panel-head">
+                    <div className="dash-panel-title">Department Activity</div>
+                  </div>
+                  <div className="dash-dept-content">
+                    <div className="dash-donut" style={{background:'conic-gradient(#7657E8 0 25%, #E8B82E 25% 41%, #3B82F6 41% 55%, #00C7C7 55% 67%, #2E7D75 67% 78%, #00A6A6 78% 100%)'}}>
+                      <div><span>Total</span><strong>{Math.max(0, patients.length)}</strong></div>
+                    </div>
+                    <div className="dash-dept-list">
+                      {[
+                        ['Outpatient','#00C7C7',Math.round(patients.length*.25)],
+                        ['Maternity','#7657E8',Math.round(patients.length*.21)],
+                        ['Laboratory','#E8B82E',Math.round(patients.length*.16)],
+                        ['Pharmacy','#3B82F6',Math.round(patients.length*.14)],
+                        ['Radiology','#2E7D75',Math.round(patients.length*.12)],
+                        ['Other','#6A8F91',Math.round(patients.length*.11)],
+                      ].map(([label,color,count]) => (
+                        <div className="dash-dept-row" key={label}>
+                          <span><i style={{background:color}}/>{label}</span>
+                          <b>{count}</b>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="dash-panel dash-appointments">
+                  <div className="dash-panel-head">
+                    <div className="dash-panel-title">Upcoming Appointments</div>
+                    <button className="dash-view-all" onClick={() => setTab('appointments')}>View all</button>
+                  </div>
+                  <div className="dash-appt-list">
+                    {upcoming.length > 0 ? upcoming.map((a,i) => {
+                      const d = new Date(a.appointment_time)
+                      return (
+                        <div className="dash-appt-row" key={a.id || i}>
+                          <strong>{d.toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</strong>
+                          <div><b>{appointmentName(a)}</b><span>{appointmentReason(a)}</span></div>
+                          <em className={a.status || 'scheduled'}>{a.status || 'Scheduled'}</em>
+                        </div>
+                      )
+                    }) : (
+                      <div className="dash-empty-state">No upcoming appointments recorded yet</div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
+
+          {/* Other tab routing components */}
+          {tab === 'appointments' && <Appointments />}
+          {tab === 'patients' && (
+            profilePatientId ? (
+              <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
+            ) : (
+              <>
+                {/* NEW: ATTENDED TODAY SECTION */}
+                {patientsSeenToday.length > 0 && (
+                  <div className="dash-panel" style={{ marginBottom: 16, borderColor: 'var(--teal)' }}>
+                    <div className="dash-panel-head">
+                      <div>
+                        <div className="dash-panel-title" style={{ color: 'var(--teal)', fontSize: 14 }}>Attended Today ({patientsSeenToday.length})</div>
+                        <div className="dash-panel-sub">Quick access to patients seen today</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', flexWrap: 'wrap' }}>
+                      {patientsSeenToday.map(p => (
+                        <div 
+                          key={p.id} 
+                          onClick={() => setProfilePatientId(p.id)} 
+                          style={{ 
+                            padding: '8px 14px', 
+                            background: 'var(--bg-elevated)', 
+                            border: '1px solid var(--teal)', 
+                            borderRadius: 20, 
+                            cursor: 'pointer', 
+                            fontSize: 13, 
+                            fontWeight: 700, 
+                            color: 'var(--teal)' 
+                          }}
+                        >
+                          {p.full_name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="dash-panel">
+                  <div className="dash-panel-head dash-panel-head-wrap">
+                    <div>
+                      <div className="dash-panel-title">All Patients</div>
+                      <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
+                    </div>
+                    <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                  </div>
+
+                  {loading ? (
+                    <div className="dash-empty-state">Loading…</div>
+                  ) : filteredPatients.length === 0 ? (
+                    <div className="dash-empty-state">
+                      {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
+                    </div>
+                  ) : (
+                    <div className="dash-table-wrap">
+                      <table className="dash-full-table">
+                        <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+                        <tbody>
+                          {filteredPatients.map(p => (
+                            <tr key={p.id}>
+                              <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
+                              <td>{p.age}</td>
+                              <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                              <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
+                              <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            )
+          )}
+          {tab === 'reception' && <Reception />}
+          {tab === 'billing' && <Billing />}
+          {tab === 'laboratory' && <Laboratory />}
+          {tab === 'pharmacy' && <Pharmacy />}
+          {tab === 'radiology' && <Radiology />}
+          {tab === 'inventory' && <Inventory />}
+          {tab === 'staff' && <Staff />}
+          {tab === 'doctor' && <DoctorWorkbench />}
+          {tab === 'nursing' && <Nursing />}
+          {tab === 'ipd' && <IPD />}
+          {tab === 'admissions' && <Admissions />}
+          {tab === 'insurance' && <Insurance />}
+          {tab === 'reports' && <Reports />}
+          {tab === 'notifications' && <Notifications />}
+          {tab === 'roster' && <DutyRoster />}
+          {tab === 'messages' && <Messages />}
+          {tab === 'settings' && <Settings />}
+
+        </div>
+      </main>
+
+      {showModal && (
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal">
+            <div className="dash-modal-title">Register Patient</div>
+            <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
+              <div className="dash-modal-body">
+                <div className="dash-field-grid">
+                  <div className="field"><label>Surname</label><input value={form.surname} onChange={e => setField('surname', e.target.value)} placeholder="e.g. Okafor"/></div>
+                  <div className="field"><label>Other Names</label><input value={form.otherNames} onChange={e => setField('otherNames', e.target.value)} placeholder="e.g. Chinedu"/></div>
+
+                  <div className="field"><label>Phone</label><input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="e.g. 08012345678"/></div>
+                  <div className="field"><label>Email</label><input type="email" value={form.email} onChange={e => setField('email', e.target.value)} placeholder="optional"/></div>
+
+                  <div className="field">
+                    <label>Gender</label>
+                    <select value={form.gender} onChange={e => setField('gender', e.target.value)}>
+                      <option value="">—</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Marital Status</label>
+                    <select value={form.maritalStatus} onChange={e => setField('maritalStatus', e.target.value)}>
+                      <option value="">—</option>
+                      {MARITAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field"><label>Date of Birth</label><input type="date" value={form.dateOfBirth} onChange={e => handleDobChange(e.target.value)}/></div>
+                  <div className="field"><label>Age</label><input value={form.age} readOnly placeholder="Auto-calculated" style={{ opacity: 0.75 }}/></div>
+
+                  <div className="field">
+                    <label>Blood Group</label>
+                    <select value={form.bloodGroup} onChange={e => setField('bloodGroup', e.target.value)}>
+                      <option value="">—</option>
+                      {BLOOD_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Genotype</label>
+                    <select value={form.genotype} onChange={e => setField('genotype', e.target.value)}>
+                      <option value="">—</option>
+                      {GENOTYPES.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Nationality</label>
+                    <select value={form.nationality} onChange={e => setField('nationality', e.target.value)}>
+                      <option value="">—</option>
+                      {AFRICAN_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>State of Origin</label>
+                    <select value={form.stateOfOrigin} onChange={e => setField('stateOfOrigin', e.target.value)}>
+                      <option value="">—</option>
+                      {NIGERIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field"><label>Occupation</label><input value={form.occupation} onChange={e => setField('occupation', e.target.value)} placeholder="e.g. Trader"/></div>
+                  <div className="field">
+                    <label>Religion</label>
+                    <select value={form.religion} onChange={e => setField('religion', e.target.value)}>
+                      <option value="">—</option>
+                      {RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Category / Folder</label>
+                    <select value={form.category} onChange={e => setField('category', e.target.value)}>
+                      <option value="">—</option>
+                      {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Status</label>
+                    <select value={status} onChange={e => setStatus(e.target.value)}>
+                      <option value="stable">Stable</option>
+                      <option value="review">In Review</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="field"><label>Home Address</label><input value={form.homeAddress} onChange={e => setField('homeAddress', e.target.value)} placeholder="e.g. 12 Aba Road, Port Harcourt"/></div>
+
+                {form.category === 'anc' && (
+                  <>
+                    <div className="dash-modal-title" style={{ fontSize: 14, marginTop: 6 }}>ANC Details</div>
+                    <div className="dash-field-grid">
+                      <div className="field"><label>Special Point</label><input value={form.ancSpecialPoint} onChange={e => setField('ancSpecialPoint', e.target.value)}/></div>
+                      <div className="field"><label>Date of Booking</label><input type="date" value={form.ancDateOfBooking} onChange={e => setField('ancDateOfBooking', e.target.value)}/></div>
+                      <div className="field"><label>Indication</label><input value={form.ancIndication} onChange={e => setField('ancIndication', e.target.value)}/></div>
+                      <div className="field"><label>LMP</label><input type="date" value={form.ancLmp} onChange={e => setField('ancLmp', e.target.value)}/></div>
+                      <div className="field"><label>EDD</label><input type="date" value={form.ancEdd} onChange={e => setField('ancEdd', e.target.value)}/></div>
+                      <div className="field"><label>Husband's Name</label><input value={form.ancHusbandName} onChange={e => setField('ancHusbandName', e.target.value)}/></div>
+                      <div className="field"><label>Husband's Occupation</label><input value={form.ancHusbandOccupation} onChange={e => setField('ancHusbandOccupation', e.target.value)}/></div>
+                      <div className="field"><label>Employer</label><input value={form.ancEmployer} onChange={e => setField('ancEmployer', e.target.value)}/></div>
+                    </div>
+                  </>
+                )}
+
+                <div className="dash-modal-title" style={{ fontSize: 14, marginTop: 6 }}>Next of Kin</div>
+                <div className="dash-field-grid">
+                  <div className="field"><label>Name</label><input value={form.nokName} onChange={e => setField('nokName', e.target.value)}/></div>
+                  <div className="field"><label>Relationship</label><input value={form.nokRelationship} onChange={e => setField('nokRelationship', e.target.value)}/></div>
+                  <div className="field"><label>Phone</label><input value={form.nokPhone} onChange={e => setField('nokPhone', e.target.value)}/></div>
+                  <div className="field"><label>Address</label><input value={form.nokAddress} onChange={e => setField('nokAddress', e.target.value)}/></div>
+                </div>
+              </div>
+
+              <div className="dash-modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Patient'}</button></div>
+            </form>
+          </div>
+        </div>
       )}
 
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
-      {showAdmissionModal && activePatient && <AdmissionRequestModal patient={activePatient} consultationId={activeVitals?.id} prefillDiagnosis={diagnoses.map(d => d.label).join(', ')} onSubmit={handleSubmitAdmissionRequest} onClose={() => setShowAdmissionModal(false)} />}
-    </>
+      {pending ? (
+        <div className="dash-toast dash-undo-toast">
+          <span>{pending.patient.full_name} removed ({pending.secondsLeft}s)</span>
+          <button onClick={handleUndo}>Undo</button>
+        </div>
+      ) : toast && (
+        <div className="dash-toast">{toast}</div>
+      )}
+
+      {/* Popover Menu Styling */}
+      <style>{`
+        .dash-popover-menu {
+          position: absolute;
+          top: 42px;
+          right: 0;
+          width: 280px;
+          background: var(--bg-elevated);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+          z-index: 100;
+          overflow: hidden;
+        }
+        .dash-popover-header {
+          padding: 10px 14px;
+          font-size: 12px;
+          font-weight: 600;
+          background: var(--bg-card-hover);
+          border-bottom: 1px solid var(--line);
+          color: var(--ivory);
+        }
+        .dash-popover-body {
+          max-height: 220px;
+          overflow-y: auto;
+        }
+        .dash-popover-item {
+          padding: 10px 14px;
+          font-size: 12px;
+          border-bottom: 1px solid var(--line);
+          color: var(--muted);
+          line-height: 1.4;
+        }
+        .dash-popover-item:last-child {
+          border-bottom: none;
+        }
+      `}</style>
+
+    </div>
   )
 }
