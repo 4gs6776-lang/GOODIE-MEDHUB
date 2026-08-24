@@ -16,6 +16,17 @@ const GLOBAL_MEDICATIONS = [
   // Can be expanded or moved to a database table later
 ]
 
+// Matches the hospital's printed Laboratory Test Request Form categories,
+// so a doctor can select several tests at once instead of one at a time.
+const LAB_TEST_CATEGORIES = [
+  { category: 'Haematology', tests: ['Full Blood Count (FBC)', 'ESR', 'Peripheral Smear', 'Bleeding Time', 'Clotting Time', 'PCV/Haematocrit', 'Blood Group & Rh'] },
+  { category: 'Chemistry', tests: ['Fasting Blood Sugar', 'Random Blood Sugar', 'HbA1c', 'Urea', 'Creatinine', 'Uric Acid', 'Lipid Profile', 'Liver Function Test', 'Electrolytes (Na, K, Cl, HCO3)', 'Calcium', 'Phosphorus'] },
+  { category: 'Serology / Immunology', tests: ['HIV 1 & 2', 'Hepatitis B (HBsAg)', 'Hepatitis C (HCV)', 'VDRL', 'Widal Test', 'ASO Titre', 'CRP', 'RF Factor', 'Malaria Parasite', 'Typhoid IgM / IgG', 'Dengue NS1 / IgM / IgG'] },
+  { category: 'Microbiology', tests: ['Urine MCS', 'Stool MCS', 'Sputum MCS', 'Wound Swab MCS', 'Blood Culture', 'High Vaginal Swab', 'GeneXpert (TB)'] },
+  { category: 'Urinalysis', tests: ['Urinalysis (Routine)', 'Pregnancy Test (Urine)', 'Microalbumin'] },
+  { category: 'Parasitology', tests: ['Stool Ova & Parasite', 'Malaria Parasite (Stool/Blood)'] },
+]
+
 const EMPTY_MED = { 
   inventory_item_id: null, global_med_id: null, drugName: '', dose: '', route: '', frequency: '', frequencyCustom: '', 
   duration: '', quantity: '', instructions: '', stock_at_prescription: 0, 
@@ -54,7 +65,9 @@ export default function DoctorWorkbench() {
   const [symptoms, setSymptoms] = useState([])
   const [diagnoses, setDiagnoses] = useState([])
 
-  const [labTestName, setLabTestName] = useState('')
+  const [selectedLabTests, setSelectedLabTests] = useState([])
+  const [otherLabTests, setOtherLabTests] = useState('')
+  const [labPriority, setLabPriority] = useState('routine')
   const [labNotes, setLabNotes] = useState('')
   const [savingLabOrder, setSavingLabOrder] = useState(false)
 
@@ -153,20 +166,44 @@ export default function DoctorWorkbench() {
   function clearWorkbench() {
     setActiveVitalsId(null); setChiefComplaints(''); setHistoryPresenting(''); setPastMedicalHistory(''); setPastSurgicalHistory('')
     setDrugHistory(''); setAllergyHistory(''); setFamilySocialHistory(''); setExaminationFindings(''); setClinicalNotes('')
-    setTreatmentPlan(''); setFollowUpNotes(''); setSymptoms([]); setDiagnoses([]); setLabTestName(''); setLabNotes('')
+    setTreatmentPlan(''); setFollowUpNotes(''); setSymptoms([]); setDiagnoses([]); setSelectedLabTests([]); setOtherLabTests(''); setLabPriority('routine'); setLabNotes('')
     setMedications([]); resetMedBuilder(); setSelectedTemplateId(''); setShowPreview(false)
   }
 
   function resetMedBuilder() { setMedBuilder(EMPTY_MED); setEditingMedLocalId(null); setDrugSearch('') }
 
-  async function handleAddLabOrder(e) {
+  function toggleLabTest(name) {
+    setSelectedLabTests(prev => prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name])
+  }
+
+  async function handleSendLabOrders(e) {
     e.preventDefault()
-    if (!activeVitals || !labTestName) return
+    const extras = otherLabTests.split(',').map(s => s.trim()).filter(Boolean)
+    const allTests = [...selectedLabTests, ...extras]
+    if (!activeVitals || allTests.length === 0) return
     if (!hospital || !profile) return showToast('Still loading your account...')
     setSavingLabOrder(true)
     try {
-      await addLabOrder({ patient_vitals_id: activeVitals.id, patient_name: activePatient?.full_name || 'Unknown', test_name: labTestName, notes: labNotes || null, status: 'requested', requested_at: new Date().toISOString(), created_by: profile.id })
-      setLabTestName(''); setLabNotes(''); showToast('Lab order sent')
+      // Every test in this submission shares one request_group id, so
+      // Laboratory can treat them as a single request even though each
+      // test is still its own row (needed for individual result entry).
+      const requestGroup = crypto.randomUUID()
+      for (const testName of allTests) {
+        await addLabOrder({
+          patient_vitals_id: activeVitals.id,
+          patient_id: activePatient?.id || null,
+          patient_name: activePatient?.full_name || 'Unknown',
+          test_name: testName,
+          notes: labNotes || null,
+          priority: labPriority,
+          request_group: requestGroup,
+          status: 'requested',
+          requested_at: new Date().toISOString(),
+          created_by: profile.id,
+        })
+      }
+      setSelectedLabTests([]); setOtherLabTests(''); setLabPriority('routine'); setLabNotes('')
+      showToast(`${allTests.length} lab test${allTests.length === 1 ? '' : 's'} sent to laboratory`)
     } catch (err) { showToast(err.message) } finally { setSavingLabOrder(false) }
   }
 
@@ -330,13 +367,46 @@ export default function DoctorWorkbench() {
 
           <div className="dash-row dash-row-2" style={{ marginTop: 20 }}>
             <div className="dash-panel">
-              <div className="dash-panel-head"><div><div className="dash-panel-title">Lab Orders</div><div className="dash-panel-sub">Request tests</div></div></div>
-              <form onSubmit={handleAddLabOrder}>
-                <div className="field"><label>Test Name</label><input value={labTestName} onChange={e => setLabTestName(e.target.value)} placeholder="e.g. Full Blood Count" /></div>
-                <div className="field"><label>Notes</label><input value={labNotes} onChange={e => setLabNotes(e.target.value)} placeholder="Optional" /></div>
-                <button type="submit" className="btn btn-primary" disabled={savingLabOrder}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
+              <div className="dash-panel-head"><div><div className="dash-panel-title">Lab Orders</div><div className="dash-panel-sub">Select all tests needed — sent as one request</div></div></div>
+              <form onSubmit={handleSendLabOrders}>
+                <div className="field">
+                  <label>Test(s) Requested</label>
+                  <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 10, background: 'var(--bg-elevated)' }}>
+                    {LAB_TEST_CATEGORIES.map(cat => (
+                      <div key={cat.category} style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{cat.category}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px' }}>
+                          {cat.tests.map(testItem => (
+                            <label key={testItem} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: 'var(--ivory)' }}>
+                              <input type="checkbox" checked={selectedLabTests.includes(testItem)} onChange={() => toggleLabTest(testItem)} />
+                              {testItem}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="field"><label>Other Tests</label><input value={otherLabTests} onChange={e => setOtherLabTests(e.target.value)} placeholder="Comma-separated, e.g. Special Stain" /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="field">
+                    <label>Priority</label>
+                    <select value={labPriority} onChange={e => setLabPriority(e.target.value)}>
+                      <option value="routine">Routine</option>
+                      <option value="urgent">Urgent</option>
+                      <option value="stat">Stat (Very Urgent)</option>
+                    </select>
+                  </div>
+                  <div className="field"><label>Clinical Notes</label><input value={labNotes} onChange={e => setLabNotes(e.target.value)} placeholder="Optional" /></div>
+                </div>
+                {(() => {
+                  const extraCount = otherLabTests.split(',').map(s => s.trim()).filter(Boolean).length
+                  const total = selectedLabTests.length + extraCount
+                  return total > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>{total} test{total === 1 ? '' : 's'} selected</div>
+                })()}
+                <button type="submit" className="btn btn-primary" disabled={savingLabOrder || (selectedLabTests.length === 0 && !otherLabTests.trim())}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
               </form>
-              {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: 'var(--gold)' }} />{o.test_name}</span><span className="dash-legend-val">{o.status}</span></li>)}</ul>}
+              {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: o.priority === 'stat' ? 'var(--danger)' : o.priority === 'urgent' ? 'var(--gold)' : 'var(--teal)' }} />{o.test_name}</span><span className="dash-legend-val">{o.status}</span></li>)}</ul>}
             </div>
 
             <div className="dash-panel">
