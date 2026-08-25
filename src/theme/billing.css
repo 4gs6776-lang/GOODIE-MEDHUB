@@ -1,0 +1,85 @@
+/* =========================================================
+   BILLING MODULE — premium additions
+   Everything else (stat cards, tables, modals) reuses the
+   app's existing dash-stats / dash-modal / dash-table system
+   from dashboard.css. This file only adds the handful of
+   patterns unique to billing: the icon header badge, the
+   selectable charge rows, and the payment-method chip picker.
+   ========================================================= */
+
+.billing-header-badge{
+  width:44px; height:44px; border-radius:12px; flex-shrink:0;
+  background:var(--teal-soft); border:1px solid var(--teal-border); color:var(--teal);
+  display:flex; align-items:center; justify-content:center;
+}
+
+.billing-live-dot{
+  width:7px; height:7px; border-radius:50%; display:inline-block;
+  background:var(--teal); box-shadow:0 0 0 3px var(--teal-soft);
+}
+.billing-live-dot.offline{ background:var(--danger); box-shadow:0 0 0 3px var(--danger-soft); }
+
+/* Charge selection rows inside the Cashier Workspace */
+.billing-charge-row{
+  display:flex; align-items:center; gap:12px;
+  padding:12px 14px; border-radius:10px;
+  background:var(--bg-elevated);
+  border:1px solid transparent;
+  transition:border-color .15s, background .15s;
+}
+.billing-charge-row.selected{
+  border-color:var(--teal-border);
+  background:var(--teal-soft);
+}
+.billing-charge-check{
+  width:19px; height:19px; border-radius:6px; flex-shrink:0;
+  border:1.5px solid var(--line-soft); cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  color:#04211f; transition:.15s;
+}
+.billing-charge-row.selected .billing-charge-check{
+  background:var(--teal); border-color:var(--teal);
+}
+.billing-source-tag{
+  font-size:8.5px; font-weight:700; padding:2px 7px; border-radius:10px;
+  background:var(--bg-card); color:var(--muted); text-transform:uppercase; letter-spacing:.4px;
+}
+
+/* Payment method chip picker — replaces a plain <select> */
+.billing-method-grid{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:8px;
+}
+.billing-method-chip{
+  height:38px; border-radius:9px; border:1px solid var(--line);
+  background:var(--bg-elevated); color:var(--muted);
+  font-size:11.5px; font-weight:700; cursor:pointer; transition:.15s;
+}
+.billing-method-chip:hover{ border-color:rgba(255,255,255,0.22); color:var(--ivory); }
+.billing-method-chip.active{
+  background:var(--teal-soft); border-color:var(--teal-border); color:var(--teal);
+}
+
+.billing-summary-row{
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:13px; color:var(--muted); padding:5px 0;
+}
+.billing-summary-row.grand{
+  font-size:17px; font-weight:800; color:var(--ivory);
+  border-top:1px solid var(--line-soft); margin-top:6px; padding-top:12px;
+}
+
+.billing-hmo-box{
+  background:var(--teal-soft); border:1px solid var(--teal-border);
+  border-radius:11px; padding:14px;
+}
+
+.billing-toast{
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  background:var(--bg-elevated); border:1px solid var(--teal); color:var(--teal);
+  padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700;
+  z-index:60; max-width:85vw; text-align:center;
+}
+
+@media (max-width:520px){
+  .billing-method-grid{ grid-template-columns:repeat(2,1fr); }
+}
