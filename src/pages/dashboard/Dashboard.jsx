@@ -967,12 +967,12 @@ export default function Dashboard(){
                     <svg viewBox="0 0 620 250" preserveAspectRatio="none">
                       <defs>
                         <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#2DD4CF" stopOpacity=".28"/>
-                          <stop offset="100%" stopColor="#2DD4CF" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#45EBE4" stopOpacity=".28"/>
+                          <stop offset="100%" stopColor="#45EBE4" stopOpacity="0"/>
                         </linearGradient>
                         <linearGradient id="violetArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#7C5CFC" stopOpacity=".22"/>
-                          <stop offset="100%" stopColor="#7C5CFC" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#9C82FF" stopOpacity=".22"/>
+                          <stop offset="100%" stopColor="#9C82FF" stopOpacity="0"/>
                         </linearGradient>
                       </defs>
                       {[45,95,145,195].map(y => <line key={y} x1="0" x2="620" y1={y} y2={y} className="chart-grid-line"/>)}
