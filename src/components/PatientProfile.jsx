@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useOfflineTable } from '../lib/useOfflineTable'
+import MedicationChart from './MedicationChart'
 
 const TABS = ['Overview', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 
@@ -141,7 +142,7 @@ export default function PatientProfile({ patientId, onClose }){
           >✕</button>
         </div>
 
-        <div style={{ display: 'flex', gap: 6, padding: '12px 20px 0', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '12px 20px 10px' }}>
           {TABS.map(t => (
             <button
               key={t}
@@ -158,7 +159,7 @@ export default function PatientProfile({ patientId, onClose }){
           ))}
         </div>
 
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+        <div className="thin-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           {tab === 'Overview' && (
             <OverviewTab patient={patient} latestConsultation={history[0]} activePrescriptions={activePrescriptions} outstandingBalance={outstandingBalance} admissionRequest={activeAdmissionRequest} />
           )}
@@ -166,13 +167,17 @@ export default function PatientProfile({ patientId, onClose }){
           {tab === 'Items Given' && <ItemsGivenTab records={patientStockRecords} />}
           {tab === 'Prescriptions' && <PrescriptionsTab prescriptions={patientPrescriptions} />}
           {tab === 'Drug Chart' && (
-            <DrugChartTab
+            <MedicationChart
               patient={patient}
               entries={patientDrugChart}
+              admissionRequest={activeAdmissionRequest}
+              latestConsultation={history[0]}
               profile={profile}
+              hospitalName={hospital?.name}
               addEntry={addDrugChartEntry}
               updateEntry={updateDrugChartEntry}
               deleteEntry={deleteDrugChartEntry}
+              updatePatient={updatePatient}
               showToast={showToast}
             />
           )}
@@ -392,204 +397,6 @@ function PrescriptionsTab({ prescriptions }){
     </ul>
   )
 }
-
-// ===================== DRUG ADMINISTRATION CHART (MAR) =====================
-
-const DRUG_CHART_ROUTES = ['Oral', 'IV', 'IM', 'SC', 'Topical']
-const DRUG_CHART_FREQUENCIES = ['Stat', 'OD', 'BD', 'TDS', 'QDS', 'PRN']
-const DRUG_CHART_STATUSES = ['Pending', 'Given', 'Missed', 'Discontinued']
-
-const DRUG_CHART_STATUS_STYLE = {
-  Pending: { bg: 'rgba(201,169,97,0.14)', color: 'var(--gold)' },
-  Given: { bg: 'var(--teal-soft)', color: 'var(--teal)' },
-  Missed: { bg: 'rgba(240,79,95,0.12)', color: 'var(--danger)' },
-  Discontinued: { bg: 'rgba(255,255,255,0.06)', color: 'var(--muted)' },
-}
-
-function emptyDrugChartForm(profile){
-  const now = new Date()
-  return {
-    id: null,
-    entry_date: now.toISOString().slice(0, 10),
-    entry_time: now.toTimeString().slice(0, 5),
-    drug_name: '',
-    dosage: '',
-    route: '',
-    frequency: '',
-    duration: '',
-    prescribing_doctor: '',
-    administering_nurse: profile?.role === 'nurse' ? (profile?.full_name || '') : '',
-    status: 'Pending',
-    remarks: '',
-  }
-}
-
-function DrugChartTab({ patient, entries, profile, addEntry, updateEntry, deleteEntry, showToast }){
-  const [form, setForm] = useState(() => emptyDrugChartForm(profile))
-  const [saving, setSaving] = useState(false)
-
-  function set(key, value){ setForm(f => ({ ...f, [key]: value })) }
-
-  function handleEdit(entry){
-    setForm({
-      id: entry.id,
-      entry_date: entry.entry_date || '',
-      entry_time: entry.entry_time ? entry.entry_time.slice(0, 5) : '',
-      drug_name: entry.drug_name || '',
-      dosage: entry.dosage || '',
-      route: entry.route || '',
-      frequency: entry.frequency || '',
-      duration: entry.duration || '',
-      prescribing_doctor: entry.prescribing_doctor || '',
-      administering_nurse: entry.administering_nurse || '',
-      status: entry.status || 'Pending',
-      remarks: entry.remarks || '',
-    })
-  }
-
-  async function handleDelete(entry){
-    if (!confirm(`Remove ${entry.drug_name} from this patient's drug chart?`)) return
-    await deleteEntry(entry.id)
-    showToast('Entry removed')
-  }
-
-  async function handleSubmit(e){
-    e.preventDefault()
-    if (!form.drug_name.trim()) { showToast('Drug name is required'); return }
-    setSaving(true)
-    try {
-      const payload = {
-        patient_id: patient.id,
-        entry_date: form.entry_date || null,
-        entry_time: form.entry_time || null,
-        drug_name: form.drug_name,
-        dosage: form.dosage || null,
-        route: form.route || null,
-        frequency: form.frequency || null,
-        duration: form.duration || null,
-        prescribing_doctor: form.prescribing_doctor || null,
-        administering_nurse: form.administering_nurse || null,
-        status: form.status,
-        remarks: form.remarks || null,
-        created_by: profile?.id || null,
-      }
-      if (form.id) { await updateEntry(form.id, payload); showToast('Entry updated') } 
-      else { await addEntry(payload); showToast('Entry added to drug chart') }
-      setForm(emptyDrugChartForm(profile))
-    } catch (err) { showToast(err.message || 'Could not save entry') } 
-    finally { setSaving(false) }
-  }
-
-  function handlePrint(){
-    const rows = entries.map(e => `
-      <tr>
-        <td>${escapeHtml(e.entry_date || '')} ${escapeHtml((e.entry_time || '').slice(0,5))}</td>
-        <td>${escapeHtml(e.drug_name)}</td>
-        <td>${escapeHtml(e.dosage || '')}</td>
-        <td>${escapeHtml(e.route || '')}</td>
-        <td>${escapeHtml(e.frequency || '')}</td>
-        <td>${escapeHtml(e.duration || '')}</td>
-        <td>${escapeHtml(e.prescribing_doctor || '')}</td>
-        <td>${escapeHtml(e.administering_nurse || '')}</td>
-        <td>${escapeHtml(e.status)}</td>
-        <td>${escapeHtml(e.remarks || '')}</td>
-      </tr>`).join('')
-    const html = `
-      <html><head><title>Drug Chart — ${escapeHtml(patient.full_name)}</title>
-      <style>
-        body{font-family:sans-serif;padding:24px;color:#111}
-        h1{font-size:17px;margin-bottom:4px}
-        .meta{color:#555;font-size:12.5px;margin-bottom:18px}
-        table{width:100%;border-collapse:collapse;font-size:11px}
-        th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
-        th{background:#f2f2f2}
-      </style>
-      </head><body>
-      <h1>Drug Administration Chart</h1>
-      <div class="meta">Patient: ${escapeHtml(patient.full_name)} &nbsp;·&nbsp; Printed: ${new Date().toLocaleString()}</div>
-      <table>
-        <thead><tr><th>Date/Time</th><th>Drug</th><th>Dosage</th><th>Route</th><th>Freq</th><th>Duration</th><th>Doctor</th><th>Nurse</th><th>Status</th><th>Remarks</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="10">No entries recorded</td></tr>'}</tbody>
-      </table>
-      </body></html>`
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(html)
-    win.document.close()
-    win.focus()
-    win.print()
-  }
-
-  function escapeHtml(s){ return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
-
-  return (
-    <div>
-      <form onSubmit={handleSubmit} style={{ marginBottom: 20, padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-        <div style={{ fontSize: 11, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>
-          {form.id ? 'Edit Entry' : 'New Administration Entry'}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="field"><label>Date</label><input type="date" value={form.entry_date} onChange={e => set('entry_date', e.target.value)} /></div>
-          <div className="field"><label>Time</label><input type="time" value={form.entry_time} onChange={e => set('entry_time', e.target.value)} /></div>
-          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Drug Name</label><input value={form.drug_name} onChange={e => set('drug_name', e.target.value)} placeholder="e.g. Paracetamol 1g" /></div>
-          <div className="field"><label>Dosage / Strength</label><input value={form.dosage} onChange={e => set('dosage', e.target.value)} placeholder="e.g. 1g" /></div>
-          <div className="field"><label>Route</label><select value={form.route} onChange={e => set('route', e.target.value)}><option value="">—</option>{DRUG_CHART_ROUTES.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-          <div className="field"><label>Frequency</label><select value={form.frequency} onChange={e => set('frequency', e.target.value)}><option value="">—</option>{DRUG_CHART_FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
-          <div className="field"><label>Duration</label><input value={form.duration} onChange={e => set('duration', e.target.value)} placeholder="e.g. 5 days" /></div>
-          <div className="field"><label>Prescribing Doctor</label><input value={form.prescribing_doctor} onChange={e => set('prescribing_doctor', e.target.value)} placeholder="e.g. Dr. James" /></div>
-          <div className="field"><label>Administering Nurse</label><input value={form.administering_nurse} onChange={e => set('administering_nurse', e.target.value)} placeholder="e.g. Nurse Grace" /></div>
-          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Status</label><select value={form.status} onChange={e => set('status', e.target.value)}>{DRUG_CHART_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-          <div className="field" style={{ gridColumn: '1 / -1' }}><label>Remarks</label><textarea rows={2} value={form.remarks} onChange={e => set('remarks', e.target.value)} placeholder="Optional" /></div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          {form.id && <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setForm(emptyDrugChartForm(profile))}>Cancel Edit</button>}
-          <button type="submit" className="btn btn-primary" style={{ width: 'auto' }} disabled={saving}>{saving ? 'Saving…' : form.id ? 'Update Entry' : '+ Add Entry'}</button>
-        </div>
-      </form>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>History ({entries.length})</div>
-        <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '5px 12px', fontSize: 11.5 }} onClick={handlePrint}>Print Chart</button>
-      </div>
-
-      {entries.length === 0 ? (
-        <div style={{ color: 'var(--muted)', fontSize: 13 }}>No drug chart entries yet.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {entries.map(e => {
-            const style = DRUG_CHART_STATUS_STYLE[e.status] || DRUG_CHART_STATUS_STYLE.Discontinued
-            return (
-              <div key={e.id} style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 700, fontSize: 13.5 }}>{e.drug_name}</span>
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 9px', borderRadius: 20, background: style.bg, color: style.color }}>{e.status}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {e.entry_date} {e.entry_time ? e.entry_time.slice(0,5) : ''} · {e.dosage || '—'}{e.route ? ` · ${e.route}` : ''}{e.frequency ? ` · ${e.frequency}` : ''}{e.duration ? ` · ${e.duration}` : ''}
-                    </div>
-                    {(e.prescribing_doctor || e.administering_nurse) && (
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                        {e.prescribing_doctor ? `Dr. ${e.prescribing_doctor}` : ''}{e.prescribing_doctor && e.administering_nurse ? ' · ' : ''}{e.administering_nurse ? `Nurse: ${e.administering_nurse}` : ''}
-                      </div>
-                    )}
-                    {e.remarks && <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', marginTop: 4 }}>{e.remarks}</div>}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button type="button" onClick={() => handleEdit(e)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>Edit</button>
-                    <button type="button" onClick={() => handleDelete(e)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--danger)', borderRadius: 8, width: 28, height: 28, cursor: 'pointer' }}>✕</button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-// ===================== END DRUG CHART =====================
 
 function PharmacyTab({ activePrescriptions, findPharmacyMatch, onDispense }){
   if (activePrescriptions.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No medications awaiting dispensing.</div>
