@@ -773,6 +773,7 @@ export default function Dashboard(){
           <strong>{hospital?.phone || hospital?.Mr Goodnews || '+2348148364233'}</strong>
           <small>Software Developer</small>
         </div>
+        
         <div className="dash-foot">
           <div className="dash-foot-user">
             <div className="dash-foot-avatar">
