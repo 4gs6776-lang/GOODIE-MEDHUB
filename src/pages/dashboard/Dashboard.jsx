@@ -770,10 +770,9 @@ export default function Dashboard(){
             <span>Emergency Line</span>
             <Icon name="phone" size={15}/>
           </div>
-          <strong>{hospital?.phone || hospital?.Mr. Goodnews || '+2348148364233'}</strong>
+          <strong>{hospital?.phone || hospital?.Mr Goodnews || '+2348148364233'}</strong>
           <small>Software Developer</small>
         </div>
-
         <div className="dash-foot">
           <div className="dash-foot-user">
             <div className="dash-foot-avatar">
