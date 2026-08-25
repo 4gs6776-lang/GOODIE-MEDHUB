@@ -3,6 +3,16 @@ import { useOfflineTable } from '../lib/useOfflineTable'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
+function CheckIcon({ size = 12 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+}
+function CloseIcon({ size = 18 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+}
+function PlusIcon({ size = 14 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+}
+
 export default function CashierWorkspace({ patientId, patientName, hospital, profile, onClose }) {
   const { records: charges, addRecord: addCharge, updateRecord: updateCharge } = useOfflineTable('billable_charges', hospital?.id)
   const { addRecord: addInvoice } = useOfflineTable('invoices', hospital?.id)
@@ -33,7 +43,6 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
     setSelectedIds(pendingCharges.map(c => c.id))
   }, [pendingCharges])
 
-
   function toggleCharge(id) {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
   }
@@ -63,6 +72,8 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const patientAmount = Math.max(0, grandTotal - hmoAmount)
   const amountOwedByPatient = hasHmo ? patientAmount : grandTotal
 
+  const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
   async function handleGenerateInvoice() {
     if (selectedCharges.length === 0) return alert('No charges selected.')
     setSaving(true)
@@ -70,7 +81,7 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
       const pAmt = Number(amountPaid) || 0
       const bal = amountOwedByPatient - pAmt
       const status = pAmt >= amountOwedByPatient ? 'paid' : (pAmt > 0 ? 'partial' : 'unpaid')
-      
+
       const newInv = await addInvoice({
         hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
         invoice_number: `INV-${Date.now().toString().slice(-8)}`, subtotal,
@@ -118,70 +129,69 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
     }
   }
 
-  const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) onClose() }}>
-      <div className="card" style={{ width: '100%', maxWidth: 700, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        
-        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="card dash-modal" style={{ maxWidth: 680 }} onClick={e => e.stopPropagation()}>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14, flexShrink: 0 }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>Billing Workspace</div>
-            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 700 }}>{patientName}</div>
+            <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Billing Workspace</div>
+            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 700, marginTop: 2 }}>{patientName}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>✕</button>
+          <button className="dash-icon-btn" onClick={onClose}><CloseIcon /></button>
         </div>
 
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+        <div className="dash-modal-body">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Automatic Charges</div>
-            <button className="btn btn-ghost" style={{ width: 'auto', fontSize: 12, padding: '5px 10px', border: '1px solid var(--line)' }} onClick={addCustomCharge}>
-              + Add Custom Charge
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Automatic Charges</div>
+            <button className="btn btn-ghost" style={{ width: 'auto', fontSize: 11.5, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={addCustomCharge}>
+              <PlusIcon /> Add Custom Charge
             </button>
           </div>
 
           {pendingCharges.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--muted)', fontSize: 13 }}>No pending charges for this patient.</div>
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--muted)', fontSize: 12.5 }}>No pending charges for this patient.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {pendingCharges.map(c => (
-                <div key={c.id} style={{ background: 'var(--bg-elevated)', padding: 12, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, border: selectedIds.includes(c.id) ? '1px solid var(--teal)' : '1px solid transparent' }}>
-                  <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleCharge(c.id)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{c.item_name} (x{c.quantity})</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 10, background: 'var(--bg-card)', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                        {c.source_module}
-                      </span>
+              {pendingCharges.map(c => {
+                const isSelected = selectedIds.includes(c.id)
+                return (
+                  <div key={c.id} className={`billing-charge-row ${isSelected ? 'selected' : ''}`} onClick={() => toggleCharge(c.id)} style={{ cursor: 'pointer' }}>
+                    <div className="billing-charge-check">{isSelected && <CheckIcon />}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>{c.item_name} (x{c.quantity})</div>
+                      <div style={{ marginTop: 4 }}>
+                        <span className="billing-source-tag">{c.source_module}</span>
+                      </div>
                     </div>
+                    <div style={{ fontWeight: 700, color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>{formatMoney(c.total)}</div>
                   </div>
-                  <div style={{ fontWeight: 700, color: 'var(--teal)' }}>{formatMoney(c.total)}</div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
-          <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--line-soft)' }}>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-              <div className="field" style={{ flex: 1 }}>
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--line-soft)' }}>
+            <div className="dash-field-grid" style={{ margin: '0 0 16px' }}>
+              <div className="field">
                 <label>Discount (₦)</label>
-                <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0.00" style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }} />
+                <input type="number" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0.00" />
               </div>
-              <div className="field" style={{ flex: 1 }}>
+              <div className="field">
                 <label>Tax / VAT (₦)</label>
-                <input type="number" value={tax} onChange={e => setTax(e.target.value)} placeholder="0.00" style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }} />
+                <input type="number" value={tax} onChange={e => setTax(e.target.value)} placeholder="0.00" />
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}><span>Subtotal</span><span>{formatMoney(subtotal)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--danger)', marginBottom: 4 }}><span>Discount</span><span>- {formatMoney(discountAmt)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--gold)', marginBottom: 12 }}><span>Tax / VAT</span><span>+ {formatMoney(taxAmt)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 800, borderTop: '1px solid var(--line-soft)', paddingTop: 8, marginBottom: hasHmo ? 12 : 16 }}>
+            <div className="billing-summary-row"><span>Subtotal</span><span>{formatMoney(subtotal)}</span></div>
+            <div className="billing-summary-row" style={{ color: 'var(--danger)' }}><span>Discount</span><span>- {formatMoney(discountAmt)}</span></div>
+            <div className="billing-summary-row" style={{ color: 'var(--gold)' }}><span>Tax / VAT</span><span>+ {formatMoney(taxAmt)}</span></div>
+            <div className="billing-summary-row grand" style={{ marginBottom: hasHmo ? 12 : 16 }}>
               <span>Total Bill</span><span style={{ color: 'var(--teal)' }}>{formatMoney(grandTotal)}</span>
             </div>
 
             {hasHmo && (
-              <div style={{ background: 'rgba(0,199,199,0.06)', border: '1px solid var(--teal-border)', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+              <div className="billing-hmo-box" style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                   {hmoProvider} Coverage ({hmoCoveragePercent}%)
                 </div>
@@ -199,14 +209,38 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
               </div>
             )}
 
-            <div className="field"><label>Payment Method</label><select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)' }}>{METHODS.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
-            <div className="field"><label>{hasHmo ? 'Amount Paid by Patient (₦)' : 'Amount Paid (₦)'}</label><input type="number" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} placeholder={amountOwedByPatient.toFixed(2)} style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px', color: 'var(--text)', fontSize: 16, fontWeight: 700 }} /></div>
+            <div className="field">
+              <label>Payment Method</label>
+              <div className="billing-method-grid">
+                {METHODS.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    className={`billing-method-chip ${paymentMethod === m ? 'active' : ''}`}
+                    onClick={() => setPaymentMethod(m)}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>{hasHmo ? 'Amount Paid by Patient (₦)' : 'Amount Paid (₦)'}</label>
+              <input
+                type="number"
+                value={amountPaid}
+                onChange={e => setAmountPaid(e.target.value)}
+                placeholder={amountOwedByPatient.toFixed(2)}
+                style={{ fontSize: 16, fontWeight: 700 }}
+              />
+            </div>
           </div>
         </div>
 
-        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button className="btn btn-ghost" style={{ width: 'auto', padding: '0 20px' }} onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleGenerateInvoice} disabled={saving || selectedCharges.length === 0}>
+        <div className="dash-modal-actions">
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleGenerateInvoice} disabled={saving || selectedCharges.length === 0}>
             {saving ? 'Generating…' : 'Generate Invoice'}
           </button>
         </div>
