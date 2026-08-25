@@ -27,7 +27,6 @@ import Admissions from './Admissions'
 import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
-
 // Same option lists used in Reception's registration form, kept in sync
 // so a patient added here has the exact same fields/choices available.
 const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown']
