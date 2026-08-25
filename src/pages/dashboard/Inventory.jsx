@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import ImportExcelModal from '../../components/inventory/ImportExcelModal'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 
 const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
 
 export default function Inventory() {
   const { profile, hospital } = useAuth()
-  const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord, refreshTable } = useOfflineTable('inventory_items', hospital?.id)
+  const { records: items, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord, refreshTable, syncFromServer } = useOfflineTable('inventory_items', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addStockRecord } = useOfflineTable('patient_stock_records', hospital?.id)
   const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id) // NEW
@@ -26,6 +27,14 @@ export default function Inventory() {
   const [dispensing, setDispensing] = useState(false); const [dispenseError, setDispenseError] = useState(''); const [patientSearch, setPatientSearch] = useState(''); const [selectedPatient, setSelectedPatient] = useState(null)
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 3000) }
+
+  // Live alert — a new stock item added from another device (or via bulk import).
+  // syncFromServer so the new item is actually pulled down, not just
+  // re-read from whatever was already cached locally.
+  useRealtimeAlert('inventory_items', hospital?.id, (newRow) => {
+    showToast(`📦 New item added: ${newRow.name || 'inventory item'}`)
+    syncFromServer()
+  })
   const resetForm = () => { setEditingId(null); setName(''); setCategory(CATEGORIES[0]); setQuantity(''); setUnit('units'); setSupplier(''); setReorderLevel('10'); setCostPrice(''); setSellingPrice(''); setBatchNumber(''); setExpiryDate(''); setGenericName(''); setStrength(''); setDosageForm(''); setFormError('') }
   
   const openEdit = (item) => {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 
 const SECTIONS = [
   { key: 'private', label: 'Private Suites' },
@@ -19,7 +20,7 @@ const STATUS_COLOR = {
 // panel can jump the user straight to the Admissions module.
 export default function IPD({ onGoToAdmissions }){
   const { profile, hospital } = useAuth()
-  const { records: beds, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('beds', hospital?.id)
+  const { records: beds, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord, refreshTable, syncFromServer } = useOfflineTable('beds', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [selectedBed, setSelectedBed] = useState(null)
@@ -36,6 +37,14 @@ export default function IPD({ onGoToAdmissions }){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
+
+  // Live alert — a new inpatient admission from another device refreshes bed status here.
+  // syncFromServer (not refreshTable) so we actually pull the updated bed rows down,
+  // not just re-read whatever was already sitting in the local offline cache.
+  useRealtimeAlert('admissions', hospital?.id, () => {
+    showToast('🏥 A new patient was admitted — bed list refreshed')
+    syncFromServer()
+  })
 
   async function handleAddBed(e){
     e.preventDefault()
