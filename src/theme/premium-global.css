@@ -1,256 +1,256 @@
-/* =========================================================
-   G-MEDHUB — GLOBAL EXECUTIVE DESIGN SYSTEM
-   Reference palette + restrained premium polish.
-   This layer is intentionally additive: it skins the existing
-   HMS components without replacing their business logic.
-   ========================================================= */
+/*
+ * GOODIE MEDHUB — Ultra-Premium Clinical SaaS layer
+ * Global visual system. This file intentionally styles shared primitives
+ * instead of rewriting each HMS module, preserving existing data/workflows.
+ */
 
-:root{
-  --app-max: 1680px;
-  --control-h: 40px;
-  --touch-h: 44px;
-  --focus-ring: 0 0 0 3px rgba(0,212,199,.14);
+:root {
+  --bg: #050B10;
+  --bg-elevated: #071018;
+  --bg-card: #0B141D;
+  --bg-card-hover: #101B25;
+  --sidebar-bg: #071018;
+  --header-bg: rgba(5, 11, 16, 0.92);
+  --line: rgba(148, 163, 184, 0.13);
+  --line-soft: rgba(148, 163, 184, 0.09);
+  --teal: #00D4C7;
+  --teal-bright: #18E3D7;
+  --teal-soft: rgba(0, 212, 199, 0.10);
+  --teal-active: rgba(0, 212, 199, 0.14);
+  --teal-border: rgba(0, 212, 199, 0.24);
+  --gold: #F5B72B;
+  --violet: #8B5CF6;
+  --blue: #3B82F6;
+  --ivory: #F1F5F9;
+  --muted: #9AA9B8;
+  --muted-dim: #667686;
+  --danger: #EF4B55;
+  --danger-soft: rgba(239, 75, 85, 0.11);
+  --success: #00D4C7;
+  --success-soft: rgba(0, 212, 199, 0.11);
+  --warning: #F5B72B;
+  --warning-soft: rgba(245, 183, 43, 0.11);
+  --radius: 12px;
+  --font-display: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-html{scroll-behavior:smooth}
-body{
+html.light-mode {
+  --bg: #F3F7F8;
+  --bg-elevated: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F7FAFA;
+  --sidebar-bg: #FFFFFF;
+  --header-bg: rgba(255,255,255,.92);
+  --line: rgba(15, 23, 42, .10);
+  --line-soft: rgba(15, 23, 42, .07);
+  --teal: #00AFA5;
+  --teal-bright: #00C9BE;
+  --teal-soft: rgba(0, 175, 165, .09);
+  --teal-active: rgba(0, 175, 165, .12);
+  --teal-border: rgba(0, 175, 165, .22);
+  --gold: #B78109;
+  --violet: #7046D8;
+  --blue: #2563EB;
+  --ivory: #0F1B24;
+  --muted: #5D6C78;
+  --muted-dim: #8A98A3;
+  --danger: #D63D4B;
+  --danger-soft: rgba(214, 61, 75, .09);
+}
+
+html { scroll-behavior: smooth; }
+body {
   background:
-    radial-gradient(900px 500px at 78% -12%, rgba(0,212,199,.045), transparent 65%),
+    radial-gradient(900px 520px at 100% -10%, rgba(0,212,199,.045), transparent 58%),
     var(--bg);
-  letter-spacing:-.01em;
-}
-body::before{
-  content:"";
-  position:fixed;
-  inset:0;
-  pointer-events:none;
-  z-index:-1;
-  background:linear-gradient(180deg,rgba(255,255,255,.008),transparent 24%);
+  letter-spacing: -0.005em;
 }
 
-button,a,input,select,textarea{ -webkit-tap-highlight-color:transparent; }
-button{ min-width:0; }
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
-  outline:2px solid var(--teal);
-  outline-offset:2px;
-  box-shadow:var(--focus-ring);
+button, input, select, textarea { font: inherit; }
+button { -webkit-appearance: none; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
 }
 
-/* Global controls */
-.btn{
-  min-height:40px;
-  border-radius:10px;
-  padding:10px 15px;
-  font-size:12px;
-  font-weight:750;
-  letter-spacing:-.01em;
-  border:1px solid transparent;
-  transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease,box-shadow .18s ease;
-}
-.btn-primary{
-  background:var(--teal);
-  color:#031513;
-  border-color:rgba(0,212,199,.5);
-  box-shadow:0 8px 22px -15px rgba(0,212,199,.75);
-}
-.btn-primary:hover:not(:disabled){
-  background:var(--teal-bright);
-  transform:translateY(-1px);
-  box-shadow:0 12px 26px -15px rgba(0,212,199,.8);
-}
-.btn-ghost{
-  background:rgba(255,255,255,.018);
-  border-color:var(--line);
-  color:var(--muted);
-}
-.btn-ghost:hover:not(:disabled){
-  background:rgba(255,255,255,.04);
-  border-color:var(--line-strong);
-  color:var(--ivory);
-}
-
-input,select,textarea{
-  min-height:var(--control-h);
-  border-radius:9px;
-  border-color:var(--line);
-  background:var(--bg-elevated);
-  color:var(--ivory);
-  transition:border-color .18s ease,box-shadow .18s ease,background .18s ease;
-}
-input:hover,select:hover,textarea:hover{border-color:var(--line-strong)}
-input:focus,select:focus,textarea:focus{
-  border-color:var(--teal-border);
-  box-shadow:var(--focus-ring);
-  background:var(--bg-elevated);
-}
-
+/* Shared surfaces */
 .card,
 .dash-panel,
+.dash-stat-card,
+.premium-stat,
 .owner-panel,
-.owner-stat-card{
-  background:linear-gradient(180deg,rgba(255,255,255,.012),transparent 55%),var(--bg-card);
-  border-color:var(--line);
-  box-shadow:0 12px 35px -28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.018);
-}
-.card:hover,.owner-panel:hover{border-color:var(--line-strong)}
-
-/* Tables across every module */
-table{border-collapse:separate;border-spacing:0;width:100%;}
-thead th{
-  color:var(--muted-dim);
-  background:rgba(255,255,255,.012);
-  border-bottom:1px solid var(--line);
-  font-size:10px;
-  font-weight:750;
-  letter-spacing:.06em;
-  text-transform:uppercase;
-}
-tbody td{
-  border-bottom:1px solid rgba(148,163,184,.08);
-  color:var(--ivory);
-  font-size:12px;
-}
-tbody tr:last-child td{border-bottom:0}
-tbody tr{transition:background .16s ease}
-tbody tr:hover{background:rgba(0,212,199,.025)}
-
-/* Common modal/popover surfaces */
-[role="dialog"],
-.dash-popover-menu,
-.dash-modal,
-.owner-toast,
-.billing-toast{
-  background:var(--bg-elevated);
-  border:1px solid var(--line);
-  box-shadow:0 28px 70px -35px rgba(0,0,0,.9);
+.owner-stat-card,
+.auth-card,
+.dash-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.012), rgba(255,255,255,0)) , var(--bg-card);
+  border-color: var(--line);
+  box-shadow: 0 10px 30px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.018);
 }
 
-/* Status vocabulary used by existing modules */
-.status-success,.success,.confirmed{color:var(--success)}
-.status-warning,.warning,.pending{color:var(--warning)}
-.status-danger,.danger,.cancelled{color:var(--danger)}
+.card:hover,
+.dash-panel:hover,
+.dash-stat-card:hover,
+.owner-stat-card:hover {
+  border-color: rgba(0,212,199,.17);
+}
 
-/* Login / authentication gets the same product identity */
-.auth-shell{
+.btn {
+  min-height: 40px;
+  border-radius: 9px;
+  padding: 10px 15px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease, color .16s ease;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn-primary {
+  background: var(--teal);
+  color: #03201D;
+  box-shadow: 0 7px 18px -12px rgba(0,212,199,.9);
+}
+.btn-primary:hover:not(:disabled) { background: var(--teal-bright); box-shadow: 0 9px 22px -12px rgba(0,212,199,.95); }
+.btn-ghost { background: rgba(255,255,255,.015); border-color: var(--line); color: var(--muted); }
+.btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.035); border-color: var(--teal-border); color: var(--ivory); }
+
+input, select, textarea,
+.field input, .field select, .field textarea {
+  background: rgba(255,255,255,.018);
+  border-color: var(--line);
+  color: var(--ivory);
+  min-height: 40px;
+}
+input:hover, select:hover, textarea:hover { border-color: rgba(148,163,184,.22); }
+input:focus, select:focus, textarea:focus,
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--teal-border);
+  box-shadow: 0 0 0 3px rgba(0,212,199,.07);
+}
+
+/* Global tables — preserve native structure, improve readability */
+table { border-collapse: separate; border-spacing: 0; }
+thead th {
+  color: var(--muted-dim);
+  font-size: 10px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  font-weight: 750;
+  background: rgba(255,255,255,.012);
+}
+tbody tr { transition: background .14s ease; }
+tbody tr:hover { background: rgba(0,212,199,.025); }
+tbody td { border-color: var(--line-soft); }
+
+/* Shared chips/statuses */
+[class*="status"], [class*="badge"], [class*="pill"] { transition: background .15s ease, border-color .15s ease; }
+
+/* Top-level dashboard chrome */
+.dash-sidebar {
+  background: linear-gradient(180deg, rgba(0,212,199,.018), transparent 28%), var(--sidebar-bg);
+  border-right-color: var(--line);
+}
+.dash-brand { border-bottom-color: var(--line); }
+.dash-brand-mark { background: var(--teal-soft); border-color: var(--teal-border); }
+.dash-nav-item { min-height: 42px; border-radius: 9px; }
+.dash-nav-item:hover { background: rgba(255,255,255,.028); }
+.dash-nav-item.active { background: var(--teal-active); box-shadow: inset 2px 0 0 var(--teal), inset 0 0 0 1px rgba(0,212,199,.08); }
+.dash-topbar {
+  background: var(--header-bg);
+  border-bottom-color: var(--line);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.dash-search { background: rgba(255,255,255,.018); border-color: var(--line); }
+.dash-icon-btn { width: 38px; height: 38px; }
+.dash-content { max-width: 1680px; }
+.dash-welcome h1 { letter-spacing: -.035em; }
+.dash-date-card { background: rgba(255,255,255,.014); }
+
+/* Prevent SVGs and icon containers from becoming giant on any route. */
+.dash-shell svg,
+.owner-shell svg,
+.auth-shell svg,
+.btn svg,
+.dash-icon-btn svg,
+.dash-nav-item svg,
+.dash-stat-icon svg,
+.dash-brand-mark svg,
+.billing-header-badge svg {
+  width: 20px;
+  height: 20px;
+  max-width: 20px;
+  max-height: 20px;
+  flex: 0 0 auto;
+}
+.dash-stat-icon svg { width: 21px; height: 21px; max-width:21px; max-height:21px; }
+
+/* Auth/login */
+.auth-shell { background: var(--bg); }
+.auth-shell::before {
   background:
-    radial-gradient(700px 500px at 80% 0%,rgba(0,212,199,.065),transparent 62%),
-    radial-gradient(600px 450px at 0% 100%,rgba(139,92,246,.035),transparent 65%),
-    var(--bg);
+    radial-gradient(620px 420px at 85% -10%, rgba(0,212,199,.075), transparent 62%),
+    radial-gradient(520px 380px at -10% 95%, rgba(139,92,246,.035), transparent 62%);
 }
-.auth-shell::before{background:none}
-.auth-brand-mark{
-  background:var(--teal-soft);
-  border:1px solid var(--teal-border);
-  color:var(--teal);
-  box-shadow:0 12px 30px -22px rgba(0,212,199,.7);
+.auth-card {
+  max-width: 430px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 30px;
 }
-.auth-brand-name{font-weight:750}
-.auth-card .card{border-radius:16px;padding:30px}
-.auth-title{font-weight:800;letter-spacing:-.035em}
+.auth-brand-mark { background: var(--teal-soft); color: var(--teal); border: 1px solid var(--teal-border); }
+.auth-title { font-weight: 750; letter-spacing: -.025em; }
 
-/* Owner portal remains distinct, but belongs to the same system. */
-.owner-shell{background:var(--bg)}
-.owner-topbar{background:rgba(5,11,16,.86);backdrop-filter:blur(18px)}
+/* Modal/popup hierarchy */
+.dash-modal-backdrop { background: rgba(1,5,9,.76); backdrop-filter: blur(5px); }
+.dash-modal { border-color: var(--line); border-radius: 14px; box-shadow: 0 30px 90px -35px rgba(0,0,0,.95); }
+.dash-popover-menu { background: var(--bg-elevated); border-color: var(--line); box-shadow: 0 20px 55px -30px rgba(0,0,0,.95); }
 
-/* Scrollbars: compact, quiet and consistent */
-*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-::-webkit-scrollbar{width:7px;height:7px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
-::-webkit-scrollbar-thumb:hover{background:var(--line-strong)}
+/* Owner portal follows the same product language while retaining its gold identity. */
+.owner-shell { background: var(--bg); }
+.owner-topbar { background: var(--header-bg); border-bottom-color: var(--line); }
+.owner-panel, .owner-stat-card { border-color: var(--line); }
 
-/* SVG safety: never let an icon inherit a giant width/height. */
-.dash-sidebar svg,.dash-topbar svg,.dash-icon-btn svg,.btn svg,
-.owner-topbar svg,.owner-icon-btn svg{
-  width:20px;
-  height:20px;
-  max-width:20px;
-  max-height:20px;
-  flex:0 0 auto;
-}
-.dash-stat-icon svg,.billing-header-badge svg{width:20px;max-width:20px;height:20px;max-height:20px}
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,.18) transparent; }
+*::-webkit-scrollbar { width: 7px; height: 7px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(148,163,184,.18); border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(0,212,199,.32); }
 
-/* Dashboard executive finish */
-.dash-sidebar{background:rgba(7,16,24,.96);border-right-color:var(--line)}
-.dash-topbar{background:rgba(7,16,24,.84);border-bottom-color:var(--line)}
-.dash-brand{border-bottom-color:var(--line)}
-.dash-nav-item.active{background:linear-gradient(90deg,rgba(0,212,199,.13),rgba(0,212,199,.06));}
-.dash-panel:hover{transform:translateY(-1px)}
-.premium-stat:hover{transform:translateY(-2px)}
-.dash-stat-value{font-variant-numeric:tabular-nums}
-
-/* Mobile: app shell becomes a true touch-first layout. */
-@media (max-width:900px){
-  .dash-topbar{gap:8px}
-  .dash-search{min-width:0}
-  .dash-top-actions{gap:3px}
-  .dash-icon-btn{width:40px;height:40px}
-  .dash-sidebar{width:min(310px,86vw);padding:18px 12px}
+/* Mobile: deliberate layout rather than compressed desktop */
+@media (max-width: 900px) {
+  .dash-sidebar { box-shadow: 24px 0 70px -32px rgba(0,0,0,.95); }
+  .dash-content { padding-left: 16px; padding-right: 16px; }
+  .dash-topbar { height: 68px; }
+  .dash-search { max-width: 430px; }
 }
 
-@media (max-width:600px){
-  .card{padding:18px}
-  .auth-shell{padding:14px}
-  .auth-card .card{padding:22px 18px}
-  .dash-topbar{padding:0 10px}
-  .dash-content{padding-left:10px;padding-right:10px}
-  .dash-search input{font-size:11px}
-  .dash-search{height:40px}
-  .dash-icon-btn{width:38px;height:38px}
-  .dash-top-actions{margin-left:0}
-  .dash-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
-  .dash-panel{border-radius:11px}
-  .dash-panel:hover{transform:none}
-  .premium-stat:hover{transform:none}
-  .field input,.field select,.field textarea,.btn{min-height:44px}
+@media (max-width: 600px) {
+  .dash-content { padding-left: 12px; padding-right: 12px; }
+  .dash-topbar { height: 62px; padding: 0 11px; gap: 7px; }
+  .dash-icon-btn { width: 36px; height: 36px; }
+  .dash-welcome { align-items: flex-start; gap: 12px; }
+  .dash-welcome h1 { font-size: 21px !important; }
+  .dash-date-card { padding: 8px 10px; }
+  .dash-date-card strong { font-size: 10px; }
+  .dash-date-card span { font-size: 9px; }
+  .card, .dash-panel { border-radius: 11px; }
+  .auth-shell { padding: 14px; }
+  .auth-card { padding: 22px 18px; border-radius: 14px; }
+  .field input, .field select, .field textarea, input, select, textarea, .btn { min-height: 44px; }
 }
 
-@media (max-width:420px){
-  .dash-stats{grid-template-columns:1fr 1fr;gap:7px}
-  .premium-stat{min-width:0}
-  .premium-stat .dash-stat-value{font-size:16px}
-  .dash-stat-delta{white-space:normal}
-  .dash-sidebar{width:88vw}
+@media (max-width: 420px) {
+  .dash-content { padding-left: 10px; padding-right: 10px; }
+  .dash-topbar { padding: 0 8px; }
+  .dash-hospital-selector { min-width: 0; width: 38px; padding: 0; justify-content: center; }
+  .dash-hospital-selector span:nth-child(2), .dash-hospital-selector .dash-chevron { display: none; }
+  .dash-search { min-width: 0; }
+  .dash-search kbd { display: none; }
 }
 
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
-}
-
-/* Dashboard recent-patient table becomes a compact card list on phones. */
-@media (max-width:600px){
-  .dash-recent .dash-table-wrap{overflow:visible}
-  .dash-recent .dash-patient-table,
-  .dash-recent .dash-patient-table tbody,
-  .dash-recent .dash-patient-table tr,
-  .dash-recent .dash-patient-table td{display:block;width:100%}
-  .dash-recent .dash-patient-table thead{display:none}
-  .dash-recent .dash-patient-table tbody{display:grid;gap:8px}
-  .dash-recent .dash-patient-table tr{
-    position:relative;
-    padding:11px 42px 10px 11px;
-    border:1px solid var(--line);
-    border-radius:10px;
-    background:rgba(255,255,255,.012);
-  }
-  .dash-recent .dash-patient-table tr:hover{background:var(--teal-soft)}
-  .dash-recent .dash-patient-table td{
-    border:0!important;
-    padding:2px 0!important;
-    font-size:10.5px!important;
-  }
-  .dash-recent .dash-patient-table td:nth-child(n+2):nth-child(-n+6){
-    display:inline;
-    color:var(--muted);
-  }
-  .dash-recent .dash-patient-table td:nth-child(n+2):nth-child(-n+6)::after{content:"  •  ";color:var(--muted-dim)}
-  .dash-recent .dash-patient-table td:nth-child(6)::after{content:""}
-  .dash-recent .dash-patient-table td:last-child{
-    position:absolute;
-    right:8px;
-    top:50%;
-    transform:translateY(-50%);
-    width:30px;
-  }
-  .dash-recent .dash-patient-name{font-size:11.5px;font-weight:750;margin-bottom:3px}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
