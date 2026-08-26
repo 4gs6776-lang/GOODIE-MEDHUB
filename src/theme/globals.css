@@ -1,35 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
- :root{
-  --bg:#050B10;
-  --bg-elevated:#0A131C;
-  --bg-card:#0B141D;
-  --bg-card-hover:#101C26;
-  --sidebar-bg:#071018;
-  --header-bg:#071018;
-  --line:rgba(148,163,184,.12);
-  --line-soft:rgba(148,163,184,.08);
-  --line-strong:rgba(148,163,184,.20);
+:root{
+  --bg:#0C131B;
+  --bg-elevated:#111B24;
+  --bg-card:#111B24;
+  --bg-card-hover:#16232D;
+  --sidebar-bg:#0B141C;
+  --header-bg:#0E171F;
+  --line:#23343F;
+  --line-soft:#1B2A34;
   --teal:#00D4C7;
-  --teal-bright:#25E3D8;
-  --teal-soft:rgba(0,212,199,.10);
-  --teal-active:rgba(0,212,199,.13);
-  --teal-border:rgba(0,212,199,.26);
-  --gold:#F5B72B;
-  --violet:#8B5CF6;
-  --blue:#3B82F6;
-  --ivory:#F1F5F9;
-  --muted:#9AA9B8;
-  --muted-dim:#687887;
-  --danger:#EF4B55;
-  --danger-soft:rgba(239,75,85,.11);
-  --success:#00D4C7;
-  --success-soft:rgba(0,212,199,.10);
-  --warning:#F5B72B;
-  --warning-soft:rgba(245,183,43,.11);
+  --teal-bright:#27E7DA;
+  --teal-soft:rgba(0,212,199,0.12);
+  --teal-active:rgba(0,212,199,0.16);
+  --teal-border:rgba(0,212,199,0.24);
+  --gold:#FFD24A;
+  --violet:#9C82FF;
+  --blue:#5B9CFF;
+  --ivory:#F1F5F7;
+  --muted:#A1AFBA;
+  --muted-dim:#71818E;
+  --danger:#FF666B;
+  --danger-soft:rgba(255,102,107,0.15);
+  --success:#0FFF85;
+  --success-soft:rgba(15,255,133,0.11);
+  --mint:#0FFF85;
+  --mint-soft:rgba(15,255,133,0.10);
+  --mint-border:rgba(15,255,133,0.20);
+  --warning:#FFBB4E;
+  --warning-soft:rgba(255,187,78,0.15);
   --radius:12px;
-  --font-display:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-body:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display:'Inter', sans-serif;
+  --font-body:'Inter', sans-serif;
+  --font-mono:'JetBrains Mono', monospace;
 }
 
 /* Light theme — activated by adding "light-mode" to <html>.
