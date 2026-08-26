@@ -1,34 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-:root{
-  --bg:#0E1D2A;
-  --bg-elevated:#152A39;
-  --bg-card:#17293A;
-  --bg-card-hover:#1E3244;
-  --sidebar-bg:#11212E;
-  --header-bg:#14232F;
-  --line:#26394A;
-  --line-soft:#2D4054;
-  --teal:#45EBE4;
-  --teal-bright:#7DF7F2;
-  --teal-soft:rgba(69,235,228,0.15);
-  --teal-active:rgba(69,235,228,0.20);
-  --teal-border:rgba(69,235,228,0.30);
-  --gold:#FFD24A;
-  --violet:#9C82FF;
-  --blue:#5B9CFF;
-  --ivory:#F8FAFB;
-  --muted:#96A5B5;
-  --muted-dim:#6E7F92;
-  --danger:#FF666B;
-  --danger-soft:rgba(255,102,107,0.15);
-  --success:#45EDB8;
-  --success-soft:rgba(69,237,184,0.15);
-  --warning:#FFBB4E;
-  --warning-soft:rgba(255,187,78,0.15);
+ :root{
+  --bg:#050B10;
+  --bg-elevated:#0A131C;
+  --bg-card:#0B141D;
+  --bg-card-hover:#101C26;
+  --sidebar-bg:#071018;
+  --header-bg:#071018;
+  --line:rgba(148,163,184,.12);
+  --line-soft:rgba(148,163,184,.08);
+  --line-strong:rgba(148,163,184,.20);
+  --teal:#00D4C7;
+  --teal-bright:#25E3D8;
+  --teal-soft:rgba(0,212,199,.10);
+  --teal-active:rgba(0,212,199,.13);
+  --teal-border:rgba(0,212,199,.26);
+  --gold:#F5B72B;
+  --violet:#8B5CF6;
+  --blue:#3B82F6;
+  --ivory:#F1F5F9;
+  --muted:#9AA9B8;
+  --muted-dim:#687887;
+  --danger:#EF4B55;
+  --danger-soft:rgba(239,75,85,.11);
+  --success:#00D4C7;
+  --success-soft:rgba(0,212,199,.10);
+  --warning:#F5B72B;
+  --warning-soft:rgba(245,183,43,.11);
   --radius:12px;
-  --font-display:'Inter', sans-serif;
-  --font-body:'Inter', sans-serif;
-  --font-mono:'JetBrains Mono', monospace;
+  --font-display:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Light theme — activated by adding "light-mode" to <html>.
