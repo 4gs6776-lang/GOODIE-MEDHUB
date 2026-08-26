@@ -8,7 +8,7 @@ import './theme/dashboard.css'
 import './theme/owner.css'
 import './theme/billing.css'
 import './theme/mobile.css'
-import './theme/premium.css'
+import './theme/premium-global.css'
 
 // Apply the saved theme immediately, before any page renders. Dark is
 // the app-wide default — light mode only turns on if the person has
