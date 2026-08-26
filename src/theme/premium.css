@@ -1,1 +1,482 @@
 
+/* =========================================================
+   G-MEDHUB — SIGNATURE BLACK / EXECUTIVE DESIGN SYSTEM
+   A restrained clinical-luxury visual layer:
+   black canvas, graphite surfaces, crisp typography,
+   minimal borders, deliberate accent color, no gradients.
+   Loaded last so it becomes the visual source of truth.
+   ========================================================= */
+
+:root{
+  --bg:#050607;
+  --bg-elevated:#0A0C0E;
+  --bg-card:#0D1012;
+  --bg-card-hover:#121619;
+  --sidebar-bg:#07090A;
+  --header-bg:rgba(5,6,7,.94);
+
+  --line:#1D2226;
+  --line-soft:#15191C;
+
+  --teal:#65E6DE;
+  --teal-bright:#8AF1EA;
+  --teal-soft:rgba(101,230,222,.08);
+  --teal-active:rgba(101,230,222,.11);
+  --teal-border:rgba(101,230,222,.24);
+
+  --gold:#D8B56A;
+  --violet:#A993F5;
+  --blue:#78A9F8;
+
+  --ivory:#F4F6F6;
+  --muted:#98A1A6;
+  --muted-dim:#667077;
+
+  --danger:#FF7378;
+  --danger-soft:rgba(255,115,120,.08);
+  --success:#64DDB2;
+  --success-soft:rgba(100,221,178,.08);
+  --warning:#E9B45C;
+  --warning-soft:rgba(233,180,92,.08);
+
+  --radius:11px;
+  --motion-fast:150ms;
+  --motion-base:220ms;
+  --ease-apple:cubic-bezier(.22,.61,.36,1);
+  --font-display:'Inter',system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-body:'Inter',system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+
+/* Keep the product dark even if the old theme switch adds this class. */
+html.light-mode{
+  color-scheme:dark;
+  --bg:#050607;
+  --bg-elevated:#0A0C0E;
+  --bg-card:#0D1012;
+  --bg-card-hover:#121619;
+  --sidebar-bg:#07090A;
+  --header-bg:rgba(5,6,7,.94);
+  --line:#1D2226;
+  --line-soft:#15191C;
+  --teal:#65E6DE;
+  --teal-bright:#8AF1EA;
+  --teal-soft:rgba(101,230,222,.08);
+  --teal-active:rgba(101,230,222,.11);
+  --teal-border:rgba(101,230,222,.24);
+  --gold:#D8B56A;
+  --violet:#A993F5;
+  --blue:#78A9F8;
+  --ivory:#F4F6F6;
+  --muted:#98A1A6;
+  --muted-dim:#667077;
+  --danger:#FF7378;
+  --danger-soft:rgba(255,115,120,.08);
+  --success:#64DDB2;
+  --success-soft:rgba(100,221,178,.08);
+  --warning:#E9B45C;
+  --warning-soft:rgba(233,180,92,.08);
+}
+
+html,body,#root{
+  background:#050607;
+  color:var(--ivory);
+}
+
+body{
+  background:#050607;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* Surfaces: flat, architectural, not glossy. */
+.card,
+.dash-panel,
+.owner-panel,
+.owner-stat-card{
+  background:#0D1012;
+  border:1px solid #1D2226;
+  border-radius:11px;
+  box-shadow:none;
+  transition:border-color var(--motion-base) var(--ease-apple), background-color var(--motion-base) var(--ease-apple);
+}
+
+.card:hover,
+.dash-panel:hover,
+.owner-stat-card:hover{
+  border-color:#293136;
+  transform:none;
+}
+
+/* Sidebar/header are quiet and nearly black. */
+.dash-sidebar{
+  background:#07090A;
+  border-right:1px solid #1A1F22;
+}
+
+.dash-topbar{
+  background:rgba(5,6,7,.94);
+  border-bottom:1px solid #1A1F22;
+  box-shadow:0 8px 30px rgba(0,0,0,.18);
+}
+
+/* Brand marks: one clean shape, no gradient. */
+.dash-brand-mark,
+.auth-brand-mark,
+.billing-header-badge,
+.owner-hospital-avatar{
+  background:#0D1415;
+  border:1px solid rgba(101,230,222,.22);
+  color:var(--teal);
+  box-shadow:none;
+}
+
+.auth-brand-mark{
+  border-radius:10px;
+  color:#07100F;
+  background:var(--teal);
+}
+
+.owner-brand-mark{
+  background:#16130D;
+  border:1px solid rgba(216,181,106,.24);
+  color:var(--gold);
+  box-shadow:none;
+}
+
+/* Navigation: simple selected row rather than an AI-style pill. */
+.dash-nav-item{
+  border-radius:9px;
+  color:#8C969B;
+  border-color:transparent;
+}
+
+.dash-nav-item:hover{
+  background:#0D1012;
+  color:#E8ECEC;
+}
+
+.dash-nav-item.active{
+  background:#101719;
+  color:#F4F6F6;
+  box-shadow:inset 2px 0 0 var(--teal);
+  border-color:transparent;
+}
+
+.dash-nav-item.active svg{ color:var(--teal); }
+
+/* Search and controls. */
+.dash-search,
+.dash-hospital-selector,
+.dash-burger,
+.dash-filter,
+.owner-icon-btn{
+  background:#0A0C0E;
+  border-color:#20262A;
+  box-shadow:none;
+}
+
+.dash-search:focus-within{
+  border-color:rgba(101,230,222,.42);
+}
+
+.dash-icon-btn:hover{
+  background:#0D1012;
+  color:var(--teal);
+}
+
+/* Buttons: confident, compact, professional. */
+.btn{
+  border-radius:9px;
+  transition:transform var(--motion-fast) var(--ease-apple), background-color var(--motion-fast) var(--ease-apple), border-color var(--motion-fast) var(--ease-apple), box-shadow var(--motion-fast) var(--ease-apple);
+  letter-spacing:-.01em;
+  box-shadow:none;
+}
+
+.btn-primary{
+  background:var(--teal);
+  color:#07100F;
+  box-shadow:none;
+}
+
+.btn-primary:hover:not(:disabled){
+  background:var(--teal-bright);
+  transform:translateY(-1px);
+  box-shadow:0 6px 18px rgba(101,230,222,.10);
+}
+
+.btn-ghost{
+  background:#0A0C0E;
+  border-color:#242A2E;
+  color:#C7CFD2;
+}
+
+.btn-ghost:hover{
+  background:#101416;
+  transform:translateY(-1px);
+  border-color:#343C41;
+  color:#F4F6F6;
+}
+
+/* Fields: crisp and dense. */
+.field input,
+.field select,
+.field textarea,
+input,select,textarea{
+  background:#090B0D;
+  border-color:#20262A;
+  color:#F4F6F6;
+  border-radius:8px;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+input:focus,
+select:focus,
+textarea:focus{
+  border-color:rgba(101,230,222,.48);
+  box-shadow:0 0 0 3px rgba(101,230,222,.055);
+  outline:none;
+}
+
+.field label{
+  color:#818C91;
+  letter-spacing:.65px;
+}
+
+.field-hint,
+.auth-sub,
+.auth-switch{
+  color:#737D82;
+}
+
+/* Stat cards: clear hierarchy, no decorative glow. */
+.premium-stat{
+  background:#0D1012;
+  border:1px solid #1D2226;
+  border-radius:10px;
+}
+
+.premium-stat .dash-stat-icon{
+  width:40px;
+  height:40px;
+  border-radius:9px;
+  background:#111618;
+  border:1px solid #242B2F;
+}
+
+.teal-stat .dash-stat-icon{color:var(--teal);background:#0D1717;border-color:rgba(101,230,222,.18)}
+.violet-stat .dash-stat-icon{color:var(--violet);background:#121019;border-color:rgba(169,147,245,.16)}
+.gold-stat .dash-stat-icon{color:var(--gold);background:#15120D;border-color:rgba(216,181,106,.16)}
+.red-stat .dash-stat-icon{color:var(--danger);background:#160E0F;border-color:rgba(255,115,120,.16)}
+
+.dash-stat-label{
+  color:#7D878C;
+  font-size:10px;
+  letter-spacing:.7px;
+  text-transform:uppercase;
+}
+
+.premium-stat .dash-stat-value{
+  color:#F4F6F6;
+  font-weight:700;
+  letter-spacing:-.6px;
+}
+
+/* Panels and tables. */
+.dash-panel{
+  padding:18px;
+}
+
+.dash-panel-head{
+  border-bottom:1px solid transparent;
+}
+
+.dash-panel-title,
+.owner-panel-title{
+  color:#F1F4F4;
+  letter-spacing:-.15px;
+}
+
+.dash-patient-table th,
+.dash-full-table th{
+  color:#687277;
+  border-bottom-color:#20262A;
+  font-size:9px;
+  letter-spacing:.5px;
+  text-transform:uppercase;
+}
+
+.dash-patient-table td,
+.dash-full-table td{
+  border-bottom-color:#15191C;
+  color:#DCE2E3;
+}
+
+.dash-patient-table tr:hover,
+.dash-full-table tr:hover{
+  background:#0F1315;
+}
+
+/* Pills/statuses are intentionally small and functional. */
+.dash-appt-row em,
+.owner-status-pill,
+.billing-source-tag{
+  border-radius:5px;
+}
+
+.dash-appt-row em.confirmed,
+.dash-appt-row em.completed{
+  background:rgba(100,221,178,.08);
+  color:var(--success);
+}
+
+.dash-appt-row em.pending,
+.dash-appt-row em.scheduled{
+  background:rgba(233,180,92,.08);
+  color:var(--warning);
+}
+
+.dash-appt-row em.cancelled{
+  background:rgba(255,115,120,.08);
+  color:var(--danger);
+}
+
+/* Emergency block stays visible without becoming a glowing badge. */
+.dash-emergency{
+  background:#0D1412;
+  border-color:rgba(101,230,222,.18);
+  border-radius:9px;
+}
+
+/* Owner portal follows the same black system. */
+.owner-shell{
+  background:#050607;
+}
+
+.owner-topbar{
+  background:rgba(5,6,7,.95);
+  border-bottom-color:#1A1F22;
+}
+
+.owner-hospital-row{
+  background:#090B0D;
+  border-color:#1D2226;
+  border-radius:9px;
+}
+
+.owner-hospital-row:hover{
+  border-color:#30383D;
+}
+
+.owner-tier-select{
+  background:#090B0D;
+  border-color:#20262A;
+}
+
+/* Billing controls. */
+.billing-charge-row,
+.billing-method-chip{
+  background:#090B0D;
+  border-color:#1E2428;
+  border-radius:8px;
+}
+
+.billing-charge-row.selected,
+.billing-method-chip.active{
+  background:#0D1717;
+  border-color:rgba(101,230,222,.26);
+}
+
+.billing-hmo-box{
+  background:#0D1717;
+  border-color:rgba(101,230,222,.20);
+  border-radius:9px;
+}
+
+/* Toasts become discreet status surfaces. */
+.billing-toast,
+.owner-toast{
+  background:#0D1012;
+  border-color:#293136;
+  color:var(--teal);
+  border-radius:8px;
+  box-shadow:0 12px 35px rgba(0,0,0,.35);
+}
+
+/* Subtle Apple-style interaction: quick, calm, never theatrical. */
+button,
+a,
+.dash-nav-item,
+.dash-icon-btn,
+.owner-icon-btn,
+.dash-filter,
+.dash-hospital-selector,
+.dash-burger,
+.billing-method-chip,
+.billing-charge-row,
+.owner-hospital-row{
+  transition:background-color var(--motion-fast) var(--ease-apple),
+    border-color var(--motion-fast) var(--ease-apple),
+    color var(--motion-fast) var(--ease-apple),
+    transform var(--motion-fast) var(--ease-apple),
+    opacity var(--motion-fast) var(--ease-apple);
+}
+
+button:active:not(:disabled),
+.dash-nav-item:active,
+.dash-icon-btn:active,
+.owner-icon-btn:active{
+  transform:scale(.985);
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+    scroll-behavior:auto !important;
+  }
+}
+
+/* Remove decorative gradients from the application shell. */
+.auth-shell::before{
+  background:none;
+}
+
+.auth-card .card{
+  box-shadow:0 18px 55px rgba(0,0,0,.30);
+}
+
+/* Iconography: consistent weight, restrained containers. */
+svg{
+  stroke-width:1.85;
+}
+
+.dash-stat-icon svg,
+.billing-header-badge svg,
+.dash-brand-mark svg,
+.owner-hospital-avatar svg{
+  stroke-width:1.75;
+}
+
+/* Scrollbars match the black system. */
+*{
+  scrollbar-width:thin;
+  scrollbar-color:#252C30 #07090A;
+}
+
+*::-webkit-scrollbar{width:7px;height:7px}
+*::-webkit-scrollbar-track{background:#07090A}
+*::-webkit-scrollbar-thumb{background:#252C30;border-radius:10px}
+*::-webkit-scrollbar-thumb:hover{background:#333C41}
+
+@media (max-width:600px){
+  .dash-panel,
+  .card{
+    border-radius:9px;
+  }
+  .premium-stat{
+    min-height:116px;
+  }
+}
