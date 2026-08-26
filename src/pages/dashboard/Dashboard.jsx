@@ -220,10 +220,8 @@ export default function Dashboard(){
   const headerMenuRef = useRef(null)
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
-  const { records: appointments } = useOfflineTable('appointments', hospital?.id)
-  const { records: invoicesList } = useOfflineTable('invoices', hospital?.id)
-
-  // Patient vitals remain local/offline-first and power the attended-today view.
+  
+  // NEW: Fetch patient vitals to determine who was attended today
   const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
 
   const [profilePatientId, setProfilePatientId] = useState(null)
@@ -233,7 +231,14 @@ export default function Dashboard(){
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
 
+  const [todayApptCount, setTodayApptCount] = useState(0)
+  const [upcomingApptCount, setUpcomingApptCount] = useState(0)
+  const [revenueCollected, setRevenueCollected] = useState(0)
+  const [revenueOutstanding, setRevenueOutstanding] = useState(0)
+  const [pendingBillCount, setPendingBillCount] = useState(0)
+  const [invoicesList, setInvoicesList] = useState([])
   const [weeklyCounts, setWeeklyCounts] = useState([0,0,0,0,0,0,0])
+  const [appointments, setAppointments] = useState([])
   const [search, setSearch] = useState('')
   const [pending, setPending] = useState(null)
   const pendingTimeoutRef = useRef(null)
@@ -315,6 +320,26 @@ export default function Dashboard(){
     setWeeklyCounts(counts)
   }
 
+  async function loadOverviewSummary(){
+    const now = new Date()
+    const todayStr = now.toDateString()
+
+    const { data: apptData } = await supabase.from('appointments').select('*')
+    if (apptData) {
+      setAppointments(apptData)
+      setTodayApptCount(apptData.filter(a => new Date(a.appointment_time).toDateString() === todayStr).length)
+      setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
+    }
+
+    const { data: invData } = await supabase.from('invoices').select('amount, status, created_at')
+    if (invData) {
+      setInvoicesList(invData)
+      setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum,i) => sum + Number(i.amount || 0),0))
+      const unpaid = invData.filter(i => i.status === 'unpaid')
+      setRevenueOutstanding(unpaid.reduce((sum,i) => sum + Number(i.amount || 0),0))
+      setPendingBillCount(unpaid.length)
+    }
+  }
 
   async function loadTodayDuty(){
     if (!hospital?.id) return
@@ -348,7 +373,10 @@ export default function Dashboard(){
   }
 
   useEffect(() => {
-    if (hospital?.id) loadTodayDuty()
+    if (hospital?.id) {
+      loadOverviewSummary()
+      loadTodayDuty()
+    }
   }, [hospital?.id])
 
   function showToast(msg){
@@ -479,50 +507,6 @@ export default function Dashboard(){
     return a.department || a.reason || a.type || a.service || 'General Consultation'
   }
 
-  const todayMetrics = useMemo(() => {
-    const now = new Date()
-    const todayKey = now.toDateString()
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-    const yesterdayKey = yesterday.toDateString()
-
-    const todayAppointments = appointments.filter(a => new Date(a.appointment_time).toDateString() === todayKey)
-    const yesterdayAppointments = appointments.filter(a => new Date(a.appointment_time).toDateString() === yesterdayKey)
-    const upcomingAppointments = appointments.filter(a => new Date(a.appointment_time) > now && ['scheduled','confirmed','pending'].includes(String(a.status || 'scheduled').toLowerCase()))
-    const paidToday = invoicesList.filter(i => i.status === 'paid' && new Date(i.created_at).toDateString() === todayKey)
-    const paidYesterday = invoicesList.filter(i => i.status === 'paid' && new Date(i.created_at).toDateString() === yesterdayKey)
-    const unpaid = invoicesList.filter(i => ['unpaid','pending','overdue'].includes(String(i.status || '').toLowerCase()))
-    const pendingToday = invoicesList.filter(i => ['unpaid','pending','overdue'].includes(String(i.status || '').toLowerCase()) && new Date(i.created_at).toDateString() === todayKey)
-    const pendingYesterday = invoicesList.filter(i => ['unpaid','pending','overdue'].includes(String(i.status || '').toLowerCase()) && new Date(i.created_at).toDateString() === yesterdayKey)
-
-    const todayRevenue = paidToday.reduce((sum, i) => sum + Number(i.amount || 0), 0)
-    const yesterdayRevenue = paidYesterday.reduce((sum, i) => sum + Number(i.amount || 0), 0)
-    const revenueChange = yesterdayRevenue > 0 ? ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100 : null
-    const appointmentChange = yesterdayAppointments.length > 0 ? ((todayAppointments.length - yesterdayAppointments.length) / yesterdayAppointments.length) * 100 : null
-    const pendingChange = pendingYesterday.length > 0 ? ((pendingToday.length - pendingYesterday.length) / pendingYesterday.length) * 100 : null
-    const currentMonth = now.getMonth()
-    const currentYear = now.getFullYear()
-    const previousMonthDate = new Date(currentYear, currentMonth - 1, 1)
-    const monthPatients = patients.filter(p => { const d = new Date(p.created_at); return d.getMonth() === currentMonth && d.getFullYear() === currentYear })
-    const lastMonthPatients = patients.filter(p => { const d = new Date(p.created_at); return d.getMonth() === previousMonthDate.getMonth() && d.getFullYear() === previousMonthDate.getFullYear() })
-    const patientMonthChange = lastMonthPatients.length > 0 ? ((monthPatients.length - lastMonthPatients.length) / lastMonthPatients.length) * 100 : null
-
-    return {
-      todayAppointments,
-      upcomingAppointments,
-      todayAppointmentCount: todayAppointments.length,
-      upcomingCount: upcomingAppointments.length,
-      todayRevenue,
-      yesterdayRevenue,
-      revenueChange,
-      appointmentChange,
-      pendingBillCount: unpaid.length,
-      pendingChange,
-      patientMonthChange,
-      revenueOutstanding: unpaid.reduce((sum, i) => sum + Number(i.amount || 0), 0),
-    }
-  }, [appointments, invoicesList, patients])
-
   const lowStockItems = useMemo(() => {
     return (inventoryItems || []).filter(i => {
       const qty = Number(i.quantity)
@@ -552,11 +536,11 @@ export default function Dashboard(){
     readyLabTests.slice(0,3).forEach(t => {
       items.push({ icon: '📌', text: <>Lab result ready for <strong>{t.patient_name || 'patient'}</strong> ({t.test_name || 'test'}).</> })
     })
-    if (todayMetrics.todayAppointmentCount > 0) {
-      items.push({ icon: '📅', text: <><strong>{todayMetrics.todayAppointmentCount}</strong> appointment{todayMetrics.todayAppointmentCount === 1 ? '' : 's'} scheduled for today.</> })
+    if (todayApptCount > 0) {
+      items.push({ icon: '📅', text: <><strong>{todayApptCount}</strong> appointment{todayApptCount === 1 ? '' : 's'} scheduled for today.</> })
     }
     return items
-  }, [lowStockItems, readyLabTests, todayMetrics.todayAppointmentCount])
+  }, [lowStockItems, readyLabTests, todayApptCount])
 
   const recentMessageCount = useMemo(() => {
     if (!profile?.id) return 0
@@ -638,33 +622,29 @@ export default function Dashboard(){
     return { newLine, returningLine, newArea, returningArea, xLabels, yLabels }
   }, [patients, appointments])
 
-  const departmentBreakdown = useMemo(() => {
-    const palette = ['var(--teal)', 'var(--violet)', 'var(--gold)', 'var(--blue)', '#2D9CDB', 'var(--danger)']
-    const counts = new Map()
-    const now = new Date()
-    const activeAppointments = appointments.filter(a => { const d = new Date(a.appointment_time); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() })
-    activeAppointments.forEach(a => {
-      const label = String(a.department || a.service || a.type || 'Other').trim() || 'Other'
-      counts.set(label, (counts.get(label) || 0) + 1)
+  // Real patient-category breakdown (this app files patients under folders rather than
+  // clinical departments, so this reflects the folder categories actually on record)
+  const categoryBreakdown = useMemo(() => {
+    const labels = { personal: 'Personal', family: 'Family', emergency: 'Emergency', anc: 'ANC' }
+    const colors = { personal: 'var(--teal)', family: 'var(--violet)', emergency: 'var(--danger)', anc: 'var(--gold)', other: 'var(--blue)' }
+    const counts = { personal: 0, family: 0, emergency: 0, anc: 0, other: 0 }
+    patients.forEach(p => {
+      counts[labels[p.category] ? p.category : 'other'] += 1
     })
-    const total = activeAppointments.length || 1
-    const rows = [...counts.entries()]
-      .sort((a,b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([label, count], index) => ({ key: label, label, count, pct: (count / total) * 100, color: palette[index % palette.length] }))
-    if (counts.size > 6) {
-      const shown = rows.reduce((sum, r) => sum + r.count, 0)
-      const other = activeAppointments.length - shown
-      if (other > 0) rows.push({ key: 'Other', label: 'Other', count: other, pct: (other / total) * 100, color: palette[5] })
-    }
+    const total = patients.length || 1
+    const rows = Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .map(([key, count]) => ({ key, label: labels[key] || 'Other', color: colors[key], count, pct: (count / total) * 100 }))
+
     let cumulative = 0
     const gradientStops = rows.map(r => {
       const start = cumulative
       cumulative += r.pct
       return `${r.color} ${start.toFixed(1)}% ${cumulative.toFixed(1)}%`
     }).join(', ')
+
     return { rows, gradientStops: gradientStops || 'var(--line) 0% 100%' }
-  }, [appointments])
+  }, [patients])
 
   // Real daily paid-invoice revenue for the current month
   const revenueTrend = useMemo(() => {
@@ -762,7 +742,7 @@ export default function Dashboard(){
           </div>
           <div>
             <div className="dash-brand-name">{hospital?.name || 'Loading…'}</div>
-            <div className="dash-brand-sub">Hospital &amp; Maternity</div>
+            <div className="dash-brand-sub">G-MedHub</div>
           </div>
         </div>
 
@@ -790,7 +770,7 @@ export default function Dashboard(){
             <span>Emergency Line</span>
             <Icon name="phone" size={15}/>
           </div>
-          <strong>{hospital?.emergency_phone || hospital?.emergency_number || hospital?.phone || '+2348148364233'}</strong>
+          <strong>{hospital?.phone || '+2348148364233'}</strong>
           <span className="dash-emergency-name">{hospital?.emergency_contact_name || 'Mr Goodnews'}</span>
           <small>24/7 Available</small>
         </div>
@@ -938,7 +918,7 @@ export default function Dashboard(){
                   </div>
                   <div className="dash-stat-label">Total Patients</div>
                   <div className="dash-stat-value">{patients.length.toLocaleString()}</div>
-                  <div className={`dash-stat-delta ${todayMetrics.patientMonthChange !== null && todayMetrics.patientMonthChange < 0 ? 'negative' : 'positive'}`}><Icon name={todayMetrics.patientMonthChange !== null && todayMetrics.patientMonthChange < 0 ? 'arrowDown' : 'arrowUp'} size={12}/> {todayMetrics.patientMonthChange === null ? 'Live total' : `${Math.abs(todayMetrics.patientMonthChange).toFixed(1)}% from last month`}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Live patient count</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat violet-stat">
@@ -947,8 +927,8 @@ export default function Dashboard(){
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"/></svg>
                   </div>
                   <div className="dash-stat-label">Appointments</div>
-                  <div className="dash-stat-value">{todayMetrics.todayAppointmentCount}</div>
-                  <div className={`dash-stat-delta ${todayMetrics.appointmentChange !== null && todayMetrics.appointmentChange < 0 ? 'negative' : 'positive'}`}><Icon name={todayMetrics.appointmentChange !== null && todayMetrics.appointmentChange < 0 ? 'arrowDown' : 'arrowUp'} size={12}/> {todayMetrics.appointmentChange === null ? `${todayMetrics.upcomingCount} upcoming` : `${Math.abs(todayMetrics.appointmentChange).toFixed(1)}% from yesterday`}</div>
+                  <div className="dash-stat-value">{todayApptCount}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> {upcomingApptCount} upcoming</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat gold-stat">
@@ -957,8 +937,8 @@ export default function Dashboard(){
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 29 C10 27 16 30 24 21 S36 26 44 28 S54 7 64 22 S76 16 88 10"/></svg>
                   </div>
                   <div className="dash-stat-label">Today's Revenue</div>
-                  <div className="dash-stat-value">{formatMoney(todayMetrics.todayRevenue)}</div>
-                  <div className={`dash-stat-delta ${todayMetrics.revenueChange !== null && todayMetrics.revenueChange < 0 ? 'negative' : 'positive'}`}><Icon name={todayMetrics.revenueChange !== null && todayMetrics.revenueChange < 0 ? 'arrowDown' : 'arrowUp'} size={12}/> {todayMetrics.revenueChange === null ? 'Collected today' : `${Math.abs(todayMetrics.revenueChange).toFixed(1)}% from yesterday`}</div>
+                  <div className="dash-stat-value">{formatMoney(revenueCollected)}</div>
+                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Collected to date</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat red-stat">
@@ -967,8 +947,8 @@ export default function Dashboard(){
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 17 C13 12 20 22 30 18 S45 28 56 19 S72 25 88 12"/></svg>
                   </div>
                   <div className="dash-stat-label">Pending Bills</div>
-                  <div className="dash-stat-value">{todayMetrics.pendingBillCount.toLocaleString()}</div>
-                  <div className={`dash-stat-delta ${todayMetrics.pendingChange !== null && todayMetrics.pendingChange < 0 ? 'positive' : 'negative'}`}><Icon name={todayMetrics.pendingChange !== null && todayMetrics.pendingChange < 0 ? 'arrowDown' : 'arrowUp'} size={12}/> {todayMetrics.pendingChange === null ? `${formatMoney(todayMetrics.revenueOutstanding)} outstanding` : `${Math.abs(todayMetrics.pendingChange).toFixed(1)}% from yesterday`}</div>
+                  <div className="dash-stat-value">{pendingBillCount.toLocaleString()}</div>
+                  <div className="dash-stat-delta negative"><Icon name="arrowDown" size={12}/> {formatMoney(revenueOutstanding)} outstanding</div>
                 </div>
               </section>
 
@@ -988,12 +968,12 @@ export default function Dashboard(){
                     <svg viewBox="0 0 620 250" preserveAspectRatio="none">
                       <defs>
                         <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#45EBE4" stopOpacity=".28"/>
-                          <stop offset="100%" stopColor="#45EBE4" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#00D4C7" stopOpacity=".28"/>
+                          <stop offset="100%" stopColor="#00D4C7" stopOpacity="0"/>
                         </linearGradient>
                         <linearGradient id="violetArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#9C82FF" stopOpacity=".22"/>
-                          <stop offset="100%" stopColor="#9C82FF" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#8B5CF6" stopOpacity=".22"/>
+                          <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0"/>
                         </linearGradient>
                       </defs>
                       {[45,95,145,195].map(y => <line key={y} x1="0" x2="620" y1={y} y2={y} className="chart-grid-line"/>)}
@@ -1012,16 +992,16 @@ export default function Dashboard(){
                 <div className="dash-panel dash-department">
                   <div className="dash-panel-head">
                     <div>
-                      <div className="dash-panel-title">Department Activity</div>
-                      <div className="dash-panel-sub">Appointments by department</div>
+                      <div className="dash-panel-title">Patient Categories</div>
+                      <div className="dash-panel-sub">By record folder</div>
                     </div>
                   </div>
                   <div className="dash-dept-content">
-                    <div className="dash-donut" style={{background:`conic-gradient(${departmentBreakdown.gradientStops})`}}>
-                      <div><span>Total</span><strong>{appointments.length}</strong></div>
+                    <div className="dash-donut" style={{background:`conic-gradient(${categoryBreakdown.gradientStops})`}}>
+                      <div><span>Total</span><strong>{patients.length}</strong></div>
                     </div>
                     <div className="dash-dept-list">
-                      {departmentBreakdown.rows.length > 0 ? departmentBreakdown.rows.map(r => (
+                      {categoryBreakdown.rows.length > 0 ? categoryBreakdown.rows.map(r => (
                         <div className="dash-dept-row" key={r.key}>
                           <span><i style={{background:r.color}}/>{r.label}</span>
                           <b>{r.count} ({r.pct.toFixed(1)}%)</b>
@@ -1045,7 +1025,7 @@ export default function Dashboard(){
                         <div className="dash-appt-row" key={a.id || i}>
                           <strong>{d.toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</strong>
                           <div><b>{appointmentName(a)}</b><span>{appointmentReason(a)}</span></div>
-                          <em className={String(a.status || 'scheduled').toLowerCase()}>{String(a.status || 'Scheduled').replace(/^./, c => c.toUpperCase())}</em>
+                          <em className={a.status || 'scheduled'}>{a.status || 'Scheduled'}</em>
                         </div>
                       )
                     }) : (
@@ -1073,18 +1053,18 @@ export default function Dashboard(){
                         <tbody>
                           {recentPatients.map(p => (
                             <tr key={p.id}>
-                              <td data-label="Patient">
+                              <td>
                                 <div className="dash-patient-name">
                                   <span>{initials(p.full_name)}</span>
                                   {p.full_name || 'Unnamed'}
                                 </div>
                               </td>
-                              <td data-label="Age">{p.age || '—'}</td>
-                              <td data-label="Gender">{p.gender || '—'}</td>
-                              <td data-label="Contact">{p.phone || '—'}</td>
-                              <td data-label="Department">{p.department || CATEGORIES.find(c => c.value === p.category)?.label.replace(' Folder','') || 'Other'}</td>
-                              <td data-label="Registered">{formatDateTime(p.created_at)}</td>
-                              <td data-label="Actions">
+                              <td>{p.age || '—'}</td>
+                              <td>{p.gender || '—'}</td>
+                              <td>{p.phone || '—'}</td>
+                              <td>{CATEGORIES.find(c => c.value === p.category)?.label.replace(' Folder','') || 'Other'}</td>
+                              <td>{formatDateTime(p.created_at)}</td>
+                              <td>
                                 <button className="dash-more" onClick={() => { setTab('patients'); setProfilePatientId(p.id) }}>
                                   <Icon name="more" size={15}/>
                                 </button>
