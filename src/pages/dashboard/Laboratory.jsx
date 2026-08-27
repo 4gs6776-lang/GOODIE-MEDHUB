@@ -187,8 +187,6 @@ export default function Laboratory(){
     }
     setSaving(false)
 }
-  }
-
   function handlePrintForm() {
     let testRows = ''
     formTests.forEach((t, i) => {
