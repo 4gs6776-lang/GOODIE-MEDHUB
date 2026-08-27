@@ -4,7 +4,6 @@ import { useOfflineTable } from '../lib/useOfflineTable'
 import MedicationChart from './MedicationChart'
 
 const TABS = ['Overview', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
-
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
 // the app. Reuses the same offline-first tables every other module reads —
 // nothing new is stored here except through those existing hooks.
