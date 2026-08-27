@@ -191,7 +191,7 @@ export default function DoctorWorkbench() {
       for (const testName of allTests) {
         await addLabOrder({
           patient_vitals_id: activeVitals.id,
-          patient_id: activePatient?.id || null,
+          patient_id: activeVitals.patient_id,
           patient_name: activePatient?.full_name || 'Unknown',
           test_name: testName,
           notes: labNotes || null,
