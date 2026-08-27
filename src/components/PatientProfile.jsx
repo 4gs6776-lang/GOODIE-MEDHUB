@@ -430,14 +430,15 @@ function BillingTab({ patient, invoices, outstandingBalance, profile, addInvoice
 
   async function handleAddCharge(e){
     e.preventDefault()
-    if (!amount) return
+    const parsedAmount = parseFloat(amount)
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) return
     setSaving(true)
     try {
       await addInvoice({
         patient_id: patient.id, // FIX: ensure manual charges link to patient_id
         patient_name: patient.full_name,
         description: description || 'Charge',
-        amount: parseFloat(amount),
+        amount: parsedAmount,
         status: 'unpaid',
         created_by: profile?.id || null,
       })
