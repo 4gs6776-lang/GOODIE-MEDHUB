@@ -142,47 +142,51 @@ export default function Laboratory(){
 
   async function handleSaveAllResults() {
     setSaving(true)
-    try {
-      for (const t of formTests) {
-        const resData = formResults[t.id]
-        if (resData && resData.result.trim() !== '') {
-          const price = parseFloat(resData.price) || 0
-          const payload = { 
-            status: 'completed', 
-            result: resData.result, 
-            result_file: resData.result_file || null,
-            updated_at: new Date().toISOString() 
-          }
-          
-          if (t.origin === 'doctor') {
-            await updateOrder(t.id, payload)
-          } else {
-            await updateRecord(t.id, payload)
-          }
-
-          await addBillableCharge({
-            hospital_id: hospital.id, 
-            patient_id: t.patient_id || null, 
-            patient_name: t.patient_name,
-            source_module: 'Laboratory', 
-            source_transaction_id: `LAB-${t.id}`,
-            item_name: t.test_name, 
-            category: 'Lab Test', 
-            quantity: 1, 
-            unit_price: price, 
-            total: price,
-            status: 'pending', 
-            created_by: profile?.id
-          })
+    const failed = []
+    for (const t of formTests) {
+      const resData = formResults[t.id]
+      if (!resData || resData.result.trim() === '') { failed.push(t); continue }
+      try {
+        const price = parseFloat(resData.price) || 0
+        const payload = {
+          status: 'completed',
+          result: resData.result,
+          result_file: resData.result_file || null,
+          updated_at: new Date().toISOString()
         }
+        if (t.origin === 'doctor') {
+          await updateOrder(t.id, payload)
+        } else {
+          await updateRecord(t.id, payload)
+        }
+        await addBillableCharge({
+          hospital_id: hospital.id,
+          patient_id: t.patient_id || null,
+          patient_name: t.patient_name,
+          source_module: 'Laboratory',
+          source_transaction_id: `LAB-${t.id}`,
+          item_name: t.test_name,
+          category: 'Lab Test',
+          quantity: 1,
+          unit_price: price,
+          total: price,
+          status: 'pending',
+          created_by: profile?.id
+        })
+      } catch (err) {
+        console.error(`Failed to save result for ${t.test_name}:`, err)
+        failed.push(t)
       }
+    }
+    setFormTests(failed)
+    if (failed.length === 0) {
       showToast('All results saved & sent to Billing Queue')
       setShowResultForm(false)
-    } catch (err) {
-      showToast(err.message || 'Failed to save results')
-    } finally {
-      setSaving(false)
+    } else {
+      showToast(`Saved successfully. ${failed.length} result(s) still need attention.`)
     }
+    setSaving(false)
+}
   }
 
   function handlePrintForm() {
