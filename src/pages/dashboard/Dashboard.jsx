@@ -155,6 +155,7 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
     clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     phone: <><path d="M6 3h3l2 5-2 2a14 14 0 0 0 5 5l2-2 5 2v3c0 1-1 2-2 2C10 20 4 14 4 5c0-1 1-2 2-2Z"/></>,
     chat: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></>,
+    power: <><path d="M12 3v9"/><path d="M18.4 6.6a8 8 0 1 1-12.8 0"/></>,
   }
   return <svg {...common}>{paths[name] || paths.home}</svg>
 }
@@ -324,14 +325,14 @@ export default function Dashboard(){
     const now = new Date()
     const todayStr = now.toDateString()
 
-    const { data: apptData } = await supabase.from('appointments').select('*')
+    const { data: apptData } = await supabase.from('appointments').select('*').eq('hospital_id', hospital.id)
     if (apptData) {
       setAppointments(apptData)
       setTodayApptCount(apptData.filter(a => new Date(a.appointment_time).toDateString() === todayStr).length)
       setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
     }
 
-    const { data: invData } = await supabase.from('invoices').select('amount, status, created_at')
+    const { data: invData } = await supabase.from('invoices').select('amount, status, created_at').eq('hospital_id', hospital.id)
     if (invData) {
       setInvoicesList(invData)
       setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum,i) => sum + Number(i.amount || 0),0))
@@ -810,9 +811,10 @@ export default function Dashboard(){
               <div className="dash-foot-name">{profile?.full_name || 'Administrator'}</div>
               <div className="dash-foot-role">{ROLE_LABELS[profile?.role] || 'Staff'}</div>
             </div>
-            <span className="dash-foot-chevron">⌄</span>
+            <button className="dash-icon-btn dash-foot-signout" onClick={signOut} title="Sign out">
+              <Icon name="power" size={16}/>
+            </button>
           </div>
-          <button className="btn btn-ghost dash-signout" onClick={signOut}>Sign Out</button>
         </div>
       </aside>
 
@@ -885,7 +887,7 @@ export default function Dashboard(){
             <div className="dash-hospital-selector">
               <Icon name="building" size={17}/>
               <span>{hospital?.name || 'Your Hospital'}</span>
-              <span className="dash-chevron">⌄</span>
+              <span className="dash-chevron"><Icon name="arrowDown" size={13}/></span>
             </div>
           </div>
         </header>
