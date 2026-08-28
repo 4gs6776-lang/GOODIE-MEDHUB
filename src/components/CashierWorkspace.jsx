@@ -83,15 +83,17 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
       const status = pAmt >= amountOwedByPatient ? 'paid' : (pAmt > 0 ? 'partial' : 'unpaid')
 
       const newInv = await addInvoice({
-        hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
-        invoice_number: `INV-${Date.now().toString().slice(-8)}`, subtotal,
-        discount: discountAmt, tax: taxAmt, grand_total: grandTotal,
-        hmo_provider: hasHmo ? hmoProvider : null,
-        hmo_coverage_percent: hasHmo ? hmoCoveragePercent : null,
-        hmo_amount: hasHmo ? hmoAmount : 0,
-        patient_amount: amountOwedByPatient,
-        amount_paid: pAmt, balance: bal, payment_method: paymentMethod, status, created_by: profile?.id
-      })
+  hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
+  invoice_number: `INV-${Date.now().toString().slice(-8)}`, subtotal,
+  amount: grandTotal,
+  discount: discountAmt, tax: taxAmt, grand_total: grandTotal,
+  hmo_provider: hasHmo ? hmoProvider : null,
+  hmo_coverage_percent: hasHmo ? hmoCoveragePercent : null,
+  hmo_amount: hasHmo ? hmoAmount : 0,
+  patient_amount: amountOwedByPatient,
+  amount_paid: pAmt, balance: bal, payment_method: paymentMethod, status, created_by: profile?.id
+})
+
 
       for (const charge of selectedCharges) {
         await addInvoiceItem({
