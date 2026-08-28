@@ -17,7 +17,7 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const { records: charges, addRecord: addCharge, updateRecord: updateCharge } = useOfflineTable('billable_charges', hospital?.id)
   const { addRecord: addInvoice } = useOfflineTable('invoices', hospital?.id)
   const { addRecord: addInvoiceItem } = useOfflineTable('invoice_items', hospital?.id)
-  const { records: patients } = useOfflineTable('patients', hospital?.id)
+const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addInsuranceClaim } = useOfflineTable('insurance_claims', hospital?.id)
 
   const [selectedIds, setSelectedIds] = useState([])
@@ -120,10 +120,16 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
         })
       }
 
+       // Billing complete — move patient to discharged in the queue
+      if (patientId) {
+        await updatePatient(patientId, { queue_status: 'discharged', queue_updated_at: new Date().toISOString() })
+      }
+
       alert(hasHmo
         ? `Invoice generated! Patient pays ${formatMoney(amountOwedByPatient)} — ${hmoProvider} billed ${formatMoney(hmoAmount)} (claim auto-filed).`
         : 'Invoice generated successfully! The patient has been billed.')
       onClose()
+
     } catch (err) {
       alert(err.message || 'Failed to generate invoice')
     } finally {
