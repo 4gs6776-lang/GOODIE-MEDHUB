@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
@@ -13,12 +13,13 @@ function todayStr(){
   return new Date().toISOString().slice(0, 10)
 }
 
-export default function Appointments(){
+export default function Appointments({ initialSearch = '' }){
   const { profile, hospital } = useAuth()
   const { records: appointments, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('appointments', hospital?.id)
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchTerm, setSearchTerm] = useState(initialSearch)
+  useEffect(() => { if (initialSearch) setSearchTerm(initialSearch) }, [initialSearch])
   const [viewMode, setViewMode] = useState('all') // 'all' | 'day'
   const [dayFilter, setDayFilter] = useState(todayStr())
 
