@@ -1,13 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 :root{
-  --bg:#0C131B;
-  --bg-elevated:#111B24;
-  --bg-card:#111B24;
-  --bg-card-hover:#16232D;
-  --sidebar-bg:#0B141C;
-  --header-bg:#0E171F;
-  --line:#23343F;
-  --line-soft:#1B2A34;
+  --bg:#0F292F;
+  --bg-elevated:#153840;
+  --bg-card:#153840;
+  --bg-card-hover:#194650;
+  --sidebar-bg:#0B1F23;
+  --header-bg:#0D2429;
+  --line:#1F6170;
+  --line-soft:#1A4C57;
   --teal:#00D4C7;
   --teal-bright:#27E7DA;
   --teal-soft:rgba(0,212,199,0.12);
