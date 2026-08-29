@@ -1,10 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 :root{
-  --bg:#0C131B;
-  --bg-elevated:#111B24;
-  --bg-card:#111B24;
-  --bg-card-hover:#16232D;
-  --sidebar-bg:#0B141C;
+  --bg:#050B10;
+  --bg-elevated:#071018;
+  --bg-card:#0B141D;
+  --bg-card-hover:#101B25;
+  --sidebar-bg:#071018;
   --header-bg:#0E171F;
   --line:#23343F;
   --line-soft:#1B2A34;
