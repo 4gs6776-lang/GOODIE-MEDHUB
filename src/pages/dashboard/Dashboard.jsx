@@ -241,6 +241,10 @@ export default function Dashboard(){
   const [weeklyCounts, setWeeklyCounts] = useState([0,0,0,0,0,0,0])
   const [appointments, setAppointments] = useState([])
   const [search, setSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [deepLinkSearch, setDeepLinkSearch] = useState('')
+  const searchBoxRef = useRef(null)
+  const searchInputRef = useRef(null)
   const [pending, setPending] = useState(null)
   const pendingTimeoutRef = useRef(null)
   const pendingIntervalRef = useRef(null)
@@ -263,9 +267,27 @@ export default function Dashboard(){
       if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) {
         setActiveMenu(null)
       }
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
+        setSearchOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        setSearchOpen(true)
+      } else if (e.key === 'Escape') {
+        setSearchOpen(false)
+        searchInputRef.current?.blur()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
   const stuckTables = useMemo(() => {
@@ -332,7 +354,7 @@ export default function Dashboard(){
       setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
     }
 
-    const { data: invData } = await supabase.from('invoices').select('amount, status, created_at').eq('hospital_id', hospital.id)
+    const { data: invData } = await supabase.from('invoices').select('id, invoice_number, patient_name, amount, status, created_at').eq('hospital_id', hospital.id)
     if (invData) {
       setInvoicesList(invData)
       setRevenueCollected(invData.filter(i => i.status === 'paid').reduce((sum,i) => sum + Number(i.amount || 0),0))
@@ -481,6 +503,44 @@ export default function Dashboard(){
   const filteredPatients = displayedPatients.filter(p =>
     !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
   )
+
+  // Global search: live results across patients, appointments, and invoices
+  const globalSearchResults = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return { patients: [], appointments: [], invoices: [] }
+    return {
+      patients: patients.filter(p =>
+        String(p.full_name || '').toLowerCase().includes(q) ||
+        String(p.phone || '').toLowerCase().includes(q)
+      ).slice(0, 5),
+      appointments: appointments.filter(a =>
+        String(a.patient_name || '').toLowerCase().includes(q) ||
+        String(a.doctor_name || '').toLowerCase().includes(q)
+      ).slice(0, 5),
+      invoices: invoicesList.filter(i =>
+        String(i.patient_name || '').toLowerCase().includes(q) ||
+        String(i.invoice_number || '').toLowerCase().includes(q)
+      ).slice(0, 5),
+    }
+  }, [search, patients, appointments, invoicesList])
+  const globalSearchHasResults =
+    globalSearchResults.patients.length + globalSearchResults.appointments.length + globalSearchResults.invoices.length > 0
+
+  function goToSearchResult(kind, item){
+    setSearchOpen(false)
+    if (kind === 'patient') {
+      setTab('patients')
+      setSearch(item.full_name || '')
+    } else if (kind === 'appointment') {
+      setDeepLinkSearch(item.patient_name || '')
+      setTab('appointments')
+      setSearch('')
+    } else if (kind === 'invoice') {
+      setDeepLinkSearch(item.patient_name || item.invoice_number || '')
+      setTab('billing')
+      setSearch('')
+    }
+  }
 
   // NEW: Calculate Patients Attended Today
   const todayStr = new Date().toDateString()
@@ -829,14 +889,63 @@ export default function Dashboard(){
             <Icon name="menu" size={21}/>
           </div>
 
-          <div className="dash-search">
+          <div className="dash-search" ref={searchBoxRef} style={{ position: 'relative' }}>
             <Icon name="search" size={17}/>
             <input
+              ref={searchInputRef}
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setSearchOpen(true) }}
+              onFocus={() => setSearchOpen(true)}
               placeholder="Search patients, invoices, appointments..."
             />
             <kbd>⌘ K</kbd>
+
+            {searchOpen && search.trim() && (
+              <div className="dash-search-results">
+                {globalSearchHasResults ? (
+                  <>
+                    {globalSearchResults.patients.length > 0 && (
+                      <div className="dash-search-group">
+                        <div className="dash-search-group-label">Patients</div>
+                        {globalSearchResults.patients.map(p => (
+                          <button key={p.id} className="dash-search-result" onClick={() => goToSearchResult('patient', p)}>
+                            <Icon name="users" size={14}/>
+                            <span>{p.full_name}</span>
+                            {p.phone && <span className="dash-search-result-meta">{p.phone}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {globalSearchResults.appointments.length > 0 && (
+                      <div className="dash-search-group">
+                        <div className="dash-search-group-label">Appointments</div>
+                        {globalSearchResults.appointments.map(a => (
+                          <button key={a.id} className="dash-search-result" onClick={() => goToSearchResult('appointment', a)}>
+                            <Icon name="calendar" size={14}/>
+                            <span>{a.patient_name}</span>
+                            {a.doctor_name && <span className="dash-search-result-meta">Dr. {a.doctor_name}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {globalSearchResults.invoices.length > 0 && (
+                      <div className="dash-search-group">
+                        <div className="dash-search-group-label">Invoices</div>
+                        {globalSearchResults.invoices.map(i => (
+                          <button key={i.id} className="dash-search-result" onClick={() => goToSearchResult('invoice', i)}>
+                            <Icon name="billing" size={14}/>
+                            <span>{i.patient_name || i.invoice_number || 'Invoice'}</span>
+                            <span className="dash-search-result-meta">₦{Number(i.amount || 0).toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="dash-search-empty">No matches for "{search.trim()}"</div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Interactive Actions Icons & Popovers */}
@@ -1157,7 +1266,7 @@ export default function Dashboard(){
           )}
 
           {/* Other tab routing components */}
-          {tab === 'appointments' && <Appointments />}
+          {tab === 'appointments' && <Appointments initialSearch={deepLinkSearch}/>}
           {tab === 'patients' && (
             profilePatientId ? (
               <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
@@ -1233,7 +1342,7 @@ export default function Dashboard(){
             )
           )}
           {tab === 'reception' && <Reception />}
-          {tab === 'billing' && <Billing />}
+          {tab === 'billing' && <Billing initialSearch={deepLinkSearch}/>}
           {tab === 'laboratory' && <Laboratory />}
           {tab === 'pharmacy' && <Pharmacy />}
           {tab === 'radiology' && <Radiology />}
