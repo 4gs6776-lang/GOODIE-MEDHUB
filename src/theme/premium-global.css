@@ -64,7 +64,8 @@ html { scroll-behavior: smooth; }
 body {
   background:
     radial-gradient(900px 520px at 100% -10%, rgba(0,212,199,.045), transparent 58%),
-    var(--bg);
+    linear-gradient(160deg, #0F2334 0%, #050B10 45%, #030608 100%);
+  background-attachment: fixed;
   letter-spacing: -0.005em;
 }
 
@@ -84,7 +85,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .owner-stat-card,
 .auth-card,
 .dash-modal {
-  background: linear-gradient(180deg, rgba(255,255,255,.012), rgba(255,255,255,0)) , var(--bg-card);
+  background: linear-gradient(165deg, #16283B 0%, #080F16 100%);
   border-color: var(--line);
   box-shadow: 0 10px 30px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.018);
 }
@@ -148,7 +149,7 @@ tbody td { border-color: var(--line-soft); }
 
 /* Top-level dashboard chrome */
 .dash-sidebar {
-  background: linear-gradient(180deg, rgba(0,212,199,.018), transparent 28%), var(--sidebar-bg);
+  background: linear-gradient(180deg, rgba(0,212,199,.018), transparent 28%), linear-gradient(180deg, #091520 0%, #04080C 100%);
   border-right-color: var(--line);
 }
 .dash-brand { border-bottom-color: var(--line); }
@@ -253,4 +254,133 @@ tbody td { border-color: var(--line-soft); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* ============================================================
+   Premium polish pass — stat cards, panels, donut chart
+   ============================================================ */
+
+/* Stat cards: rounder, deeper shadow, colored top accent bar */
+.dash-stat-card,
+.premium-stat {
+  border-radius: 16px;
+  border: 1px solid rgba(148,163,184,.10);
+  box-shadow: 0 20px 48px -30px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.02);
+  position: relative;
+  overflow: hidden;
+}
+.dash-stat-card::before,
+.premium-stat::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--teal);
+  opacity: .55;
+}
+.violet-stat::before { background: var(--violet); }
+.gold-stat::before   { background: var(--gold); }
+.red-stat::before    { background: var(--danger); }
+
+.dash-stat-card:hover,
+.premium-stat:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 26px 56px -28px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+/* Icon badges: soft ring + glow instead of a flat tinted circle */
+.premium-stat .dash-stat-icon {
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px currentColor, 0 6px 18px -8px currentColor;
+  opacity: 1;
+}
+.teal-stat   .dash-stat-icon { box-shadow: 0 0 0 1px rgba(0,212,199,.35), 0 6px 16px -8px rgba(0,212,199,.55); }
+.violet-stat .dash-stat-icon { box-shadow: 0 0 0 1px rgba(156,130,255,.35), 0 6px 16px -8px rgba(156,130,255,.55); }
+.gold-stat   .dash-stat-icon { box-shadow: 0 0 0 1px rgba(255,210,74,.35), 0 6px 16px -8px rgba(255,210,74,.55); }
+.red-stat    .dash-stat-icon { box-shadow: 0 0 0 1px rgba(255,102,107,.35), 0 6px 16px -8px rgba(255,102,107,.55); }
+
+/* Typography hierarchy: kicker-style label, bolder tabular value */
+.premium-stat .dash-stat-label {
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted-dim);
+}
+.premium-stat .dash-stat-value {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  color: var(--ivory);
+}
+
+/* Delta row becomes a small pill instead of bare text */
+.premium-stat .dash-stat-delta {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  margin-top: 6px;
+}
+.premium-stat .dash-stat-delta.positive { background: var(--success-soft); }
+.premium-stat .dash-stat-delta.negative { background: var(--danger-soft); }
+
+/* Sparklines: a touch thicker with a matching glow */
+.teal-stat   .dash-mini-chart path { filter: drop-shadow(0 2px 5px rgba(0,212,199,.45)); }
+.violet-stat .dash-mini-chart path { filter: drop-shadow(0 2px 5px rgba(156,130,255,.45)); }
+.gold-stat   .dash-mini-chart path { filter: drop-shadow(0 2px 5px rgba(255,210,74,.45)); }
+.red-stat    .dash-mini-chart path { filter: drop-shadow(0 2px 5px rgba(255,102,107,.45)); }
+.dash-mini-chart path { stroke-width: 2.25; }
+
+/* Panels: rounder corners, deeper shadow, calmer hover */
+.dash-panel {
+  border-radius: 16px;
+  border-color: rgba(148,163,184,.10);
+  box-shadow: 0 20px 48px -32px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.02);
+}
+.dash-panel:hover {
+  border-color: rgba(0,212,199,.22);
+  box-shadow: 0 24px 54px -30px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.03);
+}
+.dash-panel-title {
+  letter-spacing: -.01em;
+}
+
+/* Donut: gradient ring + a soft glow instead of a flat color disc */
+.dash-donut {
+  background: conic-gradient(from -90deg, var(--teal) 0deg, var(--violet) 180deg, rgba(148,163,184,.14) 180deg 360deg);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.03), 0 18px 40px -26px rgba(0,212,199,.35);
+}
+.dash-donut:before {
+  background: var(--bg-card);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+}
+.dash-donut strong {
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+
+/* Richer empty states: icon + message + optional CTA, instead of bare text */
+.dash-empty-state-rich {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px 16px;
+  color: var(--muted-dim);
+}
+.dash-empty-state-rich svg {
+  opacity: .5;
+}
+.dash-empty-state-rich p {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+.dash-empty-cta {
+  margin-top: 2px;
+  padding: 7px 14px;
+  font-size: 11.5px;
+  min-height: 32px;
 }
