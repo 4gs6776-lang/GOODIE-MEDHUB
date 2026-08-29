@@ -670,7 +670,11 @@ export default function Dashboard(){
       return `${r.color} ${start.toFixed(1)}% ${cumulative.toFixed(1)}%`
     }).join(', ')
 
-    return { rows, total, gradientStops: gradientStops || 'var(--line) 0% 100%' }
+    return {
+      rows,
+      total,
+      gradientStops: gradientStops || 'rgba(0,212,199,.16) 0% 4%, rgba(148,163,184,.10) 4% 100%',
+    }
   }, [appointments])
 
   // Real daily paid-invoice revenue for the current month
@@ -1039,7 +1043,10 @@ export default function Dashboard(){
                           <b>{r.count} ({r.pct.toFixed(1)}%)</b>
                         </div>
                       )) : (
-                        <div className="dash-empty-state">No patients on record yet</div>
+                        <div className="dash-empty-state dash-empty-state-rich">
+                          <Icon name="calendar" size={22}/>
+                          <p>No appointments logged this month yet</p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1061,7 +1068,13 @@ export default function Dashboard(){
                         </div>
                       )
                     }) : (
-                      <div className="dash-empty-state">No upcoming appointments recorded yet</div>
+                      <div className="dash-empty-state dash-empty-state-rich">
+                        <Icon name="calendar" size={22}/>
+                        <p>No upcoming appointments recorded yet</p>
+                        <button className="btn btn-ghost dash-empty-cta" onClick={() => setTab('appointments')}>
+                          <Icon name="plus" size={14}/> Book an appointment
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1107,7 +1120,13 @@ export default function Dashboard(){
                       </table>
                     </div>
                   ) : (
-                    <div className="dash-empty-state">No patients registered yet</div>
+                    <div className="dash-empty-state dash-empty-state-rich">
+                      <Icon name="users" size={22}/>
+                      <p>No patients registered yet</p>
+                      <button className="btn btn-ghost dash-empty-cta" onClick={() => setTab('patients')}>
+                        <Icon name="plus" size={14}/> Register a patient
+                      </button>
+                    </div>
                   )}
                 </div>
 
