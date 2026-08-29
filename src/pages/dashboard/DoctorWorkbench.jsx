@@ -316,14 +316,10 @@ export default function DoctorWorkbench() {
         completed_at: new Date().toISOString(), completed_by: profile?.id || null
       })
       if (activePatient) {
-  const hasLabOrders = activePatientLabOrders.length > 0
-  const hasPrescriptions = medications.length > 0
-  await updatePatient(activePatient.id, {
-    queue_status: (hasLabOrders || hasPrescriptions) ? 'in_lab' : 'discharged',
-    queue_updated_at: new Date().toISOString()
-  })
-}
-
+        const hasLabOrders = activePatientLabOrders.length > 0
+        const hasPrescriptions = medications.length > 0
+        await updatePatient(activePatient.id, { queue_status: (hasLabOrders || hasPrescriptions) ? 'in_lab' : 'discharged', queue_updated_at: new Date().toISOString() })
+      }
       showToast('Consultation completed'); clearWorkbench()
     } catch (err) { showToast(err.message) } finally { setCompleting(false) }
   }
