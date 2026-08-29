@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
@@ -20,13 +20,14 @@ function Icon({ name, size = 18 }) {
 
 const SPARK = "M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"
 
-export default function Billing() {
+export default function Billing({ initialSearch = '' }) {
   const { profile, hospital } = useAuth()
   const { records: invoices, loading, isOnline, pendingCount } = useOfflineTable('invoices', hospital?.id)
   const { records: billableCharges, syncFromServer: syncCharges } = useOfflineTable('billable_charges', hospital?.id)
 
   const [toast, setToast] = useState(null)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
+  useEffect(() => { if (initialSearch) setSearch(initialSearch) }, [initialSearch])
   const [selectedPatient, setSelectedPatient] = useState(null)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
