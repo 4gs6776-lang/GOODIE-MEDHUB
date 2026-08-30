@@ -80,6 +80,31 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   const pageEntries = sorted.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE)
   const emptyRowCount = Math.max(0, ROWS_PER_PAGE - pageEntries.length)
 
+  // A dose is "overdue" when its next_dose time has passed and no later
+  // entry for that same drug has been logged since — i.e. nobody has
+  // recorded giving the next dose yet. This is the single most useful
+  // safety signal a MAR chart can surface at a glance.
+  const now = new Date()
+  const latestEntryPerDrug = useMemo(() => {
+    const map = new Map()
+    for (const e of sorted) {
+      const key = e.drug_name?.trim().toLowerCase()
+      if (!key) continue
+      const existing = map.get(key)
+      const ts = new Date(`${e.entry_date}T${e.entry_time || '00:00'}`)
+      if (!existing || ts > existing.ts) map.set(key, { id: e.id, ts })
+    }
+    return map
+  }, [sorted])
+
+  function isOverdue(e){
+    if (!e.next_dose || !e.entry_date) return false
+    const latest = latestEntryPerDrug.get(e.drug_name?.trim().toLowerCase())
+    if (!latest || latest.id !== e.id) return false // a later dose was already given
+    const due = new Date(`${e.entry_date}T${e.next_dose}`)
+    return due < now
+  }
+
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(() => emptyMedForm(profile))
   const [saving, setSaving] = useState(false)
@@ -216,6 +241,9 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   function handlePrint(){
     const totalPages = pageCount
     const printHospitalName = hospitalName || 'HOSPITAL MEDICATION CHART'
+    const allergyHtml = header.allergies
+      ? `<div class="mar-allergy-banner mar-allergy-danger"><b>⚠ Allergies:</b> ${escapeHtml(header.allergies)}</div>`
+      : `<div class="mar-allergy-banner mar-allergy-nkda">No known drug allergies recorded (NKDA)</div>`
     const patientInfoHtml = `
       <div class="p-grid">
         ${marInfoCellHtml('Patient Name', patient.full_name)}
@@ -227,42 +255,42 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
         ${marInfoCellHtml('Diagnosis', header.diagnosis, true)}
         ${marInfoCellHtml('Consultant/Doctor', header.consultant)}
         ${marInfoCellHtml('Date Admitted', dateAdmitted)}
-        ${marInfoCellHtml('Allergies', header.allergies, true)}
       </div>`
 
     const pagesHtml = Array.from({ length: totalPages }).map((_, pIdx) => {
       const rows = sorted.slice(pIdx * ROWS_PER_PAGE, (pIdx + 1) * ROWS_PER_PAGE)
-      const filledRowsHtml = rows.map((e, i) => `
-        <tr>
+      const filledRowsHtml = rows.map((e, i) => {
+        const overdue = isOverdue(e)
+        return `
+        <tr class="${overdue ? 'mar-row-overdue' : ''}">
           <td>${pIdx * ROWS_PER_PAGE + i + 1}</td>
           <td>${escapeHtml(e.entry_date || '')}</td>
           <td>${escapeHtml((e.entry_time || '').slice(0, 5))}</td>
           <td class="med-cell">${escapeHtml(e.drug_name)}</td>
           <td>${escapeHtml(e.dosage || '')}</td>
-          <td>${escapeHtml((e.next_dose || '').slice(0, 5))}</td>
           <td>${escapeHtml(e.route || '')}</td>
           <td>${escapeHtml(e.frequency || '')}</td>
+          <td class="${overdue ? 'mar-cell-overdue' : ''}">${escapeHtml((e.next_dose || '').slice(0, 5))}${overdue ? ' ⚠' : ''}</td>
           <td>${escapeHtml(e.sign || '')}</td>
-        </tr>`).join('')
+        </tr>`
+      }).join('')
       const emptyRows = Math.max(0, ROWS_PER_PAGE - rows.length)
       const emptyRowsHtml = Array.from({ length: emptyRows }).map((_, i) => `
-        <tr class="empty-row"><td>${rows.length + i + 1}</td><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`).join('')
+        <tr class="empty-row"><td>${rows.length + i + 1}</td><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`).join('')
 
       return `
         <section class="mar-page">
           <div class="mar-header-row">
             <div class="mar-brand">
               <div class="mar-hospital-name">${escapeHtml(printHospitalName)}</div>
-              <div class="mar-brand-sub">Hospital Management System</div>
-            </div>
-            <div class="mar-title-block">
-              <div class="mar-doc-title">Drug Administration Chart</div>
+              <div class="mar-brand-sub">Medication Administration Record</div>
             </div>
             <div class="mar-chartno-box">
-              <div><b>Chart No.</b><span>${escapeHtml(patient.hospital_number || '')}</span></div>
+              <div><b>Hospital No.</b><span>${escapeHtml(patient.hospital_number || '')}</span></div>
               <div><b>Page</b><span>${pIdx + 1} of ${totalPages}</span></div>
             </div>
           </div>
+          ${allergyHtml}
           ${patientInfoHtml}
           <table>
             <thead>
@@ -270,32 +298,27 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
                 <th style="width:4%"></th>
                 <th style="width:8%">Date</th>
                 <th style="width:7%">Time</th>
-                <th style="width:24%">Medication Given</th>
-                <th style="width:11%">Dosage</th>
+                <th style="width:23%">Medication Given</th>
+                <th style="width:11%">Dose</th>
+                <th style="width:7%">Route</th>
+                <th style="width:7%">FrQ</th>
                 <th style="width:9%">Next Dose</th>
-                <th style="width:8%">Route</th>
-                <th style="width:8%">FrQ</th>
                 <th style="width:13%">Sign</th>
               </tr>
             </thead>
             <tbody>${filledRowsHtml}${emptyRowsHtml}</tbody>
           </table>
           <div class="mar-footer-bar">
-            <div class="mar-freq-guide">
-              <b>FrQ (Frequency) Guide:</b>
-              <span>OD – Once Daily</span>
-              <span>BD – Twice Daily</span>
-              <span>TDS – Three Times Daily</span>
-              <span>QID – Four Times Daily</span>
-              <span>STAT – As Soon As Possible</span>
-              <span>PRN – As Needed</span>
+            <div class="mar-legend">
+              <div><b>Route:</b> PO Oral · IV Intravenous · IM Intramuscular · SC Subcutaneous · PR Rectal · SL Sublingual · Top Topical · Inh Inhaled</div>
+              <div><b>FrQ:</b> STAT Immediately · OD Once daily · BD Twice daily · TDS 3× daily · QID/QDS 4× daily · PRN As needed · Nocte At night · Weekly</div>
             </div>
             <div class="mar-prepared">
-              <div>Prepared by: <span>&nbsp;</span></div>
-              <div>Date: <span>&nbsp;</span></div>
+              <div>Prepared by: <b>${escapeHtml(profile?.full_name || '')}</b></div>
+              <div>${new Date().toLocaleDateString()}</div>
             </div>
           </div>
-          <div class="mar-footer">Page ${pIdx + 1} of ${totalPages}</div>
+          <div class="mar-footer">Page ${pIdx + 1} of ${totalPages} · This is a computer-generated record</div>
         </section>`
     }).join('')
 
@@ -311,12 +334,13 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
           .mar-page:last-child { page-break-after: auto; }
           .mar-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
           .mar-hospital-name { font-size: 16px; font-weight: 800; letter-spacing: 0.5px; color: #0C2E4E; }
-          .mar-brand-sub { font-size: 8.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #64798C; }
-          .mar-title-block { flex: 1.3; text-align: center; padding-top: 3px; }
-          .mar-doc-title { font-size: 17px; font-weight: 800; letter-spacing: 1px; color: #0C2E4E; text-transform: uppercase; }
-          .mar-chartno-box { border: 1px solid #DCE4EB; border-radius: 6px; padding: 5px 10px; font-size: 9.5px; min-width: 120px; }
+          .mar-brand-sub { font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #64798C; }
+          .mar-chartno-box { border: 1px solid #DCE4EB; border-radius: 6px; padding: 5px 10px; font-size: 9.5px; min-width: 130px; }
           .mar-chartno-box div { display: flex; justify-content: space-between; gap: 6px; }
           .mar-chartno-box b { font-weight: 700; color: #0C2E4E; }
+          .mar-allergy-banner { padding: 6px 10px; border-radius: 5px; font-size: 10px; font-weight: 600; margin-bottom: 8px; }
+          .mar-allergy-danger { background: #FBEAEA; color: #B3261E; border: 1px solid rgba(179,38,30,0.3); }
+          .mar-allergy-nkda { background: #EEF2F6; color: #64798C; border: 1px solid #DCE4EB; }
           .p-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px 16px; padding: 8px 10px; margin-bottom: 10px; background: #F4F7FA; border: 1px solid #DCE4EB; border-radius: 4px; }
           .p-cell { font-size: 10.5px; }
           .p-cell b { display: block; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #64798C; font-weight: 700; }
@@ -328,14 +352,16 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
           td { height: 24px; }
           td:first-child, th:first-child { text-align: center; }
           tbody tr:nth-child(even) { background: #EEF2F6; }
+          .mar-row-overdue td { background: #FBEAEA !important; }
+          .mar-cell-overdue { color: #B3261E; font-weight: 700; }
           .med-cell { font-weight: 600; }
           .empty-row td { color: transparent; }
-          .mar-footer-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #DCE4EB; font-size: 8.5px; color: #64798C; }
-          .mar-freq-guide span { margin-right: 8px; }
-          .mar-freq-guide b { color: #14202B; }
-          .mar-prepared { display: flex; gap: 14px; font-weight: 600; white-space: nowrap; }
-          .mar-prepared span { display: inline-block; border-bottom: 1px dotted #DCE4EB; padding: 0 20px 1px 4px; }
-          .mar-footer { text-align: right; font-size: 9.5px; color: #64798C; margin-top: 6px; }
+          .mar-footer-bar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #DCE4EB; font-size: 8.5px; color: #64798C; }
+          .mar-legend { display: flex; flex-direction: column; gap: 3px; max-width: 70%; }
+          .mar-legend b { color: #14202B; }
+          .mar-prepared { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; white-space: nowrap; font-weight: 600; }
+          .mar-prepared b { color: #14202B; }
+          .mar-footer { text-align: right; font-size: 9px; color: #64798C; margin-top: 6px; }
         </style>
       </head>
       <body>${pagesHtml}</body>
@@ -358,88 +384,100 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
 
       <div className="mar-document">
         <div className="mar-header">
-          <div className="mar-header-row">
-            <div className="mar-brand">
-              <div className="mar-logo-mark">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s-6.7-4.3-9.3-8.5C.8 9.1 2 5.5 5.3 4.4c2-.7 4 .1 5 1.8.9-1.7 3-2.5 5-1.8 3.3 1.1 4.5 4.7 2.6 8.1C18.7 16.7 12 21 12 21z"/></svg>
-              </div>
-              <div>
-                <div className="mar-hospital-name">{hospitalName || 'HOSPITAL MEDICATION CHART'}</div>
-                <div className="mar-brand-sub">Hospital Management System</div>
-              </div>
+          <div className="mar-brand">
+            <div className="mar-logo-mark">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s-6.7-4.3-9.3-8.5C.8 9.1 2 5.5 5.3 4.4c2-.7 4 .1 5 1.8.9-1.7 3-2.5 5-1.8 3.3 1.1 4.5 4.7 2.6 8.1C18.7 16.7 12 21 12 21z"/></svg>
             </div>
-            <div className="mar-title-block">
-              <div className="mar-doc-title">Drug Administration Chart</div>
-              <svg className="mar-pulse" height="14" viewBox="0 0 200 14" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M0 7h60l8-6 10 12 8-14 8 8h106"/></svg>
+            <div>
+              <div className="mar-hospital-name">{hospitalName || 'Hospital Medication Chart'}</div>
+              <div className="mar-doc-title">Medication Administration Record</div>
             </div>
-            <div className="mar-chartno-box">
-              <div><b>Chart No.</b><span>{patient.hospital_number || ''}</span></div>
-              <div><b>Page</b><span>{page} of {pageCount}</span></div>
-            </div>
+          </div>
+          <div className="mar-chartno-box">
+            <div><b>Hospital No.</b><span>{patient.hospital_number || '—'}</span></div>
+            <div><b>Page</b><span>{page} of {pageCount}</span></div>
           </div>
         </div>
 
+        {header.allergies ? (
+          <div className="mar-allergy-banner mar-allergy-danger">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <span><b>Allergies:</b> {header.allergies}</span>
+          </div>
+        ) : (
+          <div className="mar-allergy-banner mar-allergy-nkda">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            <span>No known drug allergies recorded (NKDA)</span>
+          </div>
+        )}
+
         <div className="mar-patient-grid">
-          <MarField label="Patient Name" value={patient.full_name} />
+          <MarField label="Patient Name" value={patient.full_name} wide />
           <MarField label="Hospital Number" value={patient.hospital_number} />
           <MarField label="Age" value={age != null ? `${age} yrs` : ''} />
           <MarField label="Sex" value={patient.gender} />
           <MarField label="Ward" value={header.ward} editable onChange={v => setHeaderField('ward', v)} onBlurCommit={v => commitHeaderField('ward', v)} />
           <MarField label="Bed" value={header.bed} editable onChange={v => setHeaderField('bed', v)} onBlurCommit={v => commitHeaderField('bed', v)} />
-          <MarField label="Diagnosis" value={header.diagnosis} editable wide onChange={v => setHeaderField('diagnosis', v)} onBlurCommit={v => commitHeaderField('diagnosis', v)} />
           <MarField label="Consultant / Doctor" value={header.consultant} editable onChange={v => setHeaderField('consultant', v)} onBlurCommit={v => commitHeaderField('consultant', v)} />
           <MarField label="Date Admitted" value={dateAdmitted} />
-          <MarField label="Allergies" value={header.allergies} editable wide danger={!!header.allergies} onChange={v => setHeaderField('allergies', v)} onBlurCommit={v => commitHeaderField('allergies', v)} />
+          <MarField label="Diagnosis" value={header.diagnosis} editable wide onChange={v => setHeaderField('diagnosis', v)} onBlurCommit={v => commitHeaderField('diagnosis', v)} />
+          <MarField label="Allergies (edit)" value={header.allergies} editable wide danger={!!header.allergies} onChange={v => setHeaderField('allergies', v)} onBlurCommit={v => commitHeaderField('allergies', v)} />
         </div>
 
         <div className="mar-table-scroll">
           <table className="mar-table">
             <thead>
               <tr>
-                <th></th>
+                <th className="mar-col-num"></th>
                 <th style={{ width: '8%' }}>Date</th>
                 <th style={{ width: '7%' }}>Time</th>
-                <th style={{ width: '23%' }}>Medication Given</th>
-                <th style={{ width: '11%' }}>Dosage</th>
+                <th style={{ width: '22%' }}>Medication Given</th>
+                <th style={{ width: '10%' }}>Dose</th>
+                <th style={{ width: '7%' }}>Route</th>
+                <th style={{ width: '7%' }}>FrQ</th>
                 <th style={{ width: '9%' }}>Next Dose</th>
-                <th style={{ width: '8%' }}>Route</th>
-                <th style={{ width: '8%' }}>FrQ</th>
-                <th style={{ width: '13%' }}>Sign</th>
-                <th style={{ width: '10%' }}></th>
+                <th style={{ width: '12%' }}>Sign</th>
+                <th style={{ width: '8%' }}></th>
               </tr>
             </thead>
             <tbody>
-              {pageEntries.map((e, i) => (
-                <tr key={e.id} className="mar-row-filled" onClick={() => openEditForm(e)}>
-                  <td>{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
-                  <td>{e.entry_date || ''}</td>
-                  <td>{e.entry_time ? e.entry_time.slice(0, 5) : ''}</td>
-                  <td className="mar-med-cell">
-                    {e.drug_name}
-                    {e.prescription_id && (() => {
-                      const rx = prescriptions.find(r => r.id === e.prescription_id)
-                      return rx?.doctor_name ? <div className="mar-rx-tag">Rx · Dr. {rx.doctor_name}</div> : null
-                    })()}
-                  </td>
-                  <td>{e.dosage || ''}</td>
-                  <td>{e.next_dose ? e.next_dose.slice(0, 5) : ''}</td>
-                  <td>{e.route || ''}</td>
-                  <td>{e.frequency || ''}</td>
-                  <td>{e.sign || ''}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="mar-row-delete"
-                      onClick={ev => { ev.stopPropagation(); handleDelete(e) }}
-                      title="Remove entry"
-                    ><TrashIcon size={14}/></button>
-                  </td>
-                </tr>
-              ))}
+              {pageEntries.map((e, i) => {
+                const overdue = isOverdue(e)
+                return (
+                  <tr key={e.id} className={`mar-row-filled${overdue ? ' mar-row-overdue' : ''}`} onClick={() => openEditForm(e)}>
+                    <td className="mar-col-num">{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
+                    <td>{e.entry_date || ''}</td>
+                    <td>{e.entry_time ? e.entry_time.slice(0, 5) : ''}</td>
+                    <td className="mar-med-cell">
+                      {e.drug_name}
+                      {e.prescription_id && (() => {
+                        const rx = prescriptions.find(r => r.id === e.prescription_id)
+                        return rx?.doctor_name ? <div className="mar-rx-tag">Rx · Dr. {rx.doctor_name}</div> : null
+                      })()}
+                    </td>
+                    <td>{e.dosage || ''}</td>
+                    <td>{e.route || ''}</td>
+                    <td>{e.frequency || ''}</td>
+                    <td className={overdue ? 'mar-cell-overdue' : ''}>
+                      {e.next_dose ? e.next_dose.slice(0, 5) : ''}
+                      {overdue && <div className="mar-overdue-tag">Overdue</div>}
+                    </td>
+                    <td>{e.sign || ''}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="mar-row-delete"
+                        onClick={ev => { ev.stopPropagation(); handleDelete(e) }}
+                        title="Remove entry"
+                      ><TrashIcon size={14}/></button>
+                    </td>
+                  </tr>
+                )
+              })}
               {Array.from({ length: emptyRowCount }).map((_, i) => (
                 <tr key={`empty-${i}`} className="mar-row-empty">
-                  <td>{pageEntries.length + i + 1}</td>
-                  <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                  <td className="mar-col-num">{pageEntries.length + i + 1}</td>
+                  <td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
                 </tr>
               ))}
             </tbody>
@@ -447,18 +485,13 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
         </div>
 
         <div className="mar-footer-bar">
-          <div className="mar-freq-guide">
-            <b>FrQ (Frequency) Guide:</b>{' '}
-            <span>OD – Once Daily</span>
-            <span>BD – Twice Daily</span>
-            <span>TDS – Three Times Daily</span>
-            <span>QID – Four Times Daily</span>
-            <span>STAT – As Soon As Possible</span>
-            <span>PRN – As Needed</span>
+          <div className="mar-legend">
+            <div><b>Route:</b> PO Oral · IV Intravenous · IM Intramuscular · SC Subcutaneous · PR Rectal · SL Sublingual · Top Topical · Inh Inhaled</div>
+            <div><b>FrQ:</b> STAT Immediately · OD Once daily · BD Twice daily · TDS 3× daily · QID/QDS 4× daily · PRN As needed · Nocte At night · Weekly</div>
           </div>
           <div className="mar-prepared">
-            <div>Prepared by: <span>{profile?.full_name || ''}</span></div>
-            <div>Date: <span>{new Date().toLocaleDateString()}</span></div>
+            <span>Prepared by: <b>{profile?.full_name || '—'}</b></span>
+            <span>{new Date().toLocaleDateString()}</span>
           </div>
         </div>
 
