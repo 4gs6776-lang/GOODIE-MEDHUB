@@ -16,7 +16,7 @@ const ROUTE_CODES = ['PO', 'IV', 'IM', 'SC', 'PR', 'SL', 'Top', 'Inh', 'Other']
 const FREQUENCY_CODES = ['STAT', 'OD', 'BD', 'TDS', 'QID', 'QDS', 'PRN', 'Nocte', 'Weekly']
 const ROWS_PER_PAGE = 15
 
-function emptyMedForm(){
+function emptyMedForm(profile){
   const now = new Date()
   return {
     id: null,
@@ -27,7 +27,8 @@ function emptyMedForm(){
     next_dose: '',
     route: '',
     frequency: '',
-    sign: '',
+    sign: deriveSign(profile),
+    prescription_id: null,
   }
 }
 
@@ -35,7 +36,22 @@ function escapeHtml(s){
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
-export default function MedicationChart({ patient, entries, admissionRequest, latestConsultation, profile, hospitalName, addEntry, updateEntry, deleteEntry, updatePatient, showToast }){
+const ROLE_SIGN_PREFIX = {
+  doctor: 'DR', nurse: 'RN', pharmacist: 'PH', lab: 'LAB',
+  front_desk: 'FD', billing: 'BIL', admin: 'ADM', owner: 'OWN', staff: 'STF',
+}
+
+// Turns a logged-in staff profile into a short "ROLE-INITIALS" tag, e.g.
+// a nurse named Grace Adeyemi becomes "RN-GA" — matches the paper-chart
+// convention nurses already sign with, but fills it in automatically.
+function deriveSign(profile){
+  if (!profile?.full_name) return ''
+  const initials = profile.full_name.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+  const prefix = ROLE_SIGN_PREFIX[profile.role] || 'STF'
+  return `${prefix}-${initials}`
+}
+
+export default function MedicationChart({ patient, entries, admissionRequest, latestConsultation, profile, hospitalName, addEntry, updateEntry, deleteEntry, updatePatient, showToast, prescriptions = [] }){
   // Chart order is chronological — oldest entry first, like a real paper MAR sheet.
   const sorted = useMemo(
     () => [...entries].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
@@ -55,8 +71,13 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   const emptyRowCount = Math.max(0, ROWS_PER_PAGE - pageEntries.length)
 
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState(emptyMedForm)
+  const [form, setForm] = useState(() => emptyMedForm(profile))
   const [saving, setSaving] = useState(false)
+
+  const activePrescriptions = useMemo(
+    () => prescriptions.filter(rx => rx.status === 'active'),
+    [prescriptions]
+  )
 
   const derivedDiagnosis = admissionRequest?.diagnosis
     || (latestConsultation?.diagnoses || []).map(d => d.label).join(', ')
@@ -77,7 +98,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   function set(key, value){ setForm(f => ({ ...f, [key]: value })) }
 
   function openAddForm(){
-    setForm(emptyMedForm())
+    setForm(emptyMedForm(profile))
     setShowForm(true)
   }
 
@@ -91,9 +112,28 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
       next_dose: entry.next_dose ? entry.next_dose.slice(0, 5) : '',
       route: entry.route || '',
       frequency: entry.frequency || '',
-      sign: entry.sign || '',
+      sign: entry.sign || deriveSign(profile),
+      prescription_id: entry.prescription_id || null,
     })
     setShowForm(true)
+  }
+
+  // Picking a prescription pre-fills the drug's details from what the
+  // doctor actually ordered, instead of the nurse retyping it by hand.
+  // Route/Frequency only autofill when they match one of this chart's
+  // fixed codes — otherwise they're left for the nurse to pick manually.
+  function applyPrescription(rxId){
+    if (!rxId) { set('prescription_id', null); return }
+    const rx = activePrescriptions.find(r => r.id === rxId)
+    if (!rx) return
+    setForm(f => ({
+      ...f,
+      prescription_id: rx.id,
+      drug_name: rx.drug_name || f.drug_name,
+      dosage: rx.dosage || f.dosage,
+      route: ROUTE_CODES.includes(rx.route) ? rx.route : f.route,
+      frequency: FREQUENCY_CODES.includes(rx.frequency) ? rx.frequency : f.frequency,
+    }))
   }
 
   async function handleSubmit(e){
@@ -111,6 +151,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
         route: form.route || null,
         frequency: form.frequency || null,
         sign: form.sign || null,
+        prescription_id: form.prescription_id || null,
         created_by: profile?.id || null,
       }
       if (form.id) {
@@ -303,7 +344,13 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
                 <tr key={e.id} className="mar-row-filled" onClick={() => openEditForm(e)}>
                   <td>{e.entry_date || ''}</td>
                   <td>{e.entry_time ? e.entry_time.slice(0, 5) : ''}</td>
-                  <td className="mar-med-cell">{e.drug_name}</td>
+                  <td className="mar-med-cell">
+                    {e.drug_name}
+                    {e.prescription_id && (() => {
+                      const rx = prescriptions.find(r => r.id === e.prescription_id)
+                      return rx?.doctor_name ? <div className="mar-rx-tag">Rx · Dr. {rx.doctor_name}</div> : null
+                    })()}
+                  </td>
                   <td>{e.dosage || ''}</td>
                   <td>{e.next_dose ? e.next_dose.slice(0, 5) : ''}</td>
                   <td>{e.route || ''}</td>
@@ -343,6 +390,19 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
         <div className="mar-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowForm(false) }}>
           <form className="mar-modal" onSubmit={handleSubmit}>
             <div className="mar-modal-title">{form.id ? 'Edit Medication' : 'Add Medication'}</div>
+            {activePrescriptions.length > 0 && (
+              <div className="mar-field mar-field-wide" style={{ marginBottom: 12 }}>
+                <label>Fill from doctor's prescription (optional)</label>
+                <select value={form.prescription_id || ''} onChange={e => applyPrescription(e.target.value)}>
+                  <option value="">— Type manually —</option>
+                  {activePrescriptions.map(rx => (
+                    <option key={rx.id} value={rx.id}>
+                      {rx.drug_name}{rx.dosage ? ` · ${rx.dosage}` : ''}{rx.doctor_name ? ` — Dr. ${rx.doctor_name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="mar-modal-grid">
               <div className="mar-field"><label>Date</label><input type="date" value={form.entry_date} onChange={e => set('entry_date', e.target.value)} required /></div>
               <div className="mar-field"><label>Time</label><input type="time" value={form.entry_time} onChange={e => set('entry_time', e.target.value)} required /></div>
