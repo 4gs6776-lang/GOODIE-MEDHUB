@@ -176,6 +176,13 @@
   color: var(--mar-muted);
   margin-top: 10px;
 }
+.mar-med-cell { font-weight: 700; }
+.mar-rx-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--mar-accent);
+  margin-top: 2px;
+}
 
 /* ---------------------------------------------------------
    Pagination
