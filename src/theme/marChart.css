@@ -142,16 +142,17 @@
   letter-spacing: 0.5px;
   text-align: left;
   padding: 9px 10px;
-  border: 1px solid var(--mar-navy);
+  border: 1px solid rgba(255,255,255,0.22);
 }
 .mar-table td {
-  border: 1px solid var(--mar-line);
+  border: 1px solid var(--mar-navy);
   padding: 8px 10px;
   font-size: 12.5px;
   height: 34px;
   color: var(--mar-navy-soft);
   vertical-align: middle;
 }
+.mar-row-filled:nth-child(even) { background: var(--mar-line-soft); }
 .mar-med-cell { font-weight: 700; }
 .mar-rx-tag {
   font-size: 9.5px;
