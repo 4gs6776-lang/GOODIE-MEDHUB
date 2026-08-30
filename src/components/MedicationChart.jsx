@@ -36,6 +36,20 @@ function escapeHtml(s){
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
+// Times are stored as 24-hour "HH:MM" (native <input type="time"> value,
+// and what isOverdue()'s Date math relies on) but always DISPLAYED as
+// 12-hour with AM/PM — nurses read a paper chart in 12-hour time.
+function formatTime12h(t){
+  if (!t) return ''
+  const [hStr, mStr] = t.slice(0, 5).split(':')
+  let h = parseInt(hStr, 10)
+  if (Number.isNaN(h)) return t
+  const period = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${mStr} ${period}`
+}
+
 // Same trash icon used on the Owner Dashboard, so the delete action reads
 // consistently everywhere in the product rather than a plain "✕".
 function TrashIcon({ size = 15 }){
@@ -265,12 +279,12 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
         <tr class="${overdue ? 'mar-row-overdue' : ''}">
           <td>${pIdx * ROWS_PER_PAGE + i + 1}</td>
           <td>${escapeHtml(e.entry_date || '')}</td>
-          <td>${escapeHtml((e.entry_time || '').slice(0, 5))}</td>
+          <td>${escapeHtml(formatTime12h(e.entry_time))}</td>
           <td class="med-cell">${escapeHtml(e.drug_name)}</td>
           <td>${escapeHtml(e.dosage || '')}</td>
           <td>${escapeHtml(e.route || '')}</td>
           <td>${escapeHtml(e.frequency || '')}</td>
-          <td class="${overdue ? 'mar-cell-overdue' : ''}">${escapeHtml((e.next_dose || '').slice(0, 5))}${overdue ? ' ⚠' : ''}</td>
+          <td class="${overdue ? 'mar-cell-overdue' : ''}">${escapeHtml(formatTime12h(e.next_dose))}${overdue ? ' ⚠' : ''}</td>
           <td>${escapeHtml(e.sign || '')}</td>
         </tr>`
       }).join('')
@@ -297,13 +311,13 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
               <tr>
                 <th style="width:4%"></th>
                 <th style="width:8%">Date</th>
-                <th style="width:7%">Time</th>
-                <th style="width:23%">Medication Given</th>
+                <th style="width:9%">Time</th>
+                <th style="width:20%">Medication Given</th>
                 <th style="width:11%">Dose</th>
                 <th style="width:7%">Route</th>
                 <th style="width:7%">FrQ</th>
-                <th style="width:9%">Next Dose</th>
-                <th style="width:13%">Sign</th>
+                <th style="width:11%">Next Dose</th>
+                <th style="width:12%">Sign</th>
               </tr>
             </thead>
             <tbody>${filledRowsHtml}${emptyRowsHtml}</tbody>
@@ -430,12 +444,12 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
               <tr>
                 <th className="mar-col-num"></th>
                 <th style={{ width: '8%' }}>Date</th>
-                <th style={{ width: '7%' }}>Time</th>
-                <th style={{ width: '22%' }}>Medication Given</th>
+                <th style={{ width: '9%' }}>Time</th>
+                <th style={{ width: '19%' }}>Medication Given</th>
                 <th style={{ width: '10%' }}>Dose</th>
                 <th style={{ width: '7%' }}>Route</th>
                 <th style={{ width: '7%' }}>FrQ</th>
-                <th style={{ width: '9%' }}>Next Dose</th>
+                <th style={{ width: '11%' }}>Next Dose</th>
                 <th style={{ width: '12%' }}>Sign</th>
                 <th style={{ width: '8%' }}></th>
               </tr>
@@ -447,7 +461,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
                   <tr key={e.id} className={`mar-row-filled${overdue ? ' mar-row-overdue' : ''}`} onClick={() => openEditForm(e)}>
                     <td className="mar-col-num">{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
                     <td>{e.entry_date || ''}</td>
-                    <td>{e.entry_time ? e.entry_time.slice(0, 5) : ''}</td>
+                    <td>{e.entry_time ? formatTime12h(e.entry_time) : ''}</td>
                     <td className="mar-med-cell">
                       {e.drug_name}
                       {e.prescription_id && (() => {
@@ -459,7 +473,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
                     <td>{e.route || ''}</td>
                     <td>{e.frequency || ''}</td>
                     <td className={overdue ? 'mar-cell-overdue' : ''}>
-                      {e.next_dose ? e.next_dose.slice(0, 5) : ''}
+                      {e.next_dose ? formatTime12h(e.next_dose) : ''}
                       {overdue && <div className="mar-overdue-tag">Overdue</div>}
                     </td>
                     <td>{e.sign || ''}</td>
