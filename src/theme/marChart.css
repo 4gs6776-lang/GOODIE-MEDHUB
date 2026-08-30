@@ -61,26 +61,61 @@
 }
 
 .mar-header { margin-bottom: 14px; }
+.mar-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.mar-brand { display: flex; align-items: center; gap: 10px; flex: 1; }
+.mar-logo-mark {
+  width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+  background: linear-gradient(145deg, #1E6FD9, var(--mar-navy));
+  display: flex; align-items: center; justify-content: center; color: #fff;
+}
 .mar-hospital-name {
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.3px;
   color: var(--mar-navy);
+  line-height: 1.15;
 }
-.mar-doc-title {
-  font-size: 11.5px;
+.mar-brand-sub {
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   color: var(--mar-muted);
-  margin-top: 2px;
 }
+.mar-title-block { flex: 1.4; text-align: center; padding-top: 4px; }
+.mar-doc-title {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--mar-navy);
+}
+.mar-pulse { width: 70%; margin: 6px auto 0; display: block; color: var(--mar-accent); }
+.mar-chartno-box {
+  flex: 1;
+  border: 1px solid var(--mar-line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mar-navy-soft);
+  min-width: 150px;
+}
+.mar-chartno-box div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.mar-chartno-box b { font-weight: 700; color: var(--mar-navy); }
+.mar-chartno-box span { border-bottom: 1px dotted var(--mar-line); flex: 1; }
 
 /* Patient info strip */
 .mar-patient-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px 16px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px 20px;
   background: var(--mar-line-soft);
   border: 1px solid var(--mar-line);
   border-radius: 8px;
@@ -154,6 +189,23 @@
 }
 .mar-row-filled:nth-child(even) { background: var(--mar-line-soft); }
 .mar-med-cell { font-weight: 700; }
+.mar-table td:first-child, .mar-table th:first-child { text-align: center; width: 4%; }
+.mar-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--mar-line);
+  font-size: 9.5px;
+  color: var(--mar-muted);
+}
+.mar-freq-guide b { color: var(--mar-navy-soft); }
+.mar-freq-guide span { margin-right: 10px; }
+.mar-prepared { display: flex; gap: 18px; align-items: center; font-weight: 600; white-space: nowrap; }
+.mar-prepared span { border-bottom: 1px dotted var(--mar-line); padding: 0 24px 2px 4px; }
 .mar-rx-tag {
   font-size: 9.5px;
   font-weight: 700;
