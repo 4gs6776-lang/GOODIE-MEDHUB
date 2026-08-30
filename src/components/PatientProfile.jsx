@@ -178,6 +178,7 @@ export default function PatientProfile({ patientId, onClose }){
               deleteEntry={deleteDrugChartEntry}
               updatePatient={updatePatient}
               showToast={showToast}
+              prescriptions={patientPrescriptions}
             />
           )}
           {tab === 'Pharmacy' && (
