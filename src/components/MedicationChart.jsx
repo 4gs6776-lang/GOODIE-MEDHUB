@@ -36,6 +36,16 @@ function escapeHtml(s){
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
+// Same trash icon used on the Owner Dashboard, so the delete action reads
+// consistently everywhere in the product rather than a plain "✕".
+function TrashIcon({ size = 15 }){
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16" /><path d="M6 7v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7" /><path d="M9 7V4h6v3" />
+    </svg>
+  )
+}
+
 const ROLE_SIGN_PREFIX = {
   doctor: 'DR', nurse: 'RN', pharmacist: 'PH', lab: 'LAB',
   front_desk: 'FD', billing: 'BIL', admin: 'ADM', owner: 'OWN', staff: 'STF',
@@ -362,7 +372,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
                       className="mar-row-delete"
                       onClick={ev => { ev.stopPropagation(); handleDelete(e) }}
                       title="Remove entry"
-                    >✕</button>
+                    ><TrashIcon size={14}/></button>
                   </td>
                 </tr>
               ))}
