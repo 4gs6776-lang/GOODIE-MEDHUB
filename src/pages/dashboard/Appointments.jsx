@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
+import TrashIcon from '../../components/icons/TrashIcon'
 
 const STATUS_CYCLE = { scheduled: 'completed', completed: 'cancelled', cancelled: 'scheduled' }
 const STATUS_LABEL = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' }
@@ -206,8 +207,10 @@ export default function Appointments({ initialSearch = '' }){
                       >{STATUS_LABEL[appt.status]}</span>
                       <button
                         onClick={() => handleDelete(appt)}
-                        style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 7, width: 28, height: 28, cursor: 'pointer', flexShrink: 0 }}
-                      >✕</button>
+                        className="icon-btn-delete"
+                        style={{ flexShrink: 0 }}
+                        title="Delete"
+                      ><TrashIcon size={14}/></button>
                     </div>
                   ))}
                 </div>
@@ -256,9 +259,9 @@ export default function Appointments({ initialSearch = '' }){
                     <td style={{ padding: 12 }}>
                       <button
                         onClick={() => handleDelete(appt)}
-                        style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
+                        className="icon-btn-delete"
                         title="Delete"
-                      >✕</button>
+                      ><TrashIcon size={14}/></button>
                     </td>
                   </tr>
                 ))}
