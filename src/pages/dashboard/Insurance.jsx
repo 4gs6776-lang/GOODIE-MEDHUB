@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
+import TrashIcon from '../../components/icons/TrashIcon'
 
 const PROVIDERS = ['NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
@@ -227,9 +228,9 @@ export default function Insurance(){
                     <td style={{ padding: 12 }}>
                       <button
                         onClick={() => handleDelete(claim)}
-                        style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}
+                        className="icon-btn-delete"
                         title="Delete"
-                      >✕</button>
+                      ><TrashIcon size={14}/></button>
                     </td>
                   </tr>
                 )
