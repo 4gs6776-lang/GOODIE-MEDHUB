@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
+import TrashIcon from '../../components/icons/TrashIcon'
 
 // NEW: List of common lab tests for the dropdown
 const COMMON_LAB_TESTS = [
@@ -369,7 +370,7 @@ export default function Laboratory(){
                       {new Date(test.updated_at || test.requested_at).toLocaleDateString()}
                     </td>
                     <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                      <button onClick={() => handleDelete(test)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }} title="Delete">✕</button>
+                      <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete"><TrashIcon size={14}/></button>
                     </td>
                   </tr>
                 ))}
