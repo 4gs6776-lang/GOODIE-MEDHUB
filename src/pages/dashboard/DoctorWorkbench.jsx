@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import TrashIcon from '../../components/icons/TrashIcon'
 import { TagAutocomplete } from '../../components/ClinicalAutocomplete'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
 import AdmissionRequestModal from '../../components/AdmissionRequestModal'
@@ -467,7 +468,7 @@ export default function DoctorWorkbench() {
                           </div>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button type="button" onClick={() => handleEditMed(m)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>Edit</button>
-                            <button type="button" onClick={() => handleRemoveMed(m)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--danger)', borderRadius: 8, width: 28, height: 28, cursor: 'pointer' }}>✕</button>
+                            <button type="button" onClick={() => handleRemoveMed(m)} className="icon-btn-delete" style={{ width: 28, height: 28 }}><TrashIcon size={13}/></button>
                           </div>
                         </div>
                       </div>
