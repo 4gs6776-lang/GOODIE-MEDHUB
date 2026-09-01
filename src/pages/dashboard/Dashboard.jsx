@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
+import TrashIcon from '../../components/icons/TrashIcon'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
@@ -1330,7 +1331,7 @@ export default function Dashboard(){
                               <td>{p.age}</td>
                               <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
                               <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
-                              <td><button className="dash-delete" onClick={() => handleDelete(p)}>✕</button></td>
+                              <td><button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button></td>
                             </tr>
                           ))}
                         </tbody>
