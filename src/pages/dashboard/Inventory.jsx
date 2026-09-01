@@ -4,6 +4,7 @@ import ImportExcelModal from '../../components/inventory/ImportExcelModal'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
+import TrashIcon from '../../components/icons/TrashIcon'
 
 const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
 
@@ -140,7 +141,7 @@ export default function Inventory() {
                       <td style={{ padding: 12, display: 'flex', gap: 6 }}>
                         <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: q <= 0 ? 0.5 : 1 }} disabled={q <= 0} onClick={() => openDispense(item)}>Dispense</button>
                         <button onClick={() => openEdit(item)} className="btn btn-ghost" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, border: '1px solid var(--line)' }}>Edit</button>
-                        <button onClick={() => handleDelete(item)} style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer' }}>✕</button>
+                        <button onClick={() => handleDelete(item)} className="icon-btn-delete" title="Delete"><TrashIcon size={14}/></button>
                       </td>
                     </tr>
                   )
