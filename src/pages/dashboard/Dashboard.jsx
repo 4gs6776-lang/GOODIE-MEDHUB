@@ -734,7 +734,7 @@ export default function Dashboard(){
     return {
       rows,
       total,
-      gradientStops: gradientStops || 'rgba(0,212,199,.16) 0% 4%, rgba(148,163,184,.10) 4% 100%',
+      gradientStops: gradientStops || 'rgba(0,199,199,.16) 0% 4%, rgba(148,163,184,.10) 4% 100%',
     }
   }, [appointments])
 
@@ -1114,12 +1114,12 @@ export default function Dashboard(){
                     <svg viewBox="0 0 620 250" preserveAspectRatio="none">
                       <defs>
                         <linearGradient id="tealArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#45EBE4" stopOpacity=".28"/>
-                          <stop offset="100%" stopColor="#45EBE4" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#00E0D0" stopOpacity=".28"/>
+                          <stop offset="100%" stopColor="#00E0D0" stopOpacity="0"/>
                         </linearGradient>
                         <linearGradient id="violetArea" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#9C82FF" stopOpacity=".22"/>
-                          <stop offset="100%" stopColor="#9C82FF" stopOpacity="0"/>
+                          <stop offset="0%" stopColor="#7657E8" stopOpacity=".22"/>
+                          <stop offset="100%" stopColor="#7657E8" stopOpacity="0"/>
                         </linearGradient>
                       </defs>
                       {[45,95,145,195].map(y => <line key={y} x1="0" x2="620" y1={y} y2={y} className="chart-grid-line"/>)}

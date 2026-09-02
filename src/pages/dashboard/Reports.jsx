@@ -42,7 +42,7 @@ export default function Reports(){
   const claimsRejected = claims.filter(c => c.status === 'rejected').length
   const claimsPending = claims.length - claimsApproved - claimsRejected
 
-  const GOOD = '#00D4C7'
+  const GOOD = '#00C7C7'
   const w = 500, h = 140, padTop = 14, padBottom = 26
   const usableH = h - padTop - padBottom
   const stepX = w / (dailyRevenue.length - 1)
