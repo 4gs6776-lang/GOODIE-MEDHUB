@@ -13,7 +13,7 @@ export default function Notifications(){
   const { records: labTests, loading: loadingLab } = useOfflineTable('lab_tests', hospital?.id)
   const { records: scans, loading: loadingRadiology } = useOfflineTable('radiology_scans', hospital?.id)
   const { records: claims, loading: loadingInsurance } = useOfflineTable('insurance_claims', hospital?.id)
-  const { records: handovers, loading: loadingHandovers } = useOfflineTable('shift_handovers', hospital?.id)
+  const { records: handovers, loading: loadingHandovers } = useOfflineTable('shift_handovers', hospital?.id, { realtime: true })
 
   const loading = loadingAppts || loadingInventory || loadingLab || loadingRadiology || loadingInsurance || loadingHandovers
 

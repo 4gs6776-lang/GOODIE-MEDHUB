@@ -169,18 +169,22 @@ export default function ShiftHandover() {
   const [toast, setToast] = useState(null)
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  // ---- reused existing tables (offline-first, tenant-scoped) ----
-  const { records: handovers, addRecord: addHandover, updateRecord: updateHandover } = useOfflineTable('shift_handovers', hospital?.id)
-  const { records: hoPatients, addRecord: addHoPatient, updateRecord: updateHoPatient } = useOfflineTable('handover_patients', hospital?.id)
-  const { records: hoTasks, addRecord: addHoTask, updateRecord: updateHoTask, deleteRecord: deleteHoTask } = useOfflineTable('handover_tasks', hospital?.id)
+  // ---- reused existing tables (offline-first, tenant-scoped, live) ----
+  // { realtime: true } is opt-in on useOfflineTable — every table below
+  // now refreshes itself the instant anyone else on this tenant inserts,
+  // edits, submits, acknowledges or completes something, with no manual
+  // refresh needed. Nothing else in the app is affected by this change.
+  const { records: handovers, addRecord: addHandover, updateRecord: updateHandover } = useOfflineTable('shift_handovers', hospital?.id, { realtime: true })
+  const { records: hoPatients, addRecord: addHoPatient, updateRecord: updateHoPatient } = useOfflineTable('handover_patients', hospital?.id, { realtime: true })
+  const { records: hoTasks, addRecord: addHoTask, updateRecord: updateHoTask, deleteRecord: deleteHoTask } = useOfflineTable('handover_tasks', hospital?.id, { realtime: true })
 
-  const { records: admissions } = useOfflineTable('admissions', hospital?.id)
-  const { records: beds } = useOfflineTable('beds', hospital?.id)
+  const { records: admissions } = useOfflineTable('admissions', hospital?.id, { realtime: true })
+  const { records: beds } = useOfflineTable('beds', hospital?.id, { realtime: true })
   const { records: patients } = useOfflineTable('patients', hospital?.id)
-  const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
-  const { records: labTests } = useOfflineTable('lab_tests', hospital?.id)
-  const { records: scans } = useOfflineTable('radiology_scans', hospital?.id)
-  const { records: drugCharts } = useOfflineTable('patient_drug_charts', hospital?.id)
+  const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id, { realtime: true })
+  const { records: labTests } = useOfflineTable('lab_tests', hospital?.id, { realtime: true })
+  const { records: scans } = useOfflineTable('radiology_scans', hospital?.id, { realtime: true })
+  const { records: drugCharts } = useOfflineTable('patient_drug_charts', hospital?.id, { realtime: true })
 
   const patientById = (id) => patients.find(p => p.id === id)
   const latestVitals = (patientId) => {
