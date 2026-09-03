@@ -28,6 +28,7 @@ import Admissions from './Admissions'
 import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
+import ShiftHandover from './ShiftHandover'
 
 // Same option lists used in Reception's registration form, kept in sync
 // so a patient added here has the exact same fields/choices available.
@@ -93,6 +94,7 @@ const NAV_ITEMS = [
   { key: 'staff', label: 'Staff', section: 'Operations', icon: 'users' },
   { key: 'doctor', label: 'Doctor Workbench', section: 'Operations', icon: 'doctor' },
   { key: 'nursing', label: 'Nursing / Triage', section: 'Operations', icon: 'nurse' },
+  { key: 'handover', label: 'Shift Handover', section: 'Operations', icon: 'handover' },
   { key: 'ipd', label: 'IPD Management', section: 'Operations', icon: 'bed' },
   { key: 'admissions', label: 'Admissions', section: 'Operations', icon: 'bed' },
   { key: 'insurance', label: 'Insurance / HMO', section: 'Operations', icon: 'insurance' },
@@ -110,15 +112,16 @@ const PAGE_TITLES = {
   insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics',
   notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management',
   reception: 'Reception', admissions: 'Admissions', roster: 'Duty Roster', messages: 'Messages',
+  handover: 'Shift Handover',
 }
 
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
 const ROLE_ACCESS = {
-  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions'],
-  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions'],
+  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions', 'handover'],
+  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions', 'handover'],
   front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
-  pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory'],
-  lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology'],
+  pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory', 'handover'],
+  lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology', 'handover'],
   billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance'],
 }
 const FULL_ACCESS_ROLES = ['admin', 'owner']
@@ -157,6 +160,7 @@ function Icon({ name, size = 18, strokeWidth = 1.8 }) {
     phone: <><path d="M6 3h3l2 5-2 2a14 14 0 0 0 5 5l2-2 5 2v3c0 1-1 2-2 2C10 20 4 14 4 5c0-1 1-2 2-2Z"/></>,
     chat: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></>,
     power: <><path d="M12 3v9"/><path d="M18.4 6.6a8 8 0 1 1-12.8 0"/></>,
+    handover: <><path d="M7 8h11l-3-3M17 16H6l3 3"/><path d="M4 8v3a2 2 0 0 0 2 2h1M20 16v-3a2 2 0 0 0-2-2h-1"/></>,
   }
   return <svg {...common}>{paths[name] || paths.home}</svg>
 }
@@ -1353,6 +1357,7 @@ export default function Dashboard(){
           {tab === 'nursing' && <Nursing />}
           {tab === 'ipd' && <IPD />}
           {tab === 'admissions' && <Admissions />}
+          {tab === 'handover' && <ShiftHandover />}
           {tab === 'insurance' && <Insurance />}
           {tab === 'reports' && <Reports />}
           {tab === 'notifications' && <Notifications />}

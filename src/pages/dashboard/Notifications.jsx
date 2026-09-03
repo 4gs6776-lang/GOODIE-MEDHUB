@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
@@ -12,8 +13,9 @@ export default function Notifications(){
   const { records: labTests, loading: loadingLab } = useOfflineTable('lab_tests', hospital?.id)
   const { records: scans, loading: loadingRadiology } = useOfflineTable('radiology_scans', hospital?.id)
   const { records: claims, loading: loadingInsurance } = useOfflineTable('insurance_claims', hospital?.id)
+  const { records: handovers, loading: loadingHandovers } = useOfflineTable('shift_handovers', hospital?.id)
 
-  const loading = loadingAppts || loadingInventory || loadingLab || loadingRadiology || loadingInsurance
+  const loading = loadingAppts || loadingInventory || loadingLab || loadingRadiology || loadingInsurance || loadingHandovers
 
   const now = new Date()
 
@@ -42,13 +44,14 @@ export default function Notifications(){
   const pendingLab = labTests.filter(t => t.status !== 'completed').length
   const pendingRadiology = scans.filter(s => s.status !== 'completed').length
   const pendingClaims = claims.filter(c => c.status === 'submitted').length
+  const unacknowledgedHandovers = handovers.filter(h => h.status === 'submitted')
 
   const notificationSearch = searchTerm.trim().toLowerCase()
   const visibleSoon = notificationSearch ? soonAppointments.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : soonAppointments
   const visibleToday = notificationSearch ? todayAppointments.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : todayAppointments
   const visibleLowStock = notificationSearch ? lowStockItems.filter(i => [i.name, i.category, i.supplier].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : lowStockItems
 
-  const totalAlerts = soonAppointments.length + lowStockItems.length
+  const totalAlerts = soonAppointments.length + lowStockItems.length + unacknowledgedHandovers.length
 
   function formatTime(iso){
     return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -184,6 +187,31 @@ export default function Notifications(){
             <span>{pendingClaims} claim(s) awaiting review</span>
           </div>
         </div>
+
+        {unacknowledgedHandovers.length > 0 && (
+          <div className="dash-panel" style={{ gridColumn: '1 / -1' }}>
+            <div className="dash-panel-head">
+              <div>
+                <div className="dash-panel-title">Unacknowledged Handovers</div>
+                <div className="dash-panel-sub">Open Shift Handover → Dashboard to review and acknowledge</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {unacknowledgedHandovers.slice(0, 6).map(h => (
+                <div key={h.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 14px', borderRadius: 10, background: 'var(--danger-soft)', border: '1px solid rgba(240,79,95,0.25)',
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{h.ward} — {h.shift_type === 'N' ? 'Night' : 'Morning'} Shift</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{h.handover_date} · prepared by {h.prepared_by_name || 'Staff'}</div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)' }}>Awaiting</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </>
   )
