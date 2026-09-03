@@ -300,7 +300,8 @@ async function pullFromSupabase(db, tableName, hospitalId) {
 // MAIN HOOK
 // ============================================================
 
-export function useOfflineTable(tableName, hospitalId) {
+export function useOfflineTable(tableName, hospitalId, options = {}) {
+  const { realtime = false } = options
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : false)
@@ -380,6 +381,48 @@ export function useOfflineTable(tableName, hospitalId) {
       window.removeEventListener('offline', handleOffline)
     }
   }, [loadLocalRecords, tableName, hospitalId])
+
+  // Opt-in live sync: when another device/tab inserts, updates or deletes
+  // a row in this table for the same hospital, pull it down and merge it
+  // into local state — no manual refresh needed. Off by default so every
+  // existing caller of this hook keeps its current behavior untouched;
+  // pass { realtime: true } as the 3rd argument to turn it on.
+  useEffect(() => {
+    if (!realtime || !hospitalId) return
+
+    let cancelled = false
+    let debounceId = null
+
+    const refreshFromServer = () => {
+      if (debounceId) clearTimeout(debounceId)
+      debounceId = setTimeout(async () => {
+        if (cancelled) return
+        try {
+          const db = await openDB()
+          await pullFromSupabase(db, tableName, hospitalId)
+          if (!cancelled) await loadLocalRecords()
+        } catch (err) {
+          console.error(`Error live-syncing ${tableName}:`, err)
+        }
+      }, 300)
+    }
+
+    const channelName = `live-${tableName}-${hospitalId}-${Math.random().toString(36).slice(2)}`
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: tableName, filter: `hospital_id=eq.${hospitalId}` },
+        () => refreshFromServer()
+      )
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      if (debounceId) clearTimeout(debounceId)
+      supabase.removeChannel(channel)
+    }
+  }, [realtime, tableName, hospitalId, loadLocalRecords])
 
   const addRecord = async (data) => {
     if (!hospitalId) throw new Error('Hospital ID is required.')
