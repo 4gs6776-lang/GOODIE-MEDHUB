@@ -3,6 +3,19 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import AppIcon from '../../components/icons'
+import ConnectionState from '../../components/common/ConnectionState'
+import Timestamp from '../../components/common/Timestamp'
+import useMediaQuery from '../../lib/useMediaQuery'
+import { writeAudit } from '../../lib/audit'
+import {
+  getTimezone,
+  formatDate,
+  formatTime,
+  formatWeekdayDate,
+  dayKeyInZone,
+  todayKeyInZone,
+} from '../../lib/datetime'
 
 const STATUS_CYCLE = { scheduled: 'completed', completed: 'cancelled', cancelled: 'scheduled' }
 const STATUS_LABEL = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' }
@@ -10,19 +23,20 @@ const STATUS_COLOR = { scheduled: 'var(--violet)', completed: 'var(--teal)', can
 const STATUS_BG = { scheduled: 'rgba(139,124,246,0.14)', completed: 'var(--teal-soft)', cancelled: 'var(--danger-soft)' }
 const DURATIONS = [15, 30, 45, 60, 90]
 
-function todayStr(){
-  return new Date().toISOString().slice(0, 10)
-}
-
 export default function Appointments({ initialSearch = '' }){
   const { profile, hospital } = useAuth()
+  // Central timezone handling (Stage 1 req. #11)
+  const hospitalTz = getTimezone(hospital)
   const { records: appointments, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('appointments', hospital?.id)
+  // Stage 2 QA (pair 1): phones re-flow the list into record cards instead
+  // of squeezing a 5-column table (or force-scrolling it) into 320-430px.
+  const isPhone = useMediaQuery('(max-width: 767px)')
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState(initialSearch)
   useEffect(() => { if (initialSearch) setSearchTerm(initialSearch) }, [initialSearch])
   const [viewMode, setViewMode] = useState('all') // 'all' | 'day'
-  const [dayFilter, setDayFilter] = useState(todayStr())
+  const [dayFilter, setDayFilter] = useState(() => todayKeyInZone(getTimezone(hospital)))
 
   const [patientName, setPatientName] = useState('')
   const [doctorName, setDoctorName] = useState('')
@@ -66,7 +80,7 @@ export default function Appointments({ initialSearch = '' }){
     const startISO = new Date(when).toISOString()
     const conflict = findConflict(doctorName, startISO, durationMins)
     if (conflict) {
-      const conflictTime = new Date(conflict.appointment_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      const conflictTime = formatTime(conflict.appointment_time, hospitalTz)
       setFormError(`Dr. ${doctorName} is already booked with ${conflict.patient_name} at ${conflictTime}. Choose another time.`)
       return
     }
@@ -95,17 +109,36 @@ export default function Appointments({ initialSearch = '' }){
   async function cycleStatus(appt){
     const newStatus = STATUS_CYCLE[appt.status]
     await updateRecord(appt.id, { status: newStatus })
+    // Status changes are auditable clinical events (same policy as deletion).
+    writeAudit({
+      hospitalId: hospital?.id,
+      actor: profile,
+      action: 'appointment.status',
+      entityType: 'appointment',
+      entityId: appt.id,
+      summary: `Appointment for ${appt.patient_name} marked ${STATUS_LABEL[newStatus]}`,
+      metadata: { from: appt.status, to: newStatus },
+    })
     showToast(isOnline ? `Marked ${STATUS_LABEL[newStatus]}` : `Marked ${STATUS_LABEL[newStatus]} — will sync when back online`)
   }
 
   async function handleDelete(appt){
     if (!confirm(`Delete this appointment for ${appt.patient_name}?`)) return
     await deleteRecord(appt.id)
+    // Cancellations/deletions are auditable events (Stage 1 req. #16).
+    writeAudit({
+      hospitalId: hospital?.id,
+      actor: profile,
+      action: 'appointment.delete',
+      entityType: 'appointment',
+      entityId: appt.id,
+      summary: `Deleted appointment for ${appt.patient_name} scheduled ${formatWhen(appt.appointment_time)}`,
+    })
     showToast('Appointment deleted')
   }
 
   const sorted = [...appointments].sort((a, b) => new Date(a.appointment_time) - new Date(b.appointment_time))
-  const dayList = sorted.filter(a => new Date(a.appointment_time).toISOString().slice(0, 10) === dayFilter)
+  const dayList = sorted.filter(a => dayKeyInZone(a.appointment_time, hospitalTz) === dayFilter)
   const visible = viewMode === 'day' ? dayList : sorted
 
   const appointmentSearch = searchTerm.trim().toLowerCase()
@@ -113,16 +146,12 @@ export default function Appointments({ initialSearch = '' }){
   const searchedDayList = appointmentSearch ? dayList.filter(a => [a.patient_name, a.patient_id, a.doctor_name, a.appointment_id, a.status].some(v => String(v || '').toLowerCase().includes(appointmentSearch))) : dayList
   const searchedVisible = viewMode === 'day' ? searchedDayList : searchedSorted
 
-  const today = new Date().toDateString()
-  const todayCount = sorted.filter(a => new Date(a.appointment_time).toDateString() === today).length
+  const todayKey = todayKeyInZone(hospitalTz)
+  const todayCount = sorted.filter(a => dayKeyInZone(a.appointment_time, hospitalTz) === todayKey).length
   const upcomingCount = sorted.filter(a => new Date(a.appointment_time) > new Date() && a.status === 'scheduled').length
 
   function formatWhen(iso){
-    const d = new Date(iso)
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  }
-  function formatTime(iso){
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    return `${formatDate(iso, hospitalTz)} · ${formatTime(iso, hospitalTz)}`
   }
 
   const byDoctor = {}
@@ -134,12 +163,66 @@ export default function Appointments({ initialSearch = '' }){
     })
   }
 
+  const searching = appointmentSearch.length > 0
+
+  function EmptyNote({ children }){
+    return (
+      <div className="dash-empty-state">
+        <AppIcon name={searching ? 'search' : 'calendar'} size={22} style={{ display: 'block', margin: '0 auto 8px', opacity: 0.7 }} />
+        {children}
+      </div>
+    )
+  }
+
+  /* One appointment record, two layouts. Desktop keeps the familiar table
+     row; phones get a stacked card so nothing is squeezed into a 320px
+     column (see render below). */
+  function ApptCard({ appt, showDoctorInMeta, showDoctor = true }){
+    const metaParts = [
+      ...(showDoctorInMeta ? [formatDate(appt.appointment_time, hospitalTz)] : []),
+      // Day view groups cards under the doctor's name — repeating the same
+      // doctor inside every card meta wastes the narrow line, so the
+      // caller can omit it (pair-1 QA).
+      ...(showDoctor ? [appt.doctor_name || 'No doctor assigned'] : []),
+      `${appt.duration_minutes || 30} min`,
+    ]
+    return (
+      <div className="appt-card">
+        <div className="appt-card-top">
+          <span className="appt-card-time">{formatTime(appt.appointment_time, hospitalTz)}</span>
+          <div className="appt-card-id-block">
+            <div className="appt-card-name">{appt.patient_name}</div>
+            <div className="appt-card-meta">{metaParts.join(' · ')}</div>
+          </div>
+        </div>
+        {appt.notes && <div className="appt-card-notes">{appt.notes}</div>}
+        <div className="appt-card-foot">
+          <button
+            type="button"
+            className="appt-status-btn"
+            onClick={() => cycleStatus(appt)}
+            style={{ background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
+            title="Tap to change status"
+            aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
+          >{STATUS_LABEL[appt.status]}</button>
+          <span className="appt-card-id">{appt.appointment_id || appt.patient_id || ''}</span>
+          <button
+            onClick={() => handleDelete(appt)}
+            className="icon-btn-delete"
+            title="Delete"
+            aria-label={`Delete appointment for ${appt.patient_name}`}
+          ><TrashIcon size={14}/></button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
-    <div className="dash-stats appointments-summary" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
+      <div className="dash-stats appointments-summary" style={{ marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>
+            <AppIcon name="calendar" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Today</div>
@@ -149,7 +232,7 @@ export default function Appointments({ initialSearch = '' }){
         </div>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+            <AppIcon name="clock" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Upcoming</div>
@@ -159,59 +242,83 @@ export default function Appointments({ initialSearch = '' }){
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, doctor or appointment ID" style={{ minWidth: 260, maxWidth: 420 }} />
-        <button
-          onClick={() => setViewMode('all')}
-          className="btn" style={{ width: 'auto', background: viewMode === 'all' ? 'var(--teal)' : 'transparent', color: viewMode === 'all' ? '#00251F' : 'var(--muted)', border: viewMode === 'all' ? 'none' : '1px solid var(--line)' }}
-        >All Appointments</button>
-        <button
-          onClick={() => setViewMode('day')}
-          className="btn" style={{ width: 'auto', background: viewMode === 'day' ? 'var(--teal)' : 'transparent', color: viewMode === 'day' ? '#00251F' : 'var(--muted)', border: viewMode === 'day' ? 'none' : '1px solid var(--line)' }}
-        >Day View</button>
-        {viewMode === 'day' && (
-          <input type="date" value={dayFilter} onChange={e => setDayFilter(e.target.value)}
-            style={{ background: 'var(--bg-elevated)', color: 'var(--ivory)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }} />
-        )}
+      <div className="appt-toolbar">
+        <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, doctor or appointment ID" style={{ minWidth: 220, maxWidth: 420 }} />
+        <div className="appt-toggle-group" role="group" aria-label="Appointment view mode">
+          <button
+            onClick={() => setViewMode('all')}
+            className={`btn appt-toggle${viewMode === 'all' ? ' is-active' : ''}`}
+            aria-pressed={viewMode === 'all'}
+          >All Appointments</button>
+          <button
+            onClick={() => setViewMode('day')}
+            className={`btn appt-toggle${viewMode === 'day' ? ' is-active' : ''}`}
+            aria-pressed={viewMode === 'day'}
+          >Day View</button>
+          {viewMode === 'day' && (
+            <input
+              type="date"
+              className="dash-filter appt-date-filter"
+              value={dayFilter}
+              onChange={e => setDayFilter(e.target.value)}
+              aria-label="Filter appointments by day"
+            />
+          )}
+        </div>
       </div>
 
       {viewMode === 'day' ? (
         <div className="dash-panel">
           <div className="dash-panel-head">
-            <div>
-              <div className="dash-panel-title">{new Date(dayFilter).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-              <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-                {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''} · grouped by doctor
+            <div style={{ minWidth: 0 }}>
+              <div className="dash-panel-title">{formatWeekdayDate(dayFilter, hospitalTz)}</div>
+              <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <ConnectionState isOnline={isOnline} pendingCount={pendingCount} />
+                <span>Grouped by doctor</span>
               </div>
             </div>
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Appointment</button>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
+              <AppIcon name="plus" size={15} /> New Appointment
+            </button>
           </div>
 
-          {Object.keys(byDoctor).length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No appointments on this day.</div>
+          {loading ? (
+            <EmptyNote>Loading…</EmptyNote>
+          ) : Object.keys(byDoctor).length === 0 ? (
+            <EmptyNote>
+              {searching ? 'No appointments match your search on this day.' : 'No appointments on this day.'}
+            </EmptyNote>
           ) : (
             Object.entries(byDoctor).map(([doctor, list]) => (
               <div key={doctor} style={{ marginBottom: 18 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--ivory)' }}>{doctor}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="appt-doctor-head">
+                  <span>{doctor}</span>
+                  <span className="appt-doctor-count">{list.length}</span>
+                </div>
+                <div className="appt-list">
                   {list.sort((a, b) => new Date(a.appointment_time) - new Date(b.appointment_time)).map(appt => (
-                    <div key={appt.id} style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid var(--line)', borderRadius: 10, padding: 10 }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)', width: 70, flexShrink: 0 }}>
-                        {formatTime(appt.appointment_time)}
-                      </div>
-                      <div style={{ flex: 1, fontWeight: 700, fontSize: 13 }}>{appt.patient_name}</div>
-                      <span
-                        onClick={() => cycleStatus(appt)}
-                        style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 9px', borderRadius: 20, cursor: 'pointer', background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
-                      >{STATUS_LABEL[appt.status]}</span>
-                      <button
-                        onClick={() => handleDelete(appt)}
-                        className="icon-btn-delete"
-                        style={{ flexShrink: 0 }}
-                        title="Delete"
-                      ><TrashIcon size={14}/></button>
-                    </div>
+                    isPhone
+                      ? <ApptCard key={appt.id} appt={appt} showDoctorInMeta={false} showDoctor={false} />
+                      : (
+                        <div key={appt.id} className="appt-day-row">
+                          <span className="appt-day-time">{formatTime(appt.appointment_time, hospitalTz)}</span>
+                          <span className="appt-day-name">{appt.patient_name}</span>
+                          <button
+                            type="button"
+                            className="appt-status-btn"
+                            onClick={() => cycleStatus(appt)}
+                            style={{ background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
+                            title="Tap to change status"
+                            aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
+                          >{STATUS_LABEL[appt.status]}</button>
+                          <button
+                            onClick={() => handleDelete(appt)}
+                            className="icon-btn-delete"
+                            title="Delete"
+                            aria-label={`Delete appointment for ${appt.patient_name}`}
+                          ><TrashIcon size={14}/></button>
+                        </div>
+                      )
                   ))}
                 </div>
               </div>
@@ -221,86 +328,107 @@ export default function Appointments({ initialSearch = '' }){
       ) : (
         <div className="dash-panel">
           <div className="dash-panel-head">
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div className="dash-panel-title">Appointments</div>
-              <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-                {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''} · Tap a status badge to cycle it
+              <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <ConnectionState isOnline={isOnline} pendingCount={pendingCount} />
+                <span>Tap a status badge to cycle it</span>
               </div>
             </div>
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Appointment</button>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
+              <AppIcon name="plus" size={15} /> New Appointment
+            </button>
           </div>
 
           {loading ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
+            <EmptyNote>Loading…</EmptyNote>
           ) : visible.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No appointments yet. Add your first one above.</div>
+            <EmptyNote>No appointments yet. Add your first one above.</EmptyNote>
+          ) : searchedVisible.length === 0 ? (
+            <EmptyNote>No appointments match your search.</EmptyNote>
+          ) : isPhone ? (
+            <div className="appt-list">
+              {searchedVisible.map(appt => <ApptCard key={appt.id} appt={appt} showDoctorInMeta />)}
+            </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['When', 'Patient', 'Doctor', 'Status', ''].map(h => (
-                    <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {searchedVisible.map(appt => (
-                  <tr key={appt.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{formatWhen(appt.appointment_time)}</td>
-                    <td style={{ padding: 12, fontWeight: 700 }}>{appt.patient_name}</td>
-                    <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{appt.doctor_name || '—'}</td>
-                    <td style={{ padding: 12 }}>
-                      <span
-                        onClick={() => cycleStatus(appt)}
-                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
-                      >{STATUS_LABEL[appt.status]}</span>
-                    </td>
-                    <td style={{ padding: 12 }}>
-                      <button
-                        onClick={() => handleDelete(appt)}
-                        className="icon-btn-delete"
-                        title="Delete"
-                      ><TrashIcon size={14}/></button>
-                    </td>
+            <div className="dash-table-wrap">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    {['When', 'Patient', 'Doctor', 'Status', ''].map(h => (
+                      <th key={h || 'actions'} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {searchedVisible.map(appt => (
+                    <tr key={appt.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                      <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                        <Timestamp iso={appt.appointment_time} timezone={hospitalTz} mode="datetime" />
+                      </td>
+                      <td style={{ padding: 12, fontWeight: 700 }}>{appt.patient_name}</td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{appt.doctor_name || '—'}</td>
+                      <td style={{ padding: 12 }}>
+                        <button
+                          type="button"
+                          className="appt-status-btn"
+                          onClick={() => cycleStatus(appt)}
+                          style={{ background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
+                          title="Tap to change status"
+                          aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
+                        >{STATUS_LABEL[appt.status]}</button>
+                      </td>
+                      <td style={{ padding: 12 }}>
+                        <button
+                          onClick={() => handleDelete(appt)}
+                          className="icon-btn-delete"
+                          title="Delete"
+                          aria-label={`Delete appointment for ${appt.patient_name}`}
+                        ><TrashIcon size={14}/></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
 
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>New Appointment</div>
-            {formError && <div className="error-box">{formError}</div>}
-            <form onSubmit={handleAdd}>
-              <div className="field">
-                <label>Patient Name</label>
-                <input value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
+        /* Shared modal chrome: on phones this automatically becomes a
+           bottom sheet with a scrollable body and pinned action row. */
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal">
+            <div className="dash-modal-title">New Appointment</div>
+            <form onSubmit={handleAdd} className="dash-modal-form">
+              <div className="dash-modal-body">
+                {formError && <div className="error-box">{formError}</div>}
+                <div className="field">
+                  <label htmlFor="appt-patient">Patient Name</label>
+                  <input id="appt-patient" value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
+                </div>
+                <div className="field">
+                  <label htmlFor="appt-doctor">Doctor</label>
+                  <input id="appt-doctor" value={doctorName} onChange={e => setDoctorName(e.target.value)} placeholder="e.g. Dr. Adaeze" />
+                  <div className="field-hint">Adding a doctor here lets us check for double-booking.</div>
+                </div>
+                <div className="field">
+                  <label htmlFor="appt-when">Date &amp; Time</label>
+                  <input id="appt-when" type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="appt-duration">Duration</label>
+                  <select id="appt-duration" value={duration} onChange={e => setDuration(e.target.value)}>
+                    {DURATIONS.map(d => <option key={d} value={d}>{d} minutes</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="appt-notes">Notes (optional)</label>
+                  <input id="appt-notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
+                </div>
               </div>
-              <div className="field">
-                <label>Doctor</label>
-                <input value={doctorName} onChange={e => setDoctorName(e.target.value)} placeholder="e.g. Dr. Adaeze" />
-                <div className="field-hint">Adding a doctor here lets us check for double-booking.</div>
-              </div>
-              <div className="field">
-                <label>Date &amp; Time</label>
-                <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Duration</label>
-                <select value={duration} onChange={e => setDuration(e.target.value)}>
-                  {DURATIONS.map(d => <option key={d} value={d}>{d} minutes</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label>Notes (optional)</label>
-                <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              <div className="dash-modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Appointment'}</button>
               </div>
@@ -310,13 +438,7 @@ export default function Appointments({ initialSearch = '' }){
       )}
 
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
-        }}>
-          {toast}
-        </div>
+        <div className="dash-toast dash-toast-success">{toast}</div>
       )}
     </>
   )
