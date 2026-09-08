@@ -22,9 +22,9 @@
 import {
   Activity, AlertTriangle, Ambulance, ArrowDown, ArrowLeft,
   ArrowLeftRight, ArrowRight, ArrowUp, BarChart3, BedDouble, Bell,
-  Building2, Calendar, Camera, Check, CheckCircle2, ChevronRight, Clock,
+  Building2, Calendar, Camera, Check, CheckCircle2, ChevronRight, ClipboardList, Clock,
   CloudOff, ConciergeBell, Download, Eye, FileText, FlaskConical,
-  HeartPulse, House, Info, ListFilter, Loader2, Lock, Menu, MessageCircle,
+  HeartPulse, House, Info, ListFilter, Loader2, Lock, Menu, MessageCircle, Mic,
   Moon, MoreHorizontal, Package, Pause, Pencil, Phone, Pill, Play,
   Plus, Power, Printer, RadioTower, RefreshCw, Receipt, ScanLine,
   Search, Send, Settings, Shield, ShieldCheck, Stethoscope, Sun, Trash2,
@@ -53,6 +53,8 @@ const ICONS = {
   bell: { C: Bell },
   settings: { C: Settings },
   handover: { C: ArrowLeftRight },
+  clipboard: { C: ClipboardList },
+  mic: { C: Mic },
 
   // Actions
   search: { C: Search },

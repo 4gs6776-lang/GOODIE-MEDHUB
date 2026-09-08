@@ -2,11 +2,18 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import SearchInput from '../../components/common/SearchInput'
+import AppIcon from '../../components/icons'
+import Timestamp from '../../components/common/Timestamp'
+import { buildPermissions, ROLE_LABELS } from '../../lib/permissions'
+import { writeAudit } from '../../lib/audit'
 
 const FN_CREATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff`
 const FN_UPDATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-staff-login`
 
-const ROLE_LABELS = { admin: 'Admin', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
+function initials(name) {
+  if (!name) return '?'
+  return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+}
 
 export default function Staff(){
   const { profile, hospital, session } = useAuth()
@@ -120,6 +127,16 @@ export default function Staff(){
     if (!goingActive && !confirm(`Deactivate ${member.full_name}? They'll immediately lose access to log in, but their name stays on any records they've created.`)) return
     const { error } = await supabase.from('profiles').update({ active: goingActive }).eq('id', member.id)
     if (!error) {
+      // Sensitive security action → audit trail (Stage 1 req. #16).
+      writeAudit({
+        hospitalId: hospital?.id,
+        actor: profile,
+        action: goingActive ? 'staff.reactivate' : 'staff.deactivate',
+        entityType: 'staff',
+        entityId: member.id,
+        summary: `${goingActive ? 'Reactivated' : 'Deactivated'} staff login for ${member.full_name} (${member.role})`,
+        metadata: { staff_email: member.email, staff_role: member.role },
+      })
       showToast(`${member.full_name} ${goingActive ? 'reactivated' : 'deactivated'}`)
       loadStaff()
     } else {
@@ -130,7 +147,11 @@ export default function Staff(){
   const staffSearch = searchTerm.trim().toLowerCase()
   const visibleStaff = staffSearch ? staff.filter(m => [m.full_name, m.email, m.role, m.id].some(v => String(v || '').toLowerCase().includes(staffSearch))) : staff
 
-  const isAdmin = profile?.role === 'admin'
+  // Stage 1: permission check now flows through the central permissions
+  // module. `staff.manage` is granted to admin (as before); owner sees
+  // the module but cannot add/edit staff logins — same as today.
+  const perm = buildPermissions(profile?.role)
+  const canManageStaff = perm.isAdmin
 
   return (
     <>
@@ -141,8 +162,10 @@ export default function Staff(){
             <div className="dash-panel-sub">{staff.length} member{staff.length !== 1 ? 's' : ''} at {hospital?.name || 'your hospital'}</div>
           </div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search staff name, email or role" style={{ minWidth: 260, maxWidth: 420 }} />
-          {isAdmin && (
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowAddModal(true)}>+ Add Staff</button>
+          {canManageStaff && (
+            <button className="btn btn-primary" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setShowAddModal(true)}>
+              <AppIcon name="plus" size={14} /> Add Staff
+            </button>
           )}
         </div>
 
@@ -155,33 +178,39 @@ export default function Staff(){
             {visibleStaff.map(member => (
               <div key={member.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, opacity: member.active === false ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(150deg,var(--blue),#2a5cc9)', flexShrink: 0 }} />
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(150deg,var(--blue),#2a5cc9)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: 0.5 }}>
+                    {initials(member.full_name)}
+                  </div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>
                       {member.full_name} {member.id === profile?.id && <span style={{ color: 'var(--muted)', fontWeight: 500 }}>(you)</span>}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                       {ROLE_LABELS[member.role] || member.role}
+                      {' · joined '}
+                      <Timestamp iso={member.created_at} hospital={hospital} />
                       {member.active === false && <span style={{ color: 'var(--danger)', fontWeight: 700 }}> · Deactivated</span>}
                     </div>
                   </div>
                 </div>
-                {isAdmin && (
-                  <div style={{ display: 'flex', gap: 8 }}>
+                {canManageStaff && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button
                       onClick={() => openEdit(member)}
-                      style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}
+                      className="btn btn-ghost"
+                      style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}
                     >
                       Edit Login
                     </button>
                     {member.id !== profile?.id && (
                       <button
                         onClick={() => handleToggleActive(member)}
+                        className="btn btn-ghost"
                         style={{
+                          width: 'auto', padding: '6px 12px', fontSize: 12,
                           background: member.active === false ? 'var(--teal-soft)' : 'var(--danger-soft)',
                           border: member.active === false ? '1px solid var(--teal)' : '1px solid rgba(225,104,94,0.35)',
                           color: member.active === false ? 'var(--teal)' : 'var(--danger)',
-                          borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 700,
                         }}
                       >
                         {member.active === false ? 'Reactivate' : 'Deactivate'}
@@ -196,36 +225,39 @@ export default function Staff(){
       </div>
 
       {showAddModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>Add Staff Member</div>
-            {formError && <div className="error-box">{formError}</div>}
+        /* Shared modal chrome → bottom sheet with pinned actions on phones */
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal">
+            <div className="dash-modal-title">Add Staff Member</div>
             <form onSubmit={handleCreate}>
-              <div className="field">
-                <label>Full Name</label>
-                <input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="e.g. Nurse Adaeze" />
+              <div className="dash-modal-body">
+                {formError && <div className="error-box">{formError}</div>}
+                <div className="field">
+                  <label htmlFor="staff-name">Full Name</label>
+                  <input id="staff-name" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="e.g. Nurse Adaeze" />
+                </div>
+                <div className="field">
+                  <label htmlFor="staff-email">Email</label>
+                  <input id="staff-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@hospital.com" />
+                </div>
+                <div className="field">
+                  <label htmlFor="staff-password">Password</label>
+                  <input id="staff-password" type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder="Set a password for them" />
+                  <div className="field-hint">Share this with them — they can change it later.</div>
+                </div>
+                <div className="field">
+                  <label htmlFor="staff-role">Role</label>
+                  <select id="staff-role" value={role} onChange={e => setRole(e.target.value)}>
+                    <option value="doctor">Doctor</option>
+                    <option value="nurse">Nurse</option>
+                    <option value="front_desk">Front Desk / Reception</option>
+                    <option value="pharmacist">Pharmacist</option>
+                    <option value="lab">Laboratory</option>
+                    <option value="billing">Billing</option>
+                  </select>
+                </div>
               </div>
-              <div className="field">
-                <label>Email</label>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="staff@hospital.com" />
-              </div>
-              <div className="field">
-                <label>Password</label>
-                <input type="text" value={password} onChange={e => setPassword(e.target.value)} placeholder="Set a password for them" />
-                <div className="field-hint">Share this with them — they can change it later.</div>
-              </div>
-              <div className="field">
-                <label>Role</label>
-                <select value={role} onChange={e => setRole(e.target.value)}>
-                  <option value="doctor">Doctor</option>
-                  <option value="nurse">Nurse</option>
-                  <option value="front_desk">Front Desk / Reception</option>
-                  <option value="pharmacist">Pharmacist</option>
-                  <option value="lab">Laboratory</option>
-                  <option value="billing">Billing</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              <div className="dash-modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowAddModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={creating}>{creating ? 'Creating…' : 'Add Staff'}</button>
               </div>
@@ -235,22 +267,24 @@ export default function Staff(){
       )}
 
       {editTarget && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 4 }}>Edit Login</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 18 }}>{editTarget.full_name}</div>
-            {editError && <div className="error-box">{editError}</div>}
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal">
+            <div className="dash-modal-title">Edit Login</div>
             <form onSubmit={handleEditSubmit}>
-              <div className="field">
-                <label>New Email (optional)</label>
-                <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="Leave blank to keep current email" />
+              <div className="dash-modal-body">
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>{editTarget.full_name}</div>
+                {editError && <div className="error-box">{editError}</div>}
+                <div className="field">
+                  <label htmlFor="edit-email">New Email (optional)</label>
+                  <input id="edit-email" type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="Leave blank to keep current email" />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-password">New Password (optional)</label>
+                  <input id="edit-password" type="text" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="Leave blank to keep current password" />
+                  <div className="field-hint">Useful if they forgot it — set a new one and share it with them.</div>
+                </div>
               </div>
-              <div className="field">
-                <label>New Password (optional)</label>
-                <input type="text" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="Leave blank to keep current password" />
-                <div className="field-hint">Useful if they forgot it — set a new one and share it with them.</div>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              <div className="dash-modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setEditTarget(null)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={editing}>{editing ? 'Saving…' : 'Save Changes'}</button>
               </div>
@@ -260,13 +294,7 @@ export default function Staff(){
       )}
 
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
-        }}>
-          {toast}
-        </div>
+        <div className="dash-toast dash-toast-success">{toast}</div>
       )}
     </>
   )

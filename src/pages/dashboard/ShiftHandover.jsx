@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import AppIcon from '../../components/icons'
+import { formatDateTime, formatDateOnly, todayKeyInZone, getTimezone } from '../../lib/datetime'
 
 // ============================================================
 // Shift Handover module
@@ -85,28 +87,12 @@ const SUBNAV = [
 
 const PAGE_SIZE = 10
 
-function todayKey() {
-  const n = new Date()
-  return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0')
-}
+// Date/time formatting goes through src/lib/datetime.js so every
+// screen shares the hospital's timezone (hospitals.timezone).
 
 function guessShift() {
   const h = new Date().getHours()
   return (h >= 7 && h < 19) ? 'M' : 'N'
-}
-
-function formatDateTime(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('en-NG', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr + 'T00:00:00')
-  if (Number.isNaN(d.getTime())) return dateStr
-  return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function initials(name) {
@@ -154,16 +140,15 @@ function VoiceButton({ onResult }) {
   }
 
   return (
-    <button type="button" className={`ho-mic ${active ? 'active' : ''}`} onClick={toggle} title="Voice input">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8"/>
-      </svg>
+    <button type="button" className={`ho-mic ${active ? 'active' : ''}`} onClick={toggle} title="Voice input" aria-label={active ? 'Stop voice input' : 'Start voice input'} aria-pressed={active}>
+      <AppIcon name="mic" size={12} strokeWidth={2} spin={active} />
     </button>
   )
 }
 
 export default function ShiftHandover() {
   const { hospital, profile } = useAuth()
+  const timezone = getTimezone(hospital)
 
   const [subTab, setSubTab] = useState('dashboard')
   const [toast, setToast] = useState(null)
@@ -199,7 +184,7 @@ export default function ShiftHandover() {
   // ---- New Handover: shift meta ----
   const [ward, setWard] = useState('general')
   const [shiftType, setShiftType] = useState(guessShift())
-  const [handoverDate, setHandoverDate] = useState(todayKey())
+  const [handoverDate, setHandoverDate] = useState(() => todayKeyInZone(timezone))
   const [templateKey, setTemplateKey] = useState('general')
   const [draftId, setDraftId] = useState(null)
   const [generalNotes, setGeneralNotes] = useState('')
@@ -224,7 +209,7 @@ export default function ShiftHandover() {
         const year = now.getFullYear()
         const { data: roster } = await supabase.from('rosters').select('id').eq('hospital_id', hospital.id).eq('month', month).eq('year', year).is('department', null).maybeSingle()
         if (!roster || cancelled) return
-        const { data: entry } = await supabase.from('roster_entries').select('shift_code').eq('roster_id', roster.id).eq('roster_date', todayKey()).eq('staff_id', profile.id).maybeSingle()
+        const { data: entry } = await supabase.from('roster_entries').select('shift_code').eq('roster_id', roster.id).eq('roster_date', todayKeyInZone(timezone)).eq('staff_id', profile.id).maybeSingle()
         if (!cancelled && entry?.shift_code && (entry.shift_code === 'M' || entry.shift_code === 'N')) {
           setShiftType(entry.shift_code)
         }
@@ -427,10 +412,10 @@ export default function ShiftHandover() {
   const activeHandoverIds = new Set(handovers.filter(h => h.status !== 'archived').map(h => h.id))
   const pendingTasksCount = hoTasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && activeHandoverIds.has(t.handover_id)).length
   const highPriorityCount = hoPatients.filter(p => ['high', 'critical'].includes(p.priority) && activeHandoverIds.has(p.handover_id)).length
-  const todaysHandovers = handovers.filter(h => h.handover_date === todayKey())
+  const todaysHandovers = handovers.filter(h => h.handover_date === todayKeyInZone(timezone))
   const patientsHandedOverToday = hoPatients.filter(p => {
     const h = handovers.find(x => x.id === p.handover_id)
-    return h && h.handover_date === todayKey()
+    return h && h.handover_date === todayKeyInZone(timezone)
   }).length
 
   const recentHandovers = handovers.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 6)
@@ -490,27 +475,27 @@ export default function ShiftHandover() {
         <>
           <section className="dash-stats ho-stats">
             <div className="dash-stat-card premium-stat red-stat">
-              <div className="dash-stat-top"><div className="dash-stat-icon"><Icon24 name="bell"/></div></div>
+              <div className="dash-stat-top"><div className="dash-stat-icon"><AppIcon name="bell" size={20} /></div></div>
               <div className="dash-stat-label">Unacknowledged</div>
               <div className="dash-stat-value">{unacknowledged.length}</div>
             </div>
             <div className="dash-stat-card premium-stat gold-stat">
-              <div className="dash-stat-top"><div className="dash-stat-icon"><Icon24 name="task"/></div></div>
+              <div className="dash-stat-top"><div className="dash-stat-icon"><AppIcon name="clipboard" size={20} /></div></div>
               <div className="dash-stat-label">Pending Tasks</div>
               <div className="dash-stat-value">{pendingTasksCount}</div>
             </div>
             <div className="dash-stat-card premium-stat red-stat">
-              <div className="dash-stat-top"><div className="dash-stat-icon"><Icon24 name="alert"/></div></div>
+              <div className="dash-stat-top"><div className="dash-stat-icon"><AppIcon name="alert" size={20} /></div></div>
               <div className="dash-stat-label">High Priority</div>
               <div className="dash-stat-value">{highPriorityCount}</div>
             </div>
             <div className="dash-stat-card premium-stat teal-stat">
-              <div className="dash-stat-top"><div className="dash-stat-icon"><Icon24 name="handover"/></div></div>
+              <div className="dash-stat-top"><div className="dash-stat-icon"><AppIcon name="handover" size={20} /></div></div>
               <div className="dash-stat-label">Today's Handovers</div>
               <div className="dash-stat-value">{todaysHandovers.length}</div>
             </div>
             <div className="dash-stat-card premium-stat violet-stat">
-              <div className="dash-stat-top"><div className="dash-stat-icon"><Icon24 name="users"/></div></div>
+              <div className="dash-stat-top"><div className="dash-stat-icon"><AppIcon name="users" size={20} /></div></div>
               <div className="dash-stat-label">Patients Handed Over</div>
               <div className="dash-stat-value">{patientsHandedOverToday}</div>
             </div>
@@ -518,12 +503,12 @@ export default function ShiftHandover() {
 
           {unacknowledged.length > 0 && (
             <div className="ho-alert-widget">
-              <div className="ho-alert-widget-head"><Icon24 name="alert" size={16}/> {unacknowledged.length} Unacknowledged Handover{unacknowledged.length > 1 ? 's' : ''}</div>
+              <div className="ho-alert-widget-head"><AppIcon name="alert" size={16} /> {unacknowledged.length} Unacknowledged Handover{unacknowledged.length > 1 ? 's' : ''}</div>
               {unacknowledged.slice(0, 6).map(h => (
-                <div className="ho-alert-row" key={h.id} onClick={() => openHandover(h)}>
+                <div className="ho-alert-row" key={h.id} role="button" tabIndex={0} onClick={() => openHandover(h)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHandover(h) } }} aria-label={`Open handover for ${wardLabel(h.ward)} ${SHIFT_LABELS[h.shift_type]} shift`}>
                   <div>
                     <div className="ho-alert-ward">{wardLabel(h.ward)} — {SHIFT_LABELS[h.shift_type]} Shift</div>
-                    <div className="ho-alert-meta">{formatDate(h.handover_date)} · {patientsOf(h.id).length} patient{patientsOf(h.id).length === 1 ? '' : 's'} · prepared by {h.prepared_by_name || 'Staff'}</div>
+                    <div className="ho-alert-meta">{formatDateOnly(h.handover_date)} · {patientsOf(h.id).length} patient{patientsOf(h.id).length === 1 ? '' : 's'} · prepared by {h.prepared_by_name || 'Staff'}</div>
                   </div>
                   <StatusPill value={h.status}/>
                 </div>
@@ -537,8 +522,8 @@ export default function ShiftHandover() {
               <button className="dash-view-all" onClick={() => setSubTab('history')}>View all</button>
             </div>
             {recentHandovers.length > 0 ? recentHandovers.map(h => (
-              <div className="ho-history-row" key={h.id} onClick={() => openHandover(h)}>
-                <div><b style={{ fontSize: 12.5 }}>{formatDate(h.handover_date)}</b><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{SHIFT_LABELS[h.shift_type]}</div></div>
+              <div className="ho-history-row" key={h.id} role="button" tabIndex={0} onClick={() => openHandover(h)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHandover(h) } }} aria-label={`Open ${wardLabel(h.ward)} handover from ${formatDateOnly(h.handover_date)}`}>
+                <div><b style={{ fontSize: 12.5 }}>{formatDateOnly(h.handover_date)}</b><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{SHIFT_LABELS[h.shift_type]}</div></div>
                 <div>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ivory)' }}>{wardLabel(h.ward)}</div>
                   <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{h.prepared_by_name || 'Staff'} · {patientsOf(h.id).length} patients · {tasksOf(h.id).filter(t => t.status === 'pending').length} pending tasks</div>
@@ -547,9 +532,9 @@ export default function ShiftHandover() {
               </div>
             )) : (
               <div className="dash-empty-state dash-empty-state-rich">
-                <Icon24 name="handover"/>
+                <AppIcon name="handover" size={22} />
                 <p>No handovers recorded yet</p>
-                <button className="btn btn-ghost dash-empty-cta" onClick={() => setSubTab('new')}><Icon24 name="plus" size={14}/> Start a handover</button>
+                <button className="btn btn-ghost dash-empty-cta" onClick={() => setSubTab('new')}><AppIcon name="plus" size={14} /> Start a handover</button>
               </div>
             )}
           </div>
@@ -564,7 +549,7 @@ export default function ShiftHandover() {
               <h2>{SHIFT_LABELS[shiftType]} Shift Handover</h2>
               <div className="ho-shift-meta">
                 <div>Ward<b>{wardLabel(ward)}</b></div>
-                <div>Date<b>{formatDate(handoverDate)}</b></div>
+                <div>Date<b>{formatDateOnly(handoverDate)}</b></div>
                 <div>Prepared By<b>{profile?.full_name || 'You'}</b></div>
                 <div>Status<b><StatusPill value={draftId ? (handovers.find(h => h.id === draftId)?.status || 'draft') : 'draft'}/></b></div>
               </div>
@@ -599,7 +584,7 @@ export default function ShiftHandover() {
           <div className="dash-panel" style={{ marginBottom: 20 }}>
             <div className="dash-panel-head"><div className="dash-panel-title">Current Ward Patients ({currentWardPatients.length})</div></div>
             {currentWardPatients.length === 0 ? (
-              <div className="dash-empty-state dash-empty-state-rich"><Icon24 name="users"/><p>No active inpatients in this ward right now.</p></div>
+              <div className="dash-empty-state dash-empty-state-rich"><AppIcon name="users" size={22} /><p>No active inpatients in this ward right now.</p></div>
             ) : currentWardPatients.map(({ patient, bed, admission }) => {
               const pd = patientData[patient.id] || {}
               const isOpen = openPatientId === patient.id
@@ -699,13 +684,13 @@ export default function ShiftHandover() {
                         <div className="ho-kicker">Pending Tasks</div>
                         {patientTasks.map(t => (
                           <div className="ho-task-row" key={t.id}>
-                            <button className={`ho-task-check ${t.status === 'completed' ? 'done' : ''}`} onClick={() => cycleTaskStatus(t)}>{t.status === 'completed' ? '✓' : ''}</button>
+                            <button className={`ho-task-check ${t.status === 'completed' ? 'done' : ''}`} onClick={() => cycleTaskStatus(t)} aria-label={`Mark task ${t.status === 'completed' ? 'pending' : 'completed'}`}>{t.status === 'completed' && <AppIcon name="check" size={12} strokeWidth={2.4} />}</button>
                             <div style={{ flex: 1 }}>
                               <div className={`ho-task-desc ${t.status === 'completed' ? 'done' : ''}`}>{t.description}</div>
-                              <div className="ho-task-meta">{t.priority} {t.due_at ? `· due ${formatDateTime(t.due_at)}` : ''} {t.assigned_role ? `· ${t.assigned_role}` : ''} · {TASK_STATUSES.find(s => s.key === t.status)?.label}</div>
+                              <div className="ho-task-meta">{t.priority} {t.due_at ? `· due ${formatDateTime(t.due_at, timezone)}` : ''} {t.assigned_role ? `· ${t.assigned_role}` : ''} · {TASK_STATUSES.find(s => s.key === t.status)?.label}</div>
                             </div>
                             <button className="ho-remove-btn" onClick={() => deleteHoTask(t.id)} title="Remove task">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/></svg>
+                              <AppIcon name="trash" size={14} />
                             </button>
                           </div>
                         ))}
@@ -732,7 +717,7 @@ export default function ShiftHandover() {
                 <div className="ho-incident-card-head">
                   <b>Incident {idx + 1}</b>
                   <button className="ho-remove-btn" onClick={() => removeIncident(idx)}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/></svg>
+                    <AppIcon name="trash" size={14} />
                   </button>
                 </div>
                 <div className="dash-field-grid">
@@ -746,7 +731,7 @@ export default function ShiftHandover() {
                 </div>
               </div>
             ))}
-            <button type="button" className="btn btn-ghost" onClick={addIncident}><Icon24 name="plus" size={14}/> Add Incident</button>
+            <button type="button" className="btn btn-ghost" onClick={addIncident}><AppIcon name="plus" size={14} /> Add Incident</button>
           </div>
 
           <div className="dash-field-grid">
@@ -788,8 +773,8 @@ export default function ShiftHandover() {
 
           <div className="dash-panel">
             {pageItems.length > 0 ? pageItems.map(h => (
-              <div className="ho-history-row" key={h.id} onClick={() => openHandover(h)}>
-                <div><b style={{ fontSize: 12.5 }}>{formatDate(h.handover_date)}</b><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{SHIFT_LABELS[h.shift_type]}</div></div>
+              <div className="ho-history-row" key={h.id} role="button" tabIndex={0} onClick={() => openHandover(h)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHandover(h) } }} aria-label={`Open ${wardLabel(h.ward)} handover from ${formatDateOnly(h.handover_date)}`}>
+                <div><b style={{ fontSize: 12.5 }}>{formatDateOnly(h.handover_date)}</b><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{SHIFT_LABELS[h.shift_type]}</div></div>
                 <div>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ivory)' }}>{wardLabel(h.ward)}</div>
                   <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{h.prepared_by_name || 'Staff'} · {patientsOf(h.id).length} patients · {tasksOf(h.id).filter(t => t.status === 'pending').length} pending · {hoPatients.filter(p => p.handover_id === h.id && ['high', 'critical'].includes(p.priority)).length} high priority</div>
@@ -797,7 +782,7 @@ export default function ShiftHandover() {
                 <StatusPill value={h.status}/>
               </div>
             )) : (
-              <div className="dash-empty-state dash-empty-state-rich"><Icon24 name="handover"/><p>No handovers match these filters.</p></div>
+              <div className="dash-empty-state dash-empty-state-rich"><AppIcon name="handover" size={22} /><p>No handovers match these filters.</p></div>
             )}
           </div>
 
@@ -835,14 +820,14 @@ export default function ShiftHandover() {
               <div className="dash-modal-title">{wardLabel(h.ward)} — {SHIFT_LABELS[h.shift_type]} Shift <StatusPill value={h.status}/></div>
               <div className="dash-modal-body">
                 <div className="ho-shift-meta" style={{ marginBottom: 14 }}>
-                  <div>Date<b>{formatDate(h.handover_date)}</b></div>
+                  <div>Date<b>{formatDateOnly(h.handover_date)}</b></div>
                   <div>Prepared By<b>{h.prepared_by_name || '—'}</b></div>
                   <div>Template<b>{templateLabel(h.template_key)}</b></div>
                   <div>Patients<b>{pts.length}</b></div>
                 </div>
 
                 {h.status === 'acknowledged' && (
-                  <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 14 }}>Acknowledged by {h.acknowledged_by_name} — {formatDateTime(h.acknowledged_at)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 14 }}>Acknowledged by {h.acknowledged_by_name} — {formatDateTime(h.acknowledged_at, timezone)}</div>
                 )}
 
                 {pts.map(p => (
@@ -856,7 +841,7 @@ export default function ShiftHandover() {
                     {p.assessment && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 3 }}><b style={{ color: 'var(--teal)' }}>A:</b> {p.assessment}</div>}
                     {p.recommendation && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 3 }}><b style={{ color: 'var(--teal)' }}>R:</b> {p.recommendation}</div>}
                     {tsk.filter(t => t.patient_id === p.patient_id).map(t => (
-                      <div key={t.id} style={{ fontSize: 11.5, color: 'var(--muted-dim)', marginTop: 4 }}>☐ {t.description} — {TASK_STATUSES.find(s => s.key === t.status)?.label}</div>
+                      <div key={t.id} style={{ fontSize: 11.5, color: 'var(--muted-dim)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}><AppIcon name={t.status === 'completed' ? 'check' : 'clock'} size={11} style={{ flexShrink: 0 }} /> {t.description} — {TASK_STATUSES.find(s => s.key === t.status)?.label}</div>
                     ))}
                   </div>
                 ))}
@@ -891,17 +876,6 @@ export default function ShiftHandover() {
   )
 }
 
-// Small local icon set so this module doesn't need to modify the shared
-// Icon() component in Dashboard.jsx for handover-only glyphs.
-function Icon24({ name, size = 20 }) {
-  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
-  const paths = {
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
-    task: <><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 12 3 3 5-6"/></>,
-    alert: <><path d="M12 3 3 20h18Z"/><path d="M12 10v4M12 17h.01"/></>,
-    handover: <><path d="M7 8h11l-3-3M17 16H6l3 3"/><path d="M4 8v3a2 2 0 0 0 2 2h1M20 16v-3a2 2 0 0 0-2-2h-1"/></>,
-    users: <><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3-6.5 7-6.5s7 2.9 7 6.5"/><path d="M16 5.5a3.2 3.2 0 0 1 0 6.2M18 14c2.4.8 4 2.9 4 6"/></>,
-    plus: <><path d="M12 5v14M5 12h14"/></>,
-  }
-  return <svg {...common}>{paths[name] || paths.task}</svg>
-}
+// (The old local Icon24 copy was removed — every icon now comes from the
+// unified AppIcon system, which gained "clipboard" and "mic" entries for
+// this module. One icon vocabulary across the whole app, req. #12.)

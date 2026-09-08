@@ -4,6 +4,9 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import AppIcon from '../../components/icons'
+import ConnectionState from '../../components/common/ConnectionState'
+import { getTimezone, formatDateTime, formatDateTimeSec, formatDate } from '../../lib/datetime'
 
 // NEW: List of common lab tests for the dropdown
 const COMMON_LAB_TESTS = [
@@ -39,6 +42,7 @@ const COMMON_LAB_TESTS = [
 
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
+  const timezone = getTimezone(hospital)
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
   const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder, syncFromServer: syncOrders } = useOfflineTable('lab_orders', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id) 
@@ -57,7 +61,8 @@ export default function Laboratory(){
   // Live alert — the instant a doctor sends a lab order anywhere in
   // the hospital, it shows up here without needing a page refresh.
   useRealtimeAlert('lab_orders', hospital?.id, (newRow) => {
-    showToast(`🧪 New lab order: ${newRow.test_name || 'test'} for ${newRow.patient_name || 'a patient'}`)
+    // No emoji — the unified icon system covers feedback visuals (req. #12).
+    showToast(`New lab order: ${newRow.test_name || 'test'} for ${newRow.patient_name || 'a patient'}`)
     syncOrders()
   })
 
@@ -223,7 +228,7 @@ export default function Laboratory(){
           </div>
           <div class="box">
             <h3>Report Details</h3>
-            <div><strong>Date:</strong> ${new Date().toLocaleString()}</div>
+            <div><strong>Date:</strong> ${formatDateTimeSec(new Date(), timezone)}</div>
             <div><strong>Lab Scientist:</strong> ${profile?.full_name || 'N/A'}</div>
           </div>
         </div>
@@ -283,7 +288,7 @@ export default function Laboratory(){
       <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+            <AppIcon name="clock" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Pending</div>
@@ -293,7 +298,7 @@ export default function Laboratory(){
         </div>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg>
+            <AppIcon name="check" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Completed</div>
@@ -308,13 +313,15 @@ export default function Laboratory(){
           <div>
             <div className="dash-panel-title">Lab Requests</div>
             <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)', display: 'inline-block' }} />
-              {isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}
+              <ConnectionState isOnline={isOnline} pendingCount={pendingCount} />
+              <span>Auto-sends charges to Billing</span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%', maxWidth: 600 }}>
             <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, test..." style={{ flex: 1, minWidth: 150 }} />
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Request</button>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
+              <AppIcon name="plus" size={14} /> New Request
+            </button>
           </div>
         </div>
 
@@ -323,7 +330,7 @@ export default function Laboratory(){
         ) : visibleSorted.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No lab requests yet. Add your first one above.</div>
         ) : (
-          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+          <div className="dash-table-wrap">
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
               <thead>
                 <tr>
@@ -350,24 +357,28 @@ export default function Laboratory(){
                     </td>
                     <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{test.test_name}</td>
                     <td style={{ padding: 12 }}>
-                      <span
+                      {/* A real button: the old clickable <span> was a ~24px
+                          touch target invisible to screen readers (QA B2). */}
+                      <button
+                        type="button"
+                        className="appt-status-btn"
                         onClick={() => test.isPending ? openResultForm(test) : handleReopen(test)}
                         style={{
-                          fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
                           background: !test.isPending ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
                           color: !test.isPending ? 'var(--teal)' : 'var(--gold)',
                           whiteSpace: 'nowrap'
                         }}
-                        title={test.isPending ? "Click to open Result Form" : "Tap to change"}
+                        title={test.isPending ? "Open the Result Form" : "Tap to re-open as pending"}
+                        aria-label={test.isPending ? `Enter results for ${test.test_name} for ${test.patient_name}` : `Mark ${test.test_name} for ${test.patient_name} as pending`}
                       >
                         {!test.isPending ? 'Completed' : 'Enter Results'}
-                      </span>
+                      </button>
                     </td>
                     <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {test.result || '—'}
                     </td>
                     <td style={{ padding: 12, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      {new Date(test.updated_at || test.requested_at).toLocaleDateString()}
+                      {formatDate(test.updated_at || test.requested_at, timezone)}
                     </td>
                     <td style={{ padding: 12, display: 'flex', gap: 6 }}>
                       <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete"><TrashIcon size={14}/></button>
@@ -380,13 +391,14 @@ export default function Laboratory(){
         )}
       </div>
 
-      {/* NEW REQUEST MODAL */}
+      {/* NEW REQUEST MODAL — shared modal chrome: bottom sheet on phones */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) setShowModal(false) }}>
-          <div className="card" style={{ width: '100%', maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>New Lab Request</div>
-            {formError && <div className="error-box">{formError}</div>}
+        <div className="dash-modal-backdrop" onClick={e => { if(e.target === e.currentTarget) setShowModal(false) }}>
+          <div className="card dash-modal">
+            <div className="dash-modal-title">New Lab Request</div>
             <form onSubmit={handleAdd}>
+              <div className="dash-modal-body">
+                {formError && <div className="error-box">{formError}</div>}
               <div className="field" style={{ position: 'relative' }}>
                 <label>Select Patient</label>
                 <input type="text" value={selectedPatient ? selectedPatient.full_name : patientSearch} onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }} placeholder="Search patient name..." autoFocus disabled={!!selectedPatient} />
@@ -395,7 +407,11 @@ export default function Laboratory(){
                     {filteredPatients.map(p => (<div key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch('') }} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>{p.full_name}</div>))}
                   </div>
                 )}
-                {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
+                {selectedPatient && (
+                  <button type="button" onClick={() => setSelectedPatient(null)} className="field-clear-btn" aria-label="Clear selected patient">
+                    <AppIcon name="close" size={14} />
+                  </button>
+                )}
               </div>
 
               {/* NEW: Standard Select Dropdown for Test Name */}
@@ -412,8 +428,7 @@ export default function Laboratory(){
                 </select>
               </div>
 
-              {/* NEW: Show custom input if "Other" is selected */}
-              {testName === 'Other' && (
+                {testName === 'Other' && (
                 <div className="field">
                   <label>Enter Custom Test Name</label>
                   <input 
@@ -425,30 +440,32 @@ export default function Laboratory(){
                   />
                 </div>
               )}
-
-              <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-                <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '0 16px' }} onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto', padding: '0 20px' }} disabled={saving}>{saving ? 'Saving…' : 'Save Request'}</button>
+              </div>
+              <div className="dash-modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Request'}</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* PROFESSIONAL MULTIPLE RESULT FORM MODAL */}
+      {/* PROFESSIONAL MULTIPLE RESULT FORM MODAL — shared chrome keeps the
+          body scrollable and the action row pinned on phones (QA B2). */}
       {showResultForm && formPatient && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }} onClick={e => { if(e.target === e.currentTarget) setShowResultForm(false) }}>
-          <div className="card" style={{ width: '100%', maxWidth: 800, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            
-            <div style={{ padding: '20px 24px', borderBottom: '2px solid var(--teal)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: 'var(--teal)' }}>{hospital?.name || 'Hospital'}</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>Laboratory Test Request & Result Form</div>
-              </div>
-              <button onClick={() => setShowResultForm(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 18, cursor: 'pointer' }}>✕</button>
+        <div className="dash-modal-backdrop" onClick={e => { if(e.target === e.currentTarget) setShowResultForm(false) }}>
+          <div className="card dash-modal" style={{ maxWidth: 800 }}>
+            <div className="dash-modal-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <span>
+                {hospital?.name || 'Hospital'}
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginTop: 2 }}>Laboratory Test Request &amp; Result Form</span>
+              </span>
+              <button type="button" className="field-clear-btn" onClick={() => setShowResultForm(false)} aria-label="Close result form">
+                <AppIcon name="close" size={16} />
+              </button>
             </div>
             
-            <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+            <div className="dash-modal-body">
               {/* Auto-filled Patient Info Header */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, background: 'var(--bg-elevated)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid var(--line-soft)' }}>
                 <div>
@@ -461,7 +478,7 @@ export default function Laboratory(){
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Date / Time</div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{new Date().toLocaleString()}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{formatDateTimeSec(new Date(), timezone)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Lab Scientist</div>
@@ -508,7 +525,11 @@ export default function Laboratory(){
                           onChange={e => handleFileUpload(e, t.id)} 
                           style={{ fontSize: 12, color: 'var(--muted)', width: '100%' }}
                         />
-                        {formResults[t.id]?.file_name && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>✓ {formResults[t.id]?.file_name}</div>}
+                        {formResults[t.id]?.file_name && (
+                          <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <AppIcon name="check" size={12} /> {formResults[t.id]?.file_name}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -525,11 +546,11 @@ export default function Laboratory(){
               </div>
             </div>
 
-            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'space-between' }}>
-              <button className="btn btn-ghost" style={{ width: 'auto', padding: '0 20px', border: '1px solid var(--line)' }} onClick={handlePrintForm}>
-                🖨️ Print Form
+            <div className="dash-modal-actions" style={{ justifyContent: 'space-between' }}>
+              <button className="btn btn-ghost" style={{ width: 'auto', border: '1px solid var(--line)', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handlePrintForm}>
+                <AppIcon name="print" size={14} /> Print Form
               </button>
-              <button className="btn btn-primary" style={{ width: 'auto', padding: '0 24px' }} onClick={handleSaveAllResults} disabled={saving}>
+              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleSaveAllResults} disabled={saving}>
                 {saving ? 'Saving...' : 'Save All Results & Send to Billing'}
               </button>
             </div>
@@ -538,13 +559,7 @@ export default function Laboratory(){
       )}
 
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
-          padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60, maxWidth: '85vw', textAlign: 'center',
-        }}>
-          {toast}
-        </div>
+        <div className="dash-toast dash-toast-success">{toast}</div>
       )}
     </>
   )

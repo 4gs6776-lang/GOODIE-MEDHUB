@@ -3,8 +3,17 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
+import AppIcon from '../../components/icons'
+import ConnectionState from '../../components/common/ConnectionState'
+import useMediaQuery from '../../lib/useMediaQuery'
+import { getTimezone, formatDate as formatDateTz } from '../../lib/datetime'
+
 export default function Pharmacy() {
   const { profile, hospital } = useAuth()
+  const timezone = getTimezone(hospital)
+  // Batch-2 QA: phones re-flow both tables into record cards instead of
+  // force-scrolling 5–7 nowrap columns inside a 320–430px screen.
+  const isPhone = useMediaQuery('(max-width: 767px)')
   const { records: inventoryItems, loading, isOnline, pendingCount, updateRecord, refreshTable } = useOfflineTable('inventory_items', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addStockRecord } = useOfflineTable('patient_stock_records', hospital?.id)
@@ -29,7 +38,8 @@ export default function Pharmacy() {
   // in the hospital, show a toast here and pull the fresh record down.
   useRealtimeAlert('prescriptions', hospital?.id, (newRow) => {
     if (newRow.status === 'active') {
-      showToast(`💊 New prescription received for ${newRow.patient_name || 'a patient'}`)
+      // Plain text — no emoji as icons (unified icon system, req. #12).
+      showToast(`New prescription received for ${newRow.patient_name || 'a patient'}`)
       syncPrescriptions()
     }
   })
@@ -45,7 +55,8 @@ export default function Pharmacy() {
   const expiringSoonCount = drugs.filter(item => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); const d = (e.getTime() - today.getTime()) / (1000*60*60*24); return d >= 0 && d <= 30 }).length
 
   const formatMoney = (v) => '₦' + Number(v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const formatDate = (v) => { if (!v) return '—'; const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) }
+  // Delegates to the centralized date utility with the hospital timezone (req. #11)
+  const formatDate = (v) => formatDateTz(v, timezone)
   const isExpired = (item) => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); return e < today }
   const isExpiringSoon = (item) => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); const d = (e.getTime() - today.getTime()) / (1000*60*60*24); return d >= 0 && d <= 30 }
 
@@ -55,6 +66,67 @@ export default function Pharmacy() {
     const newQ = parseInt(input, 10)
     if (isNaN(newQ) || newQ < 0) return showToast('Invalid quantity')
     try { await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() }); showToast('Stock updated') } catch (e) { showToast(e.message) }
+  }
+
+  /* ---- Phone card layouts (Batch-2 QA) ------------------------------
+     Same information as the desktop tables, re-flowed for 320–430px.
+     Rendered only when isPhone — no duplicated hidden DOM. */
+  function RxCard({ rx }) {
+    return (
+      <div className="appt-card">
+        <div className="appt-card-top">
+          <span className="appt-card-time" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)', fontSize: 10 }}>RX</span>
+          <div className="appt-card-id-block">
+            <div className="appt-card-name">{rx.patient_name}</div>
+            <div className="appt-card-meta">{rx.drug_name} · {rx.dosage} · {rx.frequency}</div>
+            {rx.doctor_name && <div className="appt-card-meta">Dr. {rx.doctor_name.replace(/^Dr\.?\s*/i, '')}</div>}
+          </div>
+        </div>
+        <div className="appt-card-foot">
+          <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 16px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>Dispense</button>
+          <button className="btn btn-ghost" style={{ width: 'auto', padding: '8px 14px', fontSize: 12, color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => handleCancelRx(rx)}>Cancel</button>
+        </div>
+      </div>
+    )
+  }
+
+  function DrugCard({ item }) {
+    const q = Number(item.quantity || 0), r = Number(item.reorder_level || 0), low = q <= r, exp = isExpired(item), soon = isExpiringSoon(item)
+    const statusNode = exp
+      ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span>
+      : low ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span>
+      : soon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING</span>
+      : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>
+    return (
+      <div className="appt-card">
+        <div className="appt-card-top">
+          <span
+            className="appt-card-time"
+            style={{ background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)', fontSize: 10, cursor: 'pointer' }}
+            onClick={() => handleRestock(item)}
+            role="button"
+            aria-label={`Stock ${q} ${item.unit || 'units'}. Tap to restock ${item.name}`}
+            title="Tap to restock"
+          >{q}</span>
+          <div className="appt-card-id-block">
+            <div className="appt-card-name">{item.name}</div>
+            <div className="appt-card-meta">
+              Batch {item.batch_number || '—'} · Exp {formatDate(item.expiry_date)}
+            </div>
+            <div className="appt-card-meta">{formatMoney(item.selling_price)} · {item.unit || 'units'}</div>
+          </div>
+        </div>
+        <div className="appt-card-foot">
+          {statusNode}
+          <button
+            className="btn btn-primary"
+            style={{ width: 'auto', padding: '8px 16px', fontSize: 12, opacity: exp || q <= 0 ? 0.5 : 1 }}
+            disabled={exp || q <= 0}
+            onClick={() => openDispense(item)}
+          >Dispense</button>
+        </div>
+      </div>
+    )
   }
 
   // Manual Dispense (Over the counter)
@@ -178,22 +250,36 @@ export default function Pharmacy() {
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16, marginBottom: 20, width: '100%' }}>
-        <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'var(--teal-soft)', color: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><path d="M9 3h6l1 4H8l1-4Z" /><path d="M6 7h12l-1 14H7L6 7Z" /></svg></div>
-          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Total Drugs</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700 }}>{drugs.length}</div></div>
+      {/* Stats — shared .dash-stats grid (collapses 4→2→1 via CSS) and
+          unified AppIcon instead of the old oversized inline-SVG cards. */}
+      <div className="dash-stats" style={{ marginBottom: 20 }}>
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="pill" size={20} /></div>
+          <div>
+            <div className="dash-stat-label">Total Drugs</div>
+            <div className="dash-stat-value">{drugs.length}</div>
+          </div>
         </div>
-        <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg></div>
-          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Low Stock</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: lowStockCount > 0 ? 'var(--danger)' : 'var(--text)' }}>{lowStockCount}</div></div>
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="arrowDown" size={20} /></div>
+          <div>
+            <div className="dash-stat-label">Low Stock</div>
+            <div className="dash-stat-value" style={{ color: lowStockCount > 0 ? 'var(--danger)' : 'var(--text)' }}>{lowStockCount}</div>
+          </div>
         </div>
-        <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></div>
-          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Expired</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700, color: expiredCount > 0 ? 'var(--danger)' : 'var(--text)' }}>{expiredCount}</div></div>
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="clock" size={20} /></div>
+          <div>
+            <div className="dash-stat-label">Expired</div>
+            <div className="dash-stat-value" style={{ color: expiredCount > 0 ? 'var(--danger)' : 'var(--text)' }}>{expiredCount}</div>
+          </div>
         </div>
-        <div className="dash-stat-card" style={{ minHeight: 110, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'rgba(212,175,55,0.14)', color: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="30" height="30"><circle cx="12" cy="12" r="9" /><path d="M12 7v5" /><path d="M12 16h.01" /></svg></div>
-          <div><div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 5 }}>Expiring Soon</div><div style={{ fontSize: 28, lineHeight: 1, fontWeight: 700 }}>{expiringSoonCount}</div></div>
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'rgba(212,175,55,0.14)', color: 'var(--gold)' }}><AppIcon name="calendar" size={20} /></div>
+          <div>
+            <div className="dash-stat-label">Expiring Soon</div>
+            <div className="dash-stat-value">{expiringSoonCount}</div>
+          </div>
         </div>
       </div>
 
@@ -207,8 +293,12 @@ export default function Pharmacy() {
         </div>
         {pendingRx.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>No pending prescriptions from doctors.</div>
+        ) : isPhone ? (
+          <div className="appt-list" style={{ padding: '4px 0 12px' }}>
+            {pendingRx.map(rx => <RxCard key={rx.id} rx={rx} />)}
+          </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="dash-table-wrap">
             <table className="dash-full-table">
               <thead>
                 <tr>
@@ -226,13 +316,15 @@ export default function Pharmacy() {
                     <td style={{ padding: 12 }}>{rx.drug_name}</td>
                     <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>{rx.dosage} · {rx.frequency}</td>
                     <td style={{ padding: 12, fontSize: 12 }}>{rx.doctor_name || '—'}</td>
-                    <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                      <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>
-                        Dispense
-                      </button>
-                      <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 14px', fontSize: 12, color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => handleCancelRx(rx)}>
-                        Cancel
-                      </button>
+                    <td style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>
+                          Dispense
+                        </button>
+                        <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 14px', fontSize: 12, color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => handleCancelRx(rx)}>
+                          Cancel
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -245,11 +337,15 @@ export default function Pharmacy() {
       {/* EXISTING INVENTORY TABLE */}
       <div className="dash-panel">
         <div className="dash-panel-head">
-          <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />{isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}</div></div>
+          <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><ConnectionState isOnline={isOnline} pendingCount={pendingCount} />{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug..." style={{ minWidth: 260, maxWidth: 420 }} />
         </div>
-        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : (
-          <div style={{ overflowX: 'auto' }}>
+        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : isPhone ? (
+          <div className="appt-list" style={{ padding: '4px 0 12px' }}>
+            {visibleItems.map(item => <DrugCard key={item.id} item={item} />)}
+          </div>
+        ) : (
+          <div className="dash-table-wrap">
             <table className="dash-full-table">
               <thead><tr>{['Drug', 'Batch', 'Expiry', 'Stock', 'Price', 'Status', ''].map(h => <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
               <tbody>
@@ -260,7 +356,16 @@ export default function Pharmacy() {
                       <td style={{ padding: 12, fontWeight: 700 }}>{item.name}</td>
                       <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{item.batch_number || '—'}</td>
                       <td style={{ padding: 12, fontSize: 12 }}><span style={{ color: exp ? 'var(--danger)' : soon ? 'var(--gold)' : 'var(--muted)', fontWeight: exp || soon ? 700 : 400 }}>{formatDate(item.expiry_date)}</span></td>
-                      <td style={{ padding: 12 }}><span onClick={() => handleRestock(item)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}>{q} {item.unit || 'units'}</span></td>
+                      <td style={{ padding: 12 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleRestock(item)}
+                          className="appt-status-btn"
+                          style={{ fontSize: 11, fontWeight: 700, background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}
+                          title="Tap to restock"
+                          aria-label={`Stock ${q} ${item.unit || 'units'}. Tap to restock ${item.name}`}
+                        >{q} {item.unit || 'units'}</button>
+                      </td>
                       <td style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>{formatMoney(item.selling_price)}</td>
                       <td style={{ padding: 12 }}>{exp ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span> : low ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span> : soon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>}</td>
                       <td style={{ padding: 12 }}>
@@ -276,10 +381,13 @@ export default function Pharmacy() {
       </div>
 
       {showDispenseModal && dispensingItem && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,3,26,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 420 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 8 }}>Dispense Medication</div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18 }}>{dispensingItem.name}</div>
+        /* Shared modal chrome → bottom sheet with pinned actions on phones */
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal" style={{ maxWidth: 420 }}>
+            <div className="dash-modal-title">Dispense Medication</div>
+            <form onSubmit={handleDispense}>
+              <div className="dash-modal-body">
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>{dispensingItem.name}</div>
             <div style={{ padding: 12, borderRadius: 8, background: 'var(--teal-soft)', marginBottom: 16 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>{dispensingItem.id ? 'Available Stock & Price' : 'Not in Inventory (Manual Entry)'}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -290,8 +398,7 @@ export default function Pharmacy() {
               </div>
             </div>
             {dispenseError && <div className="error-box" style={{ marginBottom: 12 }}>{dispenseError}</div>}
-            <form onSubmit={handleDispense}>
-              <div className="field" style={{ position: 'relative' }}>
+            <div className="field" style={{ position: 'relative' }}>
                 <label>Select Patient</label>
                 <input type="text" value={selectedPatient ? selectedPatient.full_name : patientSearch} onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }} placeholder="Search patient name..." autoFocus disabled={!!selectedPatient} />
                 {filteredPatients.length > 0 && !selectedPatient && (
@@ -299,18 +406,23 @@ export default function Pharmacy() {
                     {filteredPatients.map(p => (<div key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch('') }} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>{p.full_name}</div>))}
                   </div>
                 )}
-                {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
+                {selectedPatient && (
+                  <button type="button" onClick={() => setSelectedPatient(null)} className="field-clear-btn" aria-label="Clear selected patient">
+                    <AppIcon name="close" size={14} />
+                  </button>
+                )}
               </div>
               <div className="field"><label>Quantity to Dispense</label><input type="number" min="1" value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} placeholder="Enter quantity" /></div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                <button type="button" className="btn btn-ghost" onClick={closeDispense} disabled={dispensing}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={dispensing}>{dispensing ? 'Dispensing…' : 'Confirm Dispense'}</button>
-              </div>
-            </form>
+            </div>
+            <div className="dash-modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={closeDispense} disabled={dispensing}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={dispensing}>{dispensing ? 'Dispensing…' : 'Confirm Dispense'}</button>
+            </div>
+          </form>
           </div>
         </div>
       )}
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
+      {toast && <div className="dash-toast dash-toast-success">{toast}</div>}
     </>
   )
 }

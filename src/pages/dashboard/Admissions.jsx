@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { formatDateTime, formatDate, getTimezone, dayKeyInZone, todayKeyInZone } from '../../lib/datetime'
 
 // Section 5 — stats row
 // Section 6 — Requests list
@@ -11,6 +12,7 @@ const EDITOR_ROLES = ['doctor', 'nurse', 'admin', 'owner']
 
 export default function Admissions(){
   const { hospital, profile } = useAuth()
+  const timezone = getTimezone(hospital)
   const canEdit = EDITOR_ROLES.includes(profile?.role)
   const canToggleBilling = canEdit || profile?.role === 'billing'
   const canTogglePharmacy = canEdit || profile?.role === 'pharmacist'
@@ -21,14 +23,16 @@ export default function Admissions(){
   const { records: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id)
 
   const loading = loadingRequests || loadingAdmissions || loadingBeds || loadingPatients
-  const todayStr = new Date().toDateString()
+  // "Admitted Today" must use the hospital's timezone (Stage 1 req. #11),
+  // not the viewer's device timezone like the old toDateString() compare.
+  const todayKey = todayKeyInZone(timezone)
 
   const patientName = (patientId) => patients.find(p => p.id === patientId)?.full_name || 'Unknown Patient'
   const bedById = (bedId) => beds.find(b => b.id === bedId)
 
   const pendingRequests = admissionRequests.filter(r => r.status === 'pending').length
   const approvedRequests = admissionRequests.filter(r => r.status === 'converted').length
-  const admittedToday = admissions.filter(a => a.admitted_at && new Date(a.admitted_at).toDateString() === todayStr).length
+  const admittedToday = admissions.filter(a => a.admitted_at && dayKeyInZone(a.admitted_at, timezone) === todayKey).length
   const currentlyAdmitted = admissions.filter(a => a.status === 'active').length
   const availableBeds = beds.filter(b => b.status === 'available').length
   const occupiedBeds = beds.filter(b => b.status === 'occupied').length
@@ -260,7 +264,7 @@ export default function Admissions(){
       <div className="dash-panel" style={{ marginBottom: 20 }}>
         <div className="dash-panel-head">
           <div className="dash-panel-title">Admission Requests</div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {['pending', 'converted', 'rejected', 'all'].map(f => (
               <button
                 key={f}
@@ -277,6 +281,7 @@ export default function Admissions(){
         {filteredRequests.length === 0 ? (
           <div className="dash-empty">No {filter === 'all' ? '' : filter} requests.</div>
         ) : (
+          <div className="dash-table-wrap">
           <table className="dash-full-table">
             <thead>
               <tr>
@@ -298,7 +303,7 @@ export default function Admissions(){
                   <td>{r.requested_ward || '—'}</td>
                   <td>{r.admission_type || '—'}</td>
                   <td>{r.priority || '—'}</td>
-                  <td>{r.created_at ? new Date(r.created_at).toLocaleString('en-NG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                  <td>{r.created_at ? formatDateTime(r.created_at, timezone) : '—'}</td>
                   <td><span className={`dash-status ${r.status === 'pending' ? 'review' : 'stable'}`}>{r.status}</span></td>
                   <td>
                     <button className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px' }} onClick={() => openReview(r)}>
@@ -309,6 +314,7 @@ export default function Admissions(){
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -324,6 +330,7 @@ export default function Admissions(){
         {activeAdmissions.length === 0 ? (
           <div className="dash-empty">No patients currently admitted.</div>
         ) : (
+          <div className="dash-table-wrap">
           <table className="dash-full-table">
             <thead>
               <tr>
@@ -347,10 +354,12 @@ export default function Admissions(){
                     <td>{patientName(a.patient_id)}</td>
                     <td>{bed ? `${bed.section} — Bed ${bed.bed_number}` : '—'}</td>
                     <td>{a.attending_doctor_name || '—'}</td>
-                    <td>{a.admitted_at ? new Date(a.admitted_at).toLocaleDateString('en-NG', { day: '2-digit', month: 'short' }) : '—'}</td>
+                    <td>{a.admitted_at ? formatDate(a.admitted_at, timezone) : '—'}</td>
                     <td>
                       <input
                         type="checkbox"
+                        className="gmed-check"
+                        aria-label={`Billing cleared for ${patientName(a.patient_id)}`}
                         checked={!!bed?.billing_cleared}
                         disabled={!canToggleBilling || rowBusy || !bed}
                         onChange={e => toggleChecklistItem(a, 'billing_cleared', e.target.checked)}
@@ -359,6 +368,8 @@ export default function Admissions(){
                     <td>
                       <input
                         type="checkbox"
+                        className="gmed-check"
+                        aria-label={`Pharmacy cleared for ${patientName(a.patient_id)}`}
                         checked={!!bed?.pharmacy_cleared}
                         disabled={!canTogglePharmacy || rowBusy || !bed}
                         onChange={e => toggleChecklistItem(a, 'pharmacy_cleared', e.target.checked)}
@@ -367,6 +378,8 @@ export default function Admissions(){
                     <td>
                       <input
                         type="checkbox"
+                        className="gmed-check"
+                        aria-label={`Doctor sign-off for ${patientName(a.patient_id)}`}
                         checked={!!bed?.doctor_signed}
                         disabled={!canEdit || rowBusy || !bed}
                         onChange={e => toggleChecklistItem(a, 'doctor_signed', e.target.checked)}
@@ -389,6 +402,7 @@ export default function Admissions(){
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -398,6 +412,7 @@ export default function Admissions(){
           <div className="dash-panel-head">
             <div className="dash-panel-title">Beds Awaiting Cleaning</div>
           </div>
+          <div className="dash-table-wrap">
           <table className="dash-full-table">
             <thead><tr><th>Section</th><th>Bed</th><th></th></tr></thead>
             <tbody>
@@ -421,6 +436,7 @@ export default function Admissions(){
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

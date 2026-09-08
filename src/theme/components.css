@@ -115,3 +115,36 @@
   .conn-state.is-synced .conn-label{ display:none; }
   .conn-state{ padding:6px 9px; }
 }
+
+/* ---------------------------------------------------------------------
+   Batch-2 QA additions (Laboratory / Pharmacy / Admissions / Staff /
+   ShiftHandover). Shared utilities so every module behaves the same.
+   --------------------------------------------------------------------- */
+
+/* Touch-sized checkbox used by Admissions' discharge checklist.
+   The native default (~13px) failed the 44px touch-target rule and the
+   accent color ties it to the app palette. */
+.gmed-check{
+  width: 24px; height: 24px;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+.gmed-check:disabled{ cursor: not-allowed; opacity: .45; }
+
+/* 32px clear ("x") button for fields that position it over the input —
+   replaces the old bare-text glyph buttons (too small, no aria-label). */
+.field-clear-btn{
+  position: absolute; right: 10px; top: 35px;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; border-radius: 8px;
+}
+.field-clear-btn:hover{ color: var(--ivory); background: rgba(255,255,255,.06); }
+
+/* Lab result modal: patient info grid collapses to one column on phones
+   (two 1fr columns squeezed long names + phone numbers at 320px). */
+@media (max-width:600px){
+  .dash-modal .grid{ grid-template-columns: 1fr !important; gap: 12px !important; }
+  .dash-modal-actions{ flex-wrap: wrap; }
+}
