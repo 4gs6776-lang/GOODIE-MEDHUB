@@ -22,7 +22,7 @@
 import {
   Activity, AlertTriangle, Ambulance, ArrowDown, ArrowLeft,
   ArrowLeftRight, ArrowRight, ArrowUp, BarChart3, BedDouble, Bell,
-  Building2, Calendar, Check, CheckCircle2, ChevronRight, Clock,
+  Building2, Calendar, Camera, Check, CheckCircle2, ChevronRight, Clock,
   CloudOff, ConciergeBell, Download, Eye, FileText, FlaskConical,
   HeartPulse, House, Info, ListFilter, Loader2, Lock, Menu, MessageCircle,
   Moon, MoreHorizontal, Package, Pause, Pencil, Phone, Pill, Play,
@@ -56,6 +56,7 @@ const ICONS = {
 
   // Actions
   search: { C: Search },
+  camera: { C: Camera },
   menu: { C: Menu },
   plus: { C: Plus },
   edit: { C: Pencil },
