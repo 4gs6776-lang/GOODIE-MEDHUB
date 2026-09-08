@@ -81,7 +81,9 @@ export default function ConnectionState({
         size={13}
         spin={state.key === 'syncing' || state.key === 'connecting'}
       />
-      {state.label}
+      {/* .conn-label lets the phone topbar compress the harmless
+          "Synced" text to dot+icon only (see components.css). */}
+      <span className="conn-label">{state.label}</span>
     </span>
   )
 }
