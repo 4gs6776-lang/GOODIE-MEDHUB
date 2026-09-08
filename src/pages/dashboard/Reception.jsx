@@ -2,6 +2,16 @@ import { useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
+import AppIcon from '../../components/icons'
+import ConnectionState from '../../components/common/ConnectionState'
+import { writeAudit } from '../../lib/audit'
+import {
+  getTimezone,
+  formatTime,
+  formatDateTimeSec,
+  relativeShort,
+  calculateAge,
+} from '../../lib/datetime'
 
 const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown']
 const GENOTYPES = ['AA','AS','SS','AC']
@@ -152,59 +162,11 @@ function compressImage(file, maxWidth = 240) {
   })
 }
 
-function timeSince(iso) {
-  if (!iso) return ''
-
-  const date = new Date(iso)
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  const mins = Math.floor(
-    (Date.now() - date.getTime()) / 60000
-  )
-
-  if (mins < 1) return 'just now'
-
-  if (mins < 60) {
-    return `${mins}m ago`
-  }
-
-  return `${Math.floor(mins / 60)}h ${mins % 60}m ago`
-}
-
-function calculateAge(dobStr) {
-  if (!dobStr) return ''
-
-  const dob = new Date(dobStr)
-
-  if (Number.isNaN(dob.getTime())) {
-    return ''
-  }
-
-  const today = new Date()
-
-  let age =
-    today.getFullYear() -
-    dob.getFullYear()
-
-  const month =
-    today.getMonth() -
-    dob.getMonth()
-
-  if (
-    month < 0 ||
-    (
-      month === 0 &&
-      today.getDate() < dob.getDate()
-    )
-  ) {
-    age--
-  }
-
-  return age >= 0 ? String(age) : ''
-}
+// Local date helpers were removed in Stage 2 QA (pair 1): calculateAge now
+// comes from src/lib/datetime.js (single source of date logic, req. #11),
+// and the unused timeSince wrapper was deleted. calculateEdd stays local —
+// it is pure UTC calendar arithmetic (LMP + 280 days), timezone-safe by
+// construction.
 
 function calculateEdd(lmpStr) {
   if (!lmpStr) return ''
@@ -222,6 +184,9 @@ function calculateEdd(lmpStr) {
 
 export default function Reception() {
   const { profile, hospital } = useAuth()
+
+  // Hospital-configured timezone for every displayed timestamp (req. #11).
+  const timezone = getTimezone(hospital)
 
   const {
     records: patients,
@@ -253,10 +218,12 @@ export default function Reception() {
   }
 
   function handleDobChange(value) {
+    const age = calculateAge(value)
     setForm(current => ({
       ...current,
       dateOfBirth: value,
-      age: calculateAge(value),
+      // Guard: a future DOB must never display a negative age.
+      age: age !== '' && Number(age) < 0 ? '' : age,
     }))
   }
 
@@ -494,12 +461,8 @@ export default function Reception() {
 
       /*
        * Final safety check.
+       * (Never console.log the payload — it contains patient PII.)
        */
-      console.log(
-        'PATIENT BEING SAVED:',
-        patientData
-      )
-
       if (
         !patientData.full_name ||
         patientData.full_name === 'null'
@@ -510,6 +473,16 @@ export default function Reception() {
       }
 
       await addRecord(patientData)
+
+      // Audit trail: who registered this patient and when (req. #16).
+      writeAudit({
+        hospitalId: hospital?.id,
+        actor: profile,
+        action: 'patient.create',
+        entityType: 'patient',
+        summary: `Registered patient ${fullName}${form.category ? ` (${form.category} folder)` : ''} and checked in`,
+        metadata: { category: form.category || null, hmo_provider: patientData.hmo_provider },
+      })
 
       setShowModal(false)
 
@@ -551,6 +524,10 @@ export default function Reception() {
     patient,
     newStage
   ) {
+    // Moving to the stage the patient is already in must not fire a
+    // pointless write to the sync queue.
+    if (patient.queue_status === newStage) return
+
     try {
       await updateRecord(
         patient.id,
@@ -633,27 +610,12 @@ export default function Reception() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
+                flexWrap: 'wrap',
               }}
             >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: isOnline
-                    ? 'var(--teal)'
-                    : 'var(--danger)',
-                  display: 'inline-block',
-                }}
-              />
-
-              {isOnline
-                ? 'Online'
-                : 'Offline'}
-
-              {pendingCount > 0
-                ? ` · ${pendingCount} syncing`
-                : ''}
+              {/* Shared sync-state chip (Stage 1 #14) — same vocabulary as
+                  every other module, replaces the hand-rolled dot. */}
+              <ConnectionState isOnline={isOnline} pendingCount={pendingCount} />
             </div>
           </div>
 
@@ -662,7 +624,7 @@ export default function Reception() {
             onChange={setSearchTerm}
             placeholder="Search patients by name, ID or phone"
             style={{
-              minWidth: 260,
+              minWidth: 220,
               maxWidth: 420,
             }}
           />
@@ -696,15 +658,8 @@ export default function Reception() {
       {/* ================= QUEUE ================= */}
 
       {loading ? (
-        <div
-          className="dash-panel"
-          style={{
-            textAlign: 'center',
-            padding: 40,
-            color: 'var(--muted)',
-          }}
-        >
-          Loading…
+        <div className="dash-panel">
+          <div className="dash-empty-state">Loading…</div>
         </div>
       ) : (
         <div className="dash-row dash-row-2b">
@@ -793,15 +748,7 @@ export default function Reception() {
 
                       <div
                         key={patient.id}
-                        style={{
-                          border:
-                            '1px solid var(--line)',
-                          borderRadius: 10,
-                          padding: 10,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                        }}
+                        className="rx-queue-card"
                       >
 
                         {patient.photo_data ? (
@@ -845,43 +792,31 @@ export default function Reception() {
 
                         )}
 
-                        <div
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                        >
+                        <div className="rx-queue-info">
 
-                          <div
-                            style={{
-                              fontSize: 12.5,
-                              fontWeight: 700,
-                              whiteSpace:
-                                'nowrap',
-                              overflow:
-                                'hidden',
-                              textOverflow:
-                                'ellipsis',
-                            }}
-                          >
+                          <div className="rx-queue-name">
                             {patient.full_name}
                           </div>
 
                           <div
-                            style={{
-                              fontSize: 10.5,
-                              color:
-                                'var(--muted)',
-                            }}
-                          >
-                            {timeSince(
+                            className="rx-queue-time"
+                            title={
                               patient.queue_updated_at
-                            )}
+                                ? `${formatDateTimeSec(patient.queue_updated_at, timezone)} (${timezone}) — checked in / last queue change`
+                                : undefined
+                            }
+                          >
+                            {/* Exact check-in time is always shown alongside the
+                                relative label — never relative-only (req. #11). */}
+                            {patient.queue_updated_at
+                              ? `${relativeShort(patient.queue_updated_at)} · ${formatTime(patient.queue_updated_at, timezone)}`
+                              : '—'}
                           </div>
 
                         </div>
 
                         <select
+                          className="rx-queue-select"
                           value={stage.key}
                           onChange={event =>
                             moveStage(
@@ -889,19 +824,7 @@ export default function Reception() {
                               event.target.value
                             )
                           }
-                          style={{
-                            background:
-                              'var(--bg-elevated)',
-                            color:
-                              'var(--ivory)',
-                            border:
-                              '1px solid var(--line)',
-                            borderRadius: 7,
-                            padding:
-                              '4px 6px',
-                            fontSize: 10.5,
-                            flexShrink: 0,
-                          }}
+                          aria-label={`Move ${patient.full_name} to another queue stage`}
                         >
                           {QUEUE_STAGES.map(
                             queueStage => (
@@ -922,29 +845,17 @@ export default function Reception() {
                         </select>
 
                         <button
+                          type="button"
+                          className="rx-queue-remove"
                           onClick={() =>
                             removeFromQueue(
                               patient
                             )
                           }
-                          style={{
-                            background:
-                              'transparent',
-                            border:
-                              '1px solid var(--line)',
-                            color:
-                              'var(--muted)',
-                            borderRadius: 7,
-                            width: 26,
-                            height: 26,
-                            cursor:
-                              'pointer',
-                            flexShrink: 0,
-                            fontSize: 12,
-                          }}
                           title="Remove from queue"
+                          aria-label={`Remove ${patient.full_name} from queue`}
                         >
-                          ✕
+                          <AppIcon name="close" size={15} />
                         </button>
 
                       </div>
@@ -966,51 +877,30 @@ export default function Reception() {
 
       {showModal && (
 
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background:
-              'rgba(0,3,26,0.72)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent:
-              'center',
-            zIndex: 50,
-            padding: 20,
-          }}
-        >
+        /* Shared modal chrome (same as Dashboard's Register Patient
+           modal): on phones this automatically becomes a bottom
+           sheet with a scrollable body and pinned action row. */
+        <div className="dash-modal-backdrop">
 
-          <div
-            className="card"
-            style={{
-              width: '100%',
-              maxWidth: 560,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
+          <div className="card dash-modal dash-modal-lg">
 
-            <div
-              style={{
-                fontFamily:
-                  'var(--font-display)',
-                fontSize: 19,
-                marginBottom: 18,
-              }}
-            >
+            <div className="dash-modal-title">
               Register &amp; Check In
             </div>
 
-            {formError && (
+            {/* dash-modal-form keeps the body scrollable and the action row
+                pinned on short phone viewports (shared pattern, pair 1). */}
+            <form onSubmit={handleRegister} className="dash-modal-form">
 
-              <div className="error-box">
-                {formError}
-              </div>
+              <div className="dash-modal-body">
 
-            )}
+              {formError && (
 
-            <form onSubmit={handleRegister}>
+                <div className="error-box">
+                  {formError}
+                </div>
+
+              )}
 
               {/* PHOTO */}
 
@@ -1024,9 +914,18 @@ export default function Reception() {
               >
 
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label={photoData ? 'Patient photo added — tap to change' : 'Add patient photo'}
                   onClick={() =>
                     fileInputRef.current?.click()
                   }
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      fileInputRef.current?.click()
+                    }
+                  }}
                   style={{
                     width: 64,
                     height: 64,
@@ -1060,21 +959,7 @@ export default function Reception() {
 
                   ) : (
 
-                    <svg
-                      width="22"
-                      height="22"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="var(--muted)"
-                      strokeWidth="1.6"
-                    >
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                      <circle
-                        cx="12"
-                        cy="13"
-                        r="4"
-                      />
-                    </svg>
+                    <AppIcon name="camera" size={22} style={{ color: 'var(--muted)' }} />
 
                   )}
 
@@ -1141,14 +1026,7 @@ export default function Reception() {
                 Patient Biodata
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    '1fr 1fr',
-                  gap: 10,
-                }}
-              >
+              <div className="dash-field-grid">
 
                 <div className="field">
                   <label>
@@ -1601,14 +1479,7 @@ export default function Reception() {
 
                   </div>
 
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns:
-                        '1fr 1fr',
-                      gap: 10,
-                    }}
-                  >
+                  <div className="dash-field-grid">
 
                     <div className="field">
 
@@ -1777,16 +1648,18 @@ export default function Reception() {
                 HMO / Insurance
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    '1fr 1fr',
-                  gap: 10,
-                }}
-              >
+              <div className="dash-field-grid">
 
-                <div className="field">
+                <div
+                  className="field"
+                  style={
+                    // Solo field in the grid (Self-Pay) should not leave a
+                    // half-empty row next to nothing.
+                    form.hmoProvider === 'Self-Pay (No HMO)'
+                      ? { gridColumn: '1 / -1' }
+                      : undefined
+                  }
+                >
                   <label>HMO Provider</label>
                   <select
                     value={form.hmoProvider}
@@ -1852,14 +1725,7 @@ export default function Reception() {
                 Next of Kin
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    '1fr 1fr',
-                  gap: 10,
-                }}
-              >
+              <div className="dash-field-grid">
 
                 <div className="field">
 
@@ -1940,15 +1806,9 @@ export default function Reception() {
 
               </div>
 
-              {/* BUTTONS */}
+              </div>{/* /dash-modal-body */}
 
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 10,
-                  marginTop: 22,
-                }}
-              >
+              <div className="dash-modal-actions">
 
                 <button
                   type="button"
@@ -1982,35 +1842,10 @@ export default function Reception() {
 
       )}
 
-      {/* TOAST */}
+      {/* TOAST — shared toast shell, teal success variant */}
 
       {toast && (
-
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            left: '50%',
-            transform:
-              'translateX(-50%)',
-            background:
-              'var(--bg-elevated)',
-            border:
-              '1px solid var(--teal)',
-            color: 'var(--teal)',
-            padding:
-              '12px 20px',
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 700,
-            zIndex: 60,
-            maxWidth: '85vw',
-            textAlign: 'center',
-          }}
-        >
-          {toast}
-        </div>
-
+        <div className="dash-toast dash-toast-success">{toast}</div>
       )}
     </>
   )

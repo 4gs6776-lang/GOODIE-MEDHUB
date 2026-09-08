@@ -1,7 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { HospitalProvider } from '../../context/HospitalContext'
 import { supabase } from '../../lib/supabaseClient'
+import AppIcon from '../../components/icons'
+import ConnectionState from '../../components/common/ConnectionState'
 import TrashIcon from '../../components/icons/TrashIcon'
+import { writeAudit } from '../../lib/audit'
+import {
+  getTimezone,
+  formatWeekdayDate,
+  formatTime,
+  formatDateTime,
+  formatMonthYear,
+  dayKeyInZone,
+  todayKeyInZone,
+} from '../../lib/datetime'
+import {
+  FULL_ACCESS_ROLES,
+  ROLE_LABELS,
+  getAccessibleModules,
+} from '../../lib/permissions'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
@@ -116,56 +134,12 @@ const PAGE_TITLES = {
 }
 
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
-const ROLE_ACCESS = {
-  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions', 'handover'],
-  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions', 'handover'],
-  front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
-  pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory', 'handover'],
-  lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology', 'handover'],
-  billing: [...COMMON_ACCESS, 'patients', 'billing', 'insurance'],
-}
-const FULL_ACCESS_ROLES = ['admin', 'owner']
-const ROLE_LABELS = { admin: 'Admin', owner: 'Owner', doctor: 'Doctor', nurse: 'Nurse', front_desk: 'Front Desk', pharmacist: 'Pharmacist', lab: 'Laboratory', billing: 'Billing', staff: 'Staff' }
 
-function Icon({ name, size = 18, strokeWidth = 1.8 }) {
-  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' }
-  const paths = {
-    home: <><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/></>,
-    calendar: <><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 9h18"/></>,
-    users: <><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3-6.5 7-6.5s7 2.9 7 6.5"/><path d="M16 5.5a3.2 3.2 0 0 1 0 6.2M18 14c2.4.8 4 2.9 4 6"/></>,
-    reception: <><path d="M4 11h16v9H4z"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><path d="M9 15h6"/></>,
-    billing: <><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></>,
-    lab: <><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M8 15h8"/></>,
-    pharmacy: <><path d="M4 8h16v12H4z"/><path d="M8 8V5h8v3M12 11v6M9 14h6"/></>,
-    radiology: <><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5M5 16l5-2M19 16l-5-2"/></>,
-    inventory: <><path d="m3 7 9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></>,
-    doctor: <><circle cx="12" cy="7" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/><path d="M18 10v4M16 12h4"/></>,
-    nurse: <><circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="M12 13v5M9.5 15.5h5"/></>,
-    bed: <><path d="M3 18v-8M3 15h18v6M6 15V9a2 2 0 0 1 2-2h4a3 3 0 0 1 3 3v5M15 15V9h3a3 3 0 0 1 3 3v3"/></>,
-    insurance: <><path d="M12 3 20 6v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3Z"/><path d="m9 12 2 2 4-4"/></>,
-    reports: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/><path d="M3 6h4M13 3h4M19 10h3"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V20h-2.6v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H6v-2.6h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V5h2.6v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v2.6h-.1a1.7 1.7 0 0 0-1.6 1Z"/></>,
-    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
-    menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
-    moon: <path d="M20.5 15.5A8 8 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z"/>,
-    sun: <><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M2.5 12h3M18.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></>,
-    chevron: <path d="m9 18 6-6-6-6"/>,
-    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
-    plus: <><path d="M12 5v14M5 12h14"/></>,
-    arrowUp: <><path d="m6 15 6-6 6 6"/></>,
-    arrowDown: <><path d="m6 9 6 6 6-6"/></>,
-    building: <><path d="M4 21V5l8-3 8 3v16"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3"/></>,
-    clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
-    phone: <><path d="M6 3h3l2 5-2 2a14 14 0 0 0 5 5l2-2 5 2v3c0 1-1 2-2 2C10 20 4 14 4 5c0-1 1-2 2-2Z"/></>,
-    chat: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></>,
-    power: <><path d="M12 3v9"/><path d="M18.4 6.6a8 8 0 1 1-12.8 0"/></>,
-    handover: <><path d="M7 8h11l-3-3M17 16H6l3 3"/><path d="M4 8v3a2 2 0 0 0 2 2h1M20 16v-3a2 2 0 0 0-2-2h-1"/></>,
-  }
-  return <svg {...common}>{paths[name] || paths.home}</svg>
-}
+// Stage 1: role → module access now lives in src/lib/permissions.js
+// (single source of truth). The lists moved there unchanged, so every
+// role sees exactly the same navigation as before.
 
-function LiveClock() {
+function LiveClock({ hospital }) {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     let intervalId
@@ -180,14 +154,15 @@ function LiveClock() {
     }
   }, [])
 
-  const timeFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }), [])
-  const dateFormatter = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Lagos', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), [])
-  const timeStr = timeFormatter.format(now)
-  const dateStr = dateFormatter.format(now)
+  // Hospital-configured timezone (hospitals.timezone) — falls back to
+  // Africa/Lagos, the value the old hardcoded clock used.
+  const timezone = getTimezone(hospital)
+  const timeStr = useMemo(() => formatTime(now, timezone), [now, timezone])
+  const dateStr = useMemo(() => formatWeekdayDate(now, timezone), [now, timezone])
 
   return (
-    <div className="dash-live-clock" title="Nigeria Time (WAT, UTC+1)">
-      <div className="dash-live-clock-icon"><Icon name="clock" size={15} /></div>
+    <div className="dash-live-clock" title={`Hospital time (${timezone})`}>
+      <div className="dash-live-clock-icon"><AppIcon name="clock" size={15} /></div>
       <div className="dash-live-clock-text">
         <div className="dash-live-clock-time"><span key={timeStr} className="dash-clock-tick">{timeStr}</span></div>
         <div className="dash-live-clock-date">{dateStr}</div>
@@ -199,9 +174,13 @@ function LiveClock() {
 export default function Dashboard(){
   const { profile, hospital, signOut } = useAuth()
 
+  // Hospital timezone — every date/time displayed in this file goes
+  // through src/lib/datetime.js with this zone (Stage 1 req. #11).
+  const hospitalTz = getTimezone(hospital)
+
   const allowedKeys = useMemo(() => {
     if (FULL_ACCESS_ROLES.includes(profile?.role)) return null
-    return ROLE_ACCESS[profile?.role] || COMMON_ACCESS
+    return getAccessibleModules(profile?.role)
   }, [profile?.role])
   const visibleNavItems = allowedKeys ? NAV_ITEMS.filter(item => allowedKeys.includes(item.key)) : NAV_ITEMS
 
@@ -250,6 +229,13 @@ export default function Dashboard(){
   const [deepLinkSearch, setDeepLinkSearch] = useState('')
   const searchBoxRef = useRef(null)
   const searchInputRef = useRef(null)
+
+  // Phones: the collapsed search icon cannot receive focus itself
+  // (the input is display:none until expanded), so focus the input
+  // right after the sheet expands — covers icon taps and ⌘K/Ctrl+K.
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
   const [pending, setPending] = useState(null)
   const pendingTimeoutRef = useRef(null)
   const pendingIntervalRef = useRef(null)
@@ -294,6 +280,18 @@ export default function Dashboard(){
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
+
+  function activateSearch(){
+    setSearchOpen(true)
+    searchInputRef.current?.focus()
+  }
+
+  function handleSearchKeyDown(e){
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      activateSearch()
+    }
+  }
 
   const stuckTables = useMemo(() => {
     if (!Array.isArray(syncErrors)) return [];
@@ -349,14 +347,13 @@ export default function Dashboard(){
   }
 
   async function loadOverviewSummary(){
-    const now = new Date()
-    const todayStr = now.toDateString()
+    const todayKey = todayKeyInZone(hospitalTz)
 
     const { data: apptData } = await supabase.from('appointments').select('*').eq('hospital_id', hospital.id)
     if (apptData) {
       setAppointments(apptData)
-      setTodayApptCount(apptData.filter(a => new Date(a.appointment_time).toDateString() === todayStr).length)
-      setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > now && a.status === 'scheduled').length)
+      setTodayApptCount(apptData.filter(a => dayKeyInZone(a.appointment_time, hospitalTz) === todayKey).length)
+      setUpcomingApptCount(apptData.filter(a => new Date(a.appointment_time) > new Date() && a.status === 'scheduled').length)
     }
 
     const { data: invData } = await supabase.from('invoices').select('id, invoice_number, patient_name, amount, status, created_at').eq('hospital_id', hospital.id)
@@ -469,6 +466,15 @@ export default function Dashboard(){
       setShowModal(false)
       setForm(EMPTY_PATIENT_FORM)
       setStatus('stable')
+      // Audit trail: record who registered the patient (Stage 1 req. #16).
+      writeAudit({
+        hospitalId: hospital.id,
+        actor: profile,
+        action: 'patient.create',
+        entityType: 'patient',
+        entityId: null,
+        summary: `Registered patient ${fullName} (quick add)`,
+      })
       showToast(isOnline ? `${fullName} added` : `${fullName} added — will sync when back online`)
     } catch(err){
       showToast(err.message || 'Could not save patient')
@@ -494,6 +500,17 @@ export default function Dashboard(){
     clearInterval(pendingIntervalRef.current)
     setPending(null)
     await deleteRecord(patient.id)
+    // Patients are soft-deleted (deleted_at stamped, history kept).
+    // Audit it so the archive is traceable (Stage 1 req. #16).
+    writeAudit({
+      hospitalId: hospital?.id,
+      actor: profile,
+      action: 'patient.archive',
+      entityType: 'patient',
+      entityId: patient.id,
+      summary: `Archived patient record: ${patient.full_name}`,
+      metadata: { soft_delete: true },
+    })
   }
 
   function handleUndo(){
@@ -548,21 +565,14 @@ export default function Dashboard(){
   }
 
   // NEW: Calculate Patients Attended Today
-  const todayStr = new Date().toDateString()
   const patientsSeenToday = useMemo(() => {
-    const seenIds = new Set(vitals.filter(v => new Date(v.created_at).toDateString() === todayStr).map(v => v.patient_id))
+    const todayKey = todayKeyInZone(hospitalTz)
+    const seenIds = new Set(vitals.filter(v => dayKeyInZone(v.created_at, hospitalTz) === todayKey).map(v => v.patient_id))
     return patients.filter(p => seenIds.has(p.id))
-  }, [vitals, patients, todayStr])
+  }, [vitals, patients, hospitalTz])
 
   function formatMoney(n){
     return '₦' + Number(n || 0).toLocaleString('en-NG',{minimumFractionDigits:0})
-  }
-
-  function formatDateTime(value){
-    if (!value) return '—'
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) return '—'
-    return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
   }
 
   function appointmentName(a){
@@ -581,7 +591,10 @@ export default function Dashboard(){
     })
   }, [inventoryItems])
 
-  const isSameDay = (a, b) => a && b && new Date(a).toDateString() === new Date(b).toDateString()
+  const isSameDay = (a, b) => {
+    if (!a || !b) return false
+    return dayKeyInZone(a, hospitalTz) === dayKeyInZone(b, hospitalTz)
+  }
 
   const readyLabTests = useMemo(() => {
     const today = new Date()
@@ -595,15 +608,15 @@ export default function Dashboard(){
     if (lowStockItems.length > 0) {
       const names = lowStockItems.slice(0,2).map(i => i.name).filter(Boolean).join(', ')
       items.push({
-        icon: '⚠️',
+        icon: <AppIcon name="alert" size={13} style={{ color: 'var(--warning)' }} />,
         text: <>Low stock: <strong>{lowStockItems.length} item{lowStockItems.length === 1 ? '' : 's'}</strong>{names ? ` (${names}${lowStockItems.length > 2 ? '…' : ''})` : ''} need reordering.</>,
       })
     }
     readyLabTests.slice(0,3).forEach(t => {
-      items.push({ icon: '📌', text: <>Lab result ready for <strong>{t.patient_name || 'patient'}</strong> ({t.test_name || 'test'}).</> })
+      items.push({ icon: <AppIcon name="lab" size={13} style={{ color: 'var(--violet)' }} />, text: <>Lab result ready for <strong>{t.patient_name || 'patient'}</strong> ({t.test_name || 'test'}).</> })
     })
     if (todayApptCount > 0) {
-      items.push({ icon: '📅', text: <><strong>{todayApptCount}</strong> appointment{todayApptCount === 1 ? '' : 's'} scheduled for today.</> })
+      items.push({ icon: <AppIcon name="calendar" size={13} style={{ color: 'var(--blue)' }} />, text: <><strong>{todayApptCount}</strong> appointment{todayApptCount === 1 ? '' : 's'} scheduled for today.</> })
     }
     return items
   }, [lowStockItems, readyLabTests, todayApptCount])
@@ -681,12 +694,12 @@ export default function Dashboard(){
     const returningArea = `${returningLine} L${chartRight} ${chartBottom} L${chartLeft} ${chartBottom} Z`
 
     const tickDays = [...new Set([1, 5, 10, 15, 20, 25, daysInMonth].filter(d => d <= daysInMonth))]
-    const monthLabel = now.toLocaleDateString('en-US', { month: 'short' })
+    const monthLabel = formatMonthYear(now, hospitalTz).split(' ')[0]
     const xLabels = tickDays.map(d => `${monthLabel} ${d}`)
     const yLabels = [niceMax, niceMax * 0.75, niceMax * 0.5, niceMax * 0.25, 0]
 
     return { newLine, returningLine, newArea, returningArea, xLabels, yLabels }
-  }, [patients, appointments])
+  }, [patients, appointments, hospitalTz])
 
   // Real department activity from the appointment records already loaded by the
   // offline-first table. This replaces the old patient-folder breakdown so the
@@ -769,10 +782,10 @@ export default function Dashboard(){
     const max = Math.max(1, ...byDay.slice(1))
     const bars = byDay.slice(1).map(v => Math.max(2, (v / max) * 100))
     const tickDays = [1, 8, 15, 22, daysInMonth].filter((d,i,arr) => arr.indexOf(d) === i && d <= daysInMonth)
-    const monthLabel = now.toLocaleDateString('en-US', { month: 'short' })
+    const monthLabel = formatMonthYear(now, hospitalTz).split(' ')[0]
 
     return { bars, thisMonthTotal, changePct, xLabels: tickDays.map(d => `${monthLabel} ${d}`) }
-  }, [invoicesList])
+  }, [invoicesList, hospitalTz])
 
   // Most recently registered patients, for the Recent Patients panel
   const recentPatients = useMemo(() => {
@@ -825,6 +838,7 @@ export default function Dashboard(){
   let currentSection = null
 
   return (
+    <HospitalProvider>
     <div className="dash-shell">
       <div className={`dash-overlay ${drawerOpen ? 'show' : ''}`} onClick={() => setDrawerOpen(false)} />
 
@@ -849,13 +863,15 @@ export default function Dashboard(){
             return (
               <div key={i}>
                 {showLabel && <div className="dash-nav-label">{item.section}</div>}
-                <div
+                <button
+                  type="button"
                   className={`dash-nav-item ${tab === item.key ? 'active' : ''}`}
                   onClick={() => { setTab(item.key); setDrawerOpen(false) }}
+                  aria-current={tab === item.key ? 'page' : undefined}
                 >
-                  <Icon name={item.icon} size={17}/>
+                  <AppIcon name={item.icon} size={17}/>
                   <span>{item.label}</span>
-                </div>
+                </button>
               </div>
             )
           })}
@@ -864,7 +880,7 @@ export default function Dashboard(){
         <div className="dash-emergency">
           <div className="dash-emergency-head">
             <span>Emergency Line</span>
-            <Icon name="phone" size={15}/>
+            <AppIcon name="phone" size={15}/>
           </div>
           <strong>{hospital?.phone || '+2348148364233'}</strong>
           <span className="dash-emergency-name">{hospital?.emergency_contact_name || 'Mr Goodnews'}</span>
@@ -881,7 +897,7 @@ export default function Dashboard(){
               <div className="dash-foot-role">{ROLE_LABELS[profile?.role] || 'Staff'}</div>
             </div>
             <button className="dash-icon-btn dash-foot-signout" onClick={signOut} title="Sign out">
-              <Icon name="power" size={16}/>
+              <AppIcon name="power" size={16}/>
             </button>
           </div>
         </div>
@@ -890,17 +906,31 @@ export default function Dashboard(){
       <main className="dash-main">
         {/* Top Header Bar */}
         <header className="dash-topbar">
-          <div className="dash-burger" onClick={() => setDrawerOpen(true)}>
-            <Icon name="menu" size={21}/>
-          </div>
+          <button
+            type="button"
+            className="dash-burger"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open navigation menu"
+          >
+            <AppIcon name="menu" size={21}/>
+          </button>
 
-          <div className="dash-search" ref={searchBoxRef} style={{ position: 'relative' }}>
-            <Icon name="search" size={17}/>
+          <div
+            className={`dash-search ${searchOpen ? 'is-open' : ''}`}
+            ref={searchBoxRef}
+            aria-expanded={searchOpen}
+            tabIndex={0}
+            aria-label="Search patients, invoices, appointments"
+            onClick={activateSearch}
+            onKeyDown={handleSearchKeyDown}
+          >
+            <AppIcon name="search" size={17}/>
             <input
               ref={searchInputRef}
               value={search}
               onChange={e => { setSearch(e.target.value); setSearchOpen(true) }}
               onFocus={() => setSearchOpen(true)}
+              aria-label="Search patients, invoices and appointments"
               placeholder="Search patients, invoices, appointments..."
             />
             <kbd>⌘ K</kbd>
@@ -914,7 +944,7 @@ export default function Dashboard(){
                         <div className="dash-search-group-label">Patients</div>
                         {globalSearchResults.patients.map(p => (
                           <button key={p.id} className="dash-search-result" onClick={() => goToSearchResult('patient', p)}>
-                            <Icon name="users" size={14}/>
+                            <AppIcon name="users" size={14}/>
                             <span>{p.full_name}</span>
                             {p.phone && <span className="dash-search-result-meta">{p.phone}</span>}
                           </button>
@@ -926,7 +956,7 @@ export default function Dashboard(){
                         <div className="dash-search-group-label">Appointments</div>
                         {globalSearchResults.appointments.map(a => (
                           <button key={a.id} className="dash-search-result" onClick={() => goToSearchResult('appointment', a)}>
-                            <Icon name="calendar" size={14}/>
+                            <AppIcon name="calendar" size={14}/>
                             <span>{a.patient_name}</span>
                             {a.doctor_name && <span className="dash-search-result-meta">Dr. {a.doctor_name}</span>}
                           </button>
@@ -938,7 +968,7 @@ export default function Dashboard(){
                         <div className="dash-search-group-label">Invoices</div>
                         {globalSearchResults.invoices.map(i => (
                           <button key={i.id} className="dash-search-result" onClick={() => goToSearchResult('invoice', i)}>
-                            <Icon name="billing" size={14}/>
+                            <AppIcon name="billing" size={14}/>
                             <span>{i.patient_name || i.invoice_number || 'Invoice'}</span>
                             <span className="dash-search-result-meta">₦{Number(i.amount || 0).toLocaleString()}</span>
                           </button>
@@ -956,7 +986,21 @@ export default function Dashboard(){
           {/* Interactive Actions Icons & Popovers */}
           <div className="dash-top-actions" ref={headerMenuRef} style={{ position: 'relative' }}>
 
-            <LiveClock />
+            {/* Live connection/sync truth (Stage 1 req. #14) */}
+            <ConnectionState
+              isOnline={isOnline}
+              pendingCount={pendingCount}
+              failedCount={syncErrors.length}
+              onRetry={async () => {
+                if (syncErrors.length > 0) {
+                  setSyncPanelOpen(v => !v)
+                } else {
+                  await retryTableQueue()
+                }
+              }}
+            />
+
+            <LiveClock hospital={hospital} />
 
             {/* 1. Theme Toggle */}
             <button 
@@ -964,7 +1008,7 @@ export default function Dashboard(){
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               onClick={toggleTheme}
             >
-              <Icon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
+              <AppIcon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
             </button>
 
             {/* 2. Notifications Bell Popover */}
@@ -974,7 +1018,7 @@ export default function Dashboard(){
                 title="Notifications"
                 onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
               >
-                <Icon name="bell" size={18}/>
+                <AppIcon name="bell" size={18}/>
                 {notificationItems.length > 0 && <span>{notificationItems.length}</span>}
               </button>
 
@@ -998,14 +1042,14 @@ export default function Dashboard(){
               title="Messages"
               onClick={() => { setTab('messages'); setActiveMenu(null) }}
             >
-              <Icon name="chat" size={18}/>
+              <AppIcon name="chat" size={18}/>
               {recentMessageCount > 0 && <span>{recentMessageCount > 9 ? '9+' : recentMessageCount}</span>}
             </button>
 
             <div className="dash-hospital-selector">
-              <Icon name="building" size={17}/>
+              <AppIcon name="building" size={17}/>
               <span>{hospital?.name || 'Your Hospital'}</span>
-              <span className="dash-chevron"><Icon name="arrowDown" size={13}/></span>
+              <span className="dash-chevron"><AppIcon name="arrowDown" size={13}/></span>
             </div>
           </div>
         </header>
@@ -1014,7 +1058,9 @@ export default function Dashboard(){
           {stuckTables.length > 0 && (
             <div className="dash-sync-alert">
               <div>
-                <strong>⚠ Sync needs attention</strong>
+                <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <AppIcon name="alert" size={14} /> Sync needs attention
+                </strong>
                 <span>{stuckTables.length} table{stuckTables.length > 1 ? 's' : ''} has pending records.</span>
               </div>
               <button onClick={() => setSyncPanelOpen(v => !v)}>Review</button>
@@ -1044,14 +1090,14 @@ export default function Dashboard(){
             <>
               <section className="dash-welcome">
                 <div>
-                  <h1>Welcome back, {profile?.full_name ? `Dr. ${profile.full_name.replace(/^Dr\.\s*/i,'')}` : 'Doctor'} <span>👋</span></h1>
+                  <h1>Welcome back, {profile?.full_name || 'there'}</h1>
                   <p>Here's what's happening at {hospital?.name || 'your hospital'} today.</p>
                 </div>
                 <div className="dash-date-card">
-                  <Icon name="calendar" size={18}/>
+                  <AppIcon name="calendar" size={18}/>
                   <div>
-                    <strong>{new Date().toLocaleDateString('en-NG',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</strong>
-                    <span>{new Date().toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</span>
+                    <strong>{formatWeekdayDate(new Date(), hospitalTz)}</strong>
+                    <span>{formatTime(new Date(), hospitalTz)}</span>
                   </div>
                 </div>
               </section>
@@ -1059,22 +1105,22 @@ export default function Dashboard(){
               <section className="dash-stats premium-stats">
                 <div className="dash-stat-card premium-stat teal-stat">
                   <div className="dash-stat-top">
-                    <div className="dash-stat-icon"><Icon name="users" size={20}/></div>
+                    <div className="dash-stat-icon"><AppIcon name="users" size={20}/></div>
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 28 C12 18 18 31 28 23 S40 6 50 22 S64 29 72 14 S82 19 88 12"/></svg>
                   </div>
                   <div className="dash-stat-label">Total Patients</div>
                   <div className="dash-stat-value">{patients.length.toLocaleString()}</div>
-                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Live patient count</div>
+                  <div className="dash-stat-delta positive"><AppIcon name="arrowUp" size={12}/> Live patient count</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat violet-stat">
                   <div className="dash-stat-top">
-                    <div className="dash-stat-icon"><Icon name="calendar" size={20}/></div>
+                    <div className="dash-stat-icon"><AppIcon name="calendar" size={20}/></div>
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"/></svg>
                   </div>
                   <div className="dash-stat-label">Appointments</div>
                   <div className="dash-stat-value">{todayApptCount}</div>
-                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> {upcomingApptCount} upcoming</div>
+                  <div className="dash-stat-delta positive"><AppIcon name="arrowUp" size={12}/> {upcomingApptCount} upcoming</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat gold-stat">
@@ -1082,19 +1128,19 @@ export default function Dashboard(){
                     <div className="dash-stat-icon money-icon">₦</div>
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 29 C10 27 16 30 24 21 S36 26 44 28 S54 7 64 22 S76 16 88 10"/></svg>
                   </div>
-                  <div className="dash-stat-label">Today's Revenue</div>
+                  <div className="dash-stat-label">Revenue Collected</div>
                   <div className="dash-stat-value">{formatMoney(revenueCollected)}</div>
-                  <div className="dash-stat-delta positive"><Icon name="arrowUp" size={12}/> Collected to date</div>
+                  <div className="dash-stat-delta positive">Paid invoices to date</div>
                 </div>
 
                 <div className="dash-stat-card premium-stat red-stat">
                   <div className="dash-stat-top">
-                    <div className="dash-stat-icon"><Icon name="billing" size={20}/></div>
+                    <div className="dash-stat-icon"><AppIcon name="billing" size={20}/></div>
                     <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d="M2 17 C13 12 20 22 30 18 S45 28 56 19 S72 25 88 12"/></svg>
                   </div>
                   <div className="dash-stat-label">Pending Bills</div>
                   <div className="dash-stat-value">{pendingBillCount.toLocaleString()}</div>
-                  <div className="dash-stat-delta negative"><Icon name="arrowDown" size={12}/> {formatMoney(revenueOutstanding)} outstanding</div>
+                  <div className="dash-stat-delta negative"><AppIcon name="arrowDown" size={12}/> {formatMoney(revenueOutstanding)} outstanding</div>
                 </div>
               </section>
 
@@ -1158,7 +1204,7 @@ export default function Dashboard(){
                         </div>
                       )) : (
                         <div className="dash-empty-state dash-empty-state-rich">
-                          <Icon name="calendar" size={22}/>
+                          <AppIcon name="calendar" size={22}/>
                           <p>No appointments logged this month yet</p>
                         </div>
                       )}
@@ -1173,20 +1219,19 @@ export default function Dashboard(){
                   </div>
                   <div className="dash-appt-list">
                     {upcoming.length > 0 ? upcoming.map((a,i) => {
-                      const d = new Date(a.appointment_time)
                       return (
                         <div className="dash-appt-row" key={a.id || i}>
-                          <strong>{d.toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'})}</strong>
+                          <strong>{formatTime(a.appointment_time, hospitalTz)}</strong>
                           <div><b>{appointmentName(a)}</b><span>{appointmentReason(a)}</span></div>
                           <em className={a.status || 'scheduled'}>{a.status || 'Scheduled'}</em>
                         </div>
                       )
                     }) : (
                       <div className="dash-empty-state dash-empty-state-rich">
-                        <Icon name="calendar" size={22}/>
+                        <AppIcon name="calendar" size={22}/>
                         <p>No upcoming appointments recorded yet</p>
                         <button className="btn btn-ghost dash-empty-cta" onClick={() => setTab('appointments')}>
-                          <Icon name="plus" size={14}/> Book an appointment
+                          <AppIcon name="plus" size={14}/> Book an appointment
                         </button>
                       </div>
                     )}
@@ -1222,10 +1267,10 @@ export default function Dashboard(){
                               <td>{p.gender || '—'}</td>
                               <td>{p.phone || '—'}</td>
                               <td>{CATEGORIES.find(c => c.value === p.category)?.label.replace(' Folder','') || 'Other'}</td>
-                              <td>{formatDateTime(p.created_at)}</td>
+                              <td>{formatDateTime(p.created_at, hospitalTz)}</td>
                               <td>
                                 <button className="dash-more" onClick={() => { setTab('patients'); setProfilePatientId(p.id) }}>
-                                  <Icon name="more" size={15}/>
+                                  <AppIcon name="more" size={15}/>
                                 </button>
                               </td>
                             </tr>
@@ -1235,10 +1280,10 @@ export default function Dashboard(){
                     </div>
                   ) : (
                     <div className="dash-empty-state dash-empty-state-rich">
-                      <Icon name="users" size={22}/>
+                      <AppIcon name="users" size={22}/>
                       <p>No patients registered yet</p>
                       <button className="btn btn-ghost dash-empty-cta" onClick={() => setTab('patients')}>
-                        <Icon name="plus" size={14}/> Register a patient
+                        <AppIcon name="plus" size={14}/> Register a patient
                       </button>
                     </div>
                   )}
@@ -1288,22 +1333,14 @@ export default function Dashboard(){
                     </div>
                     <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', flexWrap: 'wrap' }}>
                       {patientsSeenToday.map(p => (
-                        <div 
-                          key={p.id} 
-                          onClick={() => setProfilePatientId(p.id)} 
-                          style={{ 
-                            padding: '8px 14px', 
-                            background: 'var(--bg-elevated)', 
-                            border: '1px solid var(--teal)', 
-                            borderRadius: 20, 
-                            cursor: 'pointer', 
-                            fontSize: 13, 
-                            fontWeight: 700, 
-                            color: 'var(--teal)' 
-                          }}
+                        <button
+                          type="button"
+                          key={p.id}
+                          className="dash-chip-btn"
+                          onClick={() => setProfilePatientId(p.id)}
                         >
                           {p.full_name}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -1334,7 +1371,7 @@ export default function Dashboard(){
                               <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
                               <td>{p.age}</td>
                               <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                              <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at)}</td>
+                              <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at, hospitalTz)}</td>
                               <td><button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button></td>
                             </tr>
                           ))}
@@ -1536,5 +1573,6 @@ export default function Dashboard(){
       `}</style>
 
     </div>
+    </HospitalProvider>
   )
 }
