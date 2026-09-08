@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 
-const AuthContext = createContext(null)
+// Exported so the QA harness (qa.html) can mount a mocked provider —
+// production code always uses AuthProvider/useAuth; this changes nothing.
+export const AuthContext = createContext(null)
 
 function wait(ms){ return new Promise(resolve => setTimeout(resolve, ms)) }
 
