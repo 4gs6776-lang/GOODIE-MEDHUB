@@ -2,11 +2,14 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
+import AppIcon from '../../components/icons'
+import { formatTime, dayKeyInZone, getTimezone } from '../../lib/datetime'
 
 const HOUR = 60 * 60 * 1000
 
 export default function Notifications(){
   const { hospital } = useAuth()
+  const timezone = getTimezone(hospital)
   const [searchTerm, setSearchTerm] = useState('')
   const { records: appointments, loading: loadingAppts } = useOfflineTable('appointments', hospital?.id)
   const { records: inventory, loading: loadingInventory } = useOfflineTable('inventory_items', hospital?.id)
@@ -35,7 +38,7 @@ export default function Notifications(){
     .filter(a => {
       const start = new Date(a.appointment_time)
       const diff = start - now
-      return diff > 2 * HOUR && start.toDateString() === now.toDateString()
+      return diff > 2 * HOUR && dayKeyInZone(start, timezone) === dayKeyInZone(now, timezone)
     })
     .sort((a, b) => new Date(a.appointment_time) - new Date(b.appointment_time))
 
@@ -53,10 +56,6 @@ export default function Notifications(){
 
   const totalAlerts = soonAppointments.length + lowStockItems.length + unacknowledgedHandovers.length
 
-  function formatTime(iso){
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  }
-
   function minutesUntil(iso){
     const diff = Math.round((new Date(iso) - now) / 60000)
     if (diff < 0) return 'starting now'
@@ -67,10 +66,10 @@ export default function Notifications(){
 
   return (
     <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+            <AppIcon name="alert" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Active Alerts</div>
@@ -80,7 +79,7 @@ export default function Notifications(){
         </div>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+            <AppIcon name="clock" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Upcoming Today</div>
@@ -90,7 +89,7 @@ export default function Notifications(){
         </div>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <AppIcon name="inventory" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Low Stock Items</div>
@@ -100,7 +99,7 @@ export default function Notifications(){
         </div>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg>
+            <AppIcon name="clipboard" size={20} />
           </div>
           <div>
             <div className="dash-stat-label">Pending Results</div>
@@ -110,8 +109,13 @@ export default function Notifications(){
         </div>
       </div>
 
+      {/* The search filters ALL reminder lists, so it spans the full grid
+          width above the panels — previously it sat IN a grid cell, which
+          squeezed the appointments panel and floated the box oddly. */}
       <div className="dash-row dash-row-2">
-          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search reminders, patients or alerts" style={{ minWidth: 260, maxWidth: 420 }} />
+        <div style={{ gridColumn: '1 / -1', marginBottom: 2 }}>
+          <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search reminders, patients or alerts" style={{ maxWidth: 480 }} />
+        </div>
         <div className="dash-panel">
           <div className="dash-panel-head">
             <div>
@@ -133,7 +137,7 @@ export default function Notifications(){
                 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.patient_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time, timezone)}</div>
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)' }}>{minutesUntil(a.appointment_time)}</span>
                 </div>
@@ -145,7 +149,7 @@ export default function Notifications(){
                 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.patient_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time, timezone)}</div>
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{minutesUntil(a.appointment_time)}</span>
                 </div>

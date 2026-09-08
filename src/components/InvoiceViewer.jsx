@@ -1,16 +1,13 @@
 import { useState } from 'react'
 import { useOfflineTable } from '../lib/useOfflineTable'
+import AppIcon from './icons'
+import { writeAudit } from '../lib/audit'
+import { formatDateTime, formatDateTimeSec, getTimezone } from '../lib/datetime'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
-function CloseIcon({ size = 18 }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-}
-function PrintIcon({ size = 15 }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1" /><path d="M6 17v4h12v-4" /></svg>
-}
-
 export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
+  const timezone = getTimezone(hospital)
   const { updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
   const { records: allItems } = useOfflineTable('invoice_items', hospital?.id)
   const { records: allPayments, addRecord: addPayment } = useOfflineTable('payments', hospital?.id)
@@ -19,6 +16,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   const [payAmount, setPayAmount] = useState('')
   const [payMethod, setPayMethod] = useState('Cash')
   const [saving, setSaving] = useState(false)
+  const [payError, setPayError] = useState('')
 
   const invItems = allItems.filter(i => i.invoice_id === invoice.id)
   const invPayments = allPayments.filter(p => p.invoice_id === invoice.id)
@@ -32,8 +30,10 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   async function handleSavePayment(e) {
     e.preventDefault()
     const amt = Number(payAmount)
-    if (isNaN(amt) || amt <= 0) return alert('Enter valid amount')
+    if (isNaN(amt) || amt <= 0) { setPayError('Enter a valid amount.'); return }
+    if (amt > balance + 0.001) { setPayError(`Amount exceeds the outstanding balance (${balance.toFixed(2)}).`); return }
     setSaving(true)
+    setPayError('')
     try {
       await addPayment({
         hospital_id: hospital.id, invoice_id: invoice.id, patient_id: invoice.patient_id,
@@ -46,9 +46,15 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
         amount_paid: newPaid, balance: newBal,
         payment_method: payMethod, status: newBal <= 0 ? 'paid' : 'partial'
       })
+      writeAudit({
+        hospitalId: hospital.id, actor: profile, action: 'invoice.payment_recorded',
+        entityType: 'invoice', entityId: invoice.id, patientId: invoice.patient_id || null,
+        summary: `Payment of ₦${amt.toFixed(2)} (${payMethod}) recorded for ${invoice.patient_name || 'invoice'} ${invoice.invoice_number || ''}`.trim(),
+        metadata: { amount: amt, method: payMethod, invoice_total: grandTotal, balance_after: newBal },
+      })
       setPayAmount(''); setShowPay(false)
       onClose() // Close to refresh table
-    } catch (err) { alert(err.message) } finally { setSaving(false) }
+    } catch (err) { setPayError(err.message || 'Could not save the payment.') } finally { setSaving(false) }
   }
 
   function handlePrint() {
@@ -74,8 +80,8 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
       </style></head><body>
         <div class="header">
           <div class="h-name">${hospital?.name || 'Hospital'}</div>
-          <div class="h-meta">123 Health Avenue, City, State</div>
-          <div class="h-meta">Tel: +234 800 000 0000</div>
+          ${hospital?.address ? `<div class="h-meta">${hospital.address}</div>` : ''}
+          ${hospital?.phone ? `<div class="h-meta">Tel: ${hospital.phone}</div>` : ''}
         </div>
         <div class="grid">
           <div class="box">
@@ -86,7 +92,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
           <div class="box">
             <h3>Payment Details</h3>
             <div><strong>Receipt #:</strong> ${invoice.invoice_number || invoice.id.slice(0,8)}</div>
-            <div><strong>Date:</strong> ${new Date(invoice.created_at).toLocaleString()}</div>
+            <div><strong>Date:</strong> ${formatDateTime(invoice.created_at, timezone)}</div>
             <div><strong>Method:</strong> ${invoice.payment_method || 'N/A'}</div>
           </div>
         </div>
@@ -117,7 +123,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
             <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Invoice Details</div>
             <div style={{ fontSize: 12.5, color: 'var(--blue)', fontWeight: 700, marginTop: 2 }}>{invoice.invoice_number || invoice.id.slice(0, 8)}</div>
           </div>
-          <button className="dash-icon-btn" onClick={onClose}><CloseIcon /></button>
+          <button className="dash-icon-btn" onClick={onClose} aria-label="Close invoice"><AppIcon name="close" size={18} /></button>
         </div>
 
         <div className="dash-modal-body">
@@ -156,7 +162,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
               <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Payment History</div>
               {invPayments.map(p => (
                 <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', padding: '6px 0', borderBottom: '1px solid var(--line-soft)' }}>
-                  <span>{new Date(p.created_at).toLocaleString()} · {p.method}</span>
+                  <span>{formatDateTimeSec(p.created_at, timezone)} · {p.method}</span>
                   <span style={{ color: 'var(--ivory)', fontWeight: 700 }}>{formatMoney(p.amount)}</span>
                 </div>
               ))}
@@ -166,9 +172,9 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
 
         <div className="dash-modal-actions">
           <button className="btn btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }} onClick={handlePrint}>
-            <PrintIcon /> Print Receipt
+            <AppIcon name="print" size={15} /> Print Receipt
           </button>
-          {balance > 0 && <button className="btn btn-primary" onClick={() => setShowPay(true)}>Record Payment</button>}
+          {balance > 0 && <button className="btn btn-primary" onClick={() => { setPayError(''); setShowPay(true) }}>Record Payment</button>}
         </div>
       </div>
 
@@ -178,6 +184,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
             <div className="dash-modal-title">Record Payment</div>
             <div className="dash-modal-body">
               <form id="record-payment-form" onSubmit={handleSavePayment}>
+                {payError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{payError}</div>}
                 <div className="field">
                   <label>Amount (₦)</label>
                   <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder={`Max: ${balance.toFixed(2)}`} autoFocus required />

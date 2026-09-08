@@ -148,3 +148,115 @@
   .dash-modal .grid{ grid-template-columns: 1fr !important; gap: 12px !important; }
   .dash-modal-actions{ flex-wrap: wrap; }
 }
+
+/* ---------------------------------------------------------------------
+   Batch-3 additions — global autocomplete rule + lab results workflow.
+   --------------------------------------------------------------------- */
+
+/* Autocomplete (components/common/Autocomplete.jsx) — the one combobox
+   every module uses for database-backed / controlled-value fields.
+   The input deliberately mirrors .field input so it looks native inside
+   form fields, but carries its own class so it works outside .field too. */
+.gmed-ac{ position: relative; }
+.gmed-ac-input{
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.gmed-ac-input:focus{ border-color: var(--teal); }
+.gmed-ac-input:disabled{ opacity: .55; cursor: not-allowed; }
+.gmed-ac-clear{
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; border-radius: 7px;
+}
+.gmed-ac-clear:hover{ color: var(--ivory); background: rgba(255,255,255,.06); }
+
+.gmed-ac-list{
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-height: 248px; overflow-y: auto; overscroll-behavior: contain;
+  box-shadow: 0 10px 28px rgba(0,0,0,.4);
+}
+.gmed-ac-opt{
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 44px;                       /* touch target, global rule */
+  padding: 7px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line-soft);
+}
+.gmed-ac-opt:last-child{ border-bottom: none; }
+.gmed-ac-opt.is-active{ background: var(--bg-card-hover, rgba(255,255,255,.04)); }
+.gmed-ac-opt-main{ min-width: 0; }
+.gmed-ac-opt-label{ display: block; font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gmed-ac-opt-sub{ display: block; font-size: 11px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gmed-ac-opt-right{ flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--muted); }
+.gmed-ac-opt-right.is-good{ color: var(--teal); }
+.gmed-ac-opt-right.is-bad{ color: var(--danger); }
+.gmed-ac-opt-right.is-warn{ color: var(--gold); }
+.gmed-ac-opt-free{ color: var(--gold); font-size: 12.5px; font-weight: 600; gap: 7px; justify-content: flex-start; }
+.gmed-ac-state{
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px; font-size: 12.5px; color: var(--muted);
+}
+.gmed-ac-state-error{ color: var(--danger); }
+.gmed-ac-retry{
+  margin-left: auto;
+  background: none; border: 1px solid var(--danger); color: var(--danger);
+  border-radius: 7px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+}
+
+/* Messages: consistent channel/DM rows (keyboard focusable via B3 a11y). */
+.dash-channel-row{
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 11px 10px; border-radius: 9px; cursor: pointer;
+  width: 100%; background: none; border: none; color: inherit; text-align: left;
+  font: inherit;
+}
+.dash-channel-row:hover{ background: var(--bg-card-hover, rgba(255,255,255,.04)); }
+.dash-channel-row:focus-visible{ outline: 2px solid var(--teal); outline-offset: -2px; }
+
+/* Lab results pipeline — shared stage vocabulary across Laboratory,
+   DoctorWorkbench and LabResultViewer. */
+.lab-stage{
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 800; letter-spacing: .4px;
+  padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+  text-transform: uppercase;
+}
+.lab-stage.is-ordered{ background: rgba(201,169,97,.14); color: var(--gold); }
+.lab-stage.is-collected{ background: rgba(59,130,246,.14); color: var(--blue); }
+.lab-stage.is-processing{ background: rgba(139,124,246,.14); color: var(--violet); }
+.lab-stage.is-completed{ background: var(--teal-soft); color: var(--teal); }
+.lab-stage.is-cancelled{ background: var(--danger-soft); color: var(--danger); }
+
+.lab-flag{
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 800; letter-spacing: .5px;
+  padding: 3px 10px; border-radius: 7px; text-transform: uppercase;
+}
+.lab-flag.is-normal{ background: var(--teal-soft); color: var(--teal); }
+.lab-flag.is-high{ background: rgba(201,169,97,.16); color: var(--gold); }
+.lab-flag.is-low{ background: rgba(59,130,246,.14); color: var(--blue); }
+.lab-flag.is-critical{ background: var(--danger-soft); color: var(--danger); }
+
+/* LabResultViewer — result value + timestamp grid that survives phones. */
+.lab-viewer-grid{
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.lab-viewer-value{
+  font-family: var(--font-mono); font-size: 16px; font-weight: 700;
+  word-break: break-word;
+}
+@media (max-width:600px){
+  .lab-viewer-grid{ grid-template-columns: 1fr 1fr; }
+}

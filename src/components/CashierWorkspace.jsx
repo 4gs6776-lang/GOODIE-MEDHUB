@@ -1,17 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useOfflineTable } from '../lib/useOfflineTable'
+import InvoiceViewer from './InvoiceViewer'
+import AppIcon from './icons'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
-
-function CheckIcon({ size = 12 }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-}
-function CloseIcon({ size = 18 }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-}
-function PlusIcon({ size = 14 }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-}
 
 export default function CashierWorkspace({ patientId, patientName, hospital, profile, onClose }) {
   const { records: charges, addRecord: addCharge, updateRecord: updateCharge } = useOfflineTable('billable_charges', hospital?.id)
@@ -26,6 +18,9 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
   const [paymentMethod, setPaymentMethod] = useState('Cash')
   const [amountPaid, setAmountPaid] = useState('')
   const [saving, setSaving] = useState(false)
+  // The receipt of the invoice just generated — shown through the shared
+  // InvoiceViewer (Batch 3 wiring: this component was previously dead code).
+  const [receiptInvoice, setReceiptInvoice] = useState(null)
 
   // The patient list here only has {id, name}, so look up the full
   // record ourselves to get their HMO details for the split calc.
@@ -125,10 +120,9 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
         await updatePatient(patientId, { queue_status: 'discharged', queue_updated_at: new Date().toISOString() })
       }
 
-      alert(hasHmo
-        ? `Invoice generated! Patient pays ${formatMoney(amountOwedByPatient)} — ${hmoProvider} billed ${formatMoney(hmoAmount)} (claim auto-filed).`
-        : 'Invoice generated successfully! The patient has been billed.')
-      onClose()
+      // Show the receipt (InvoiceViewer) instead of a browser alert —
+      // the cashier can print it or record another payment immediately.
+      setReceiptInvoice(newInv)
 
     } catch (err) {
       alert(err.message || 'Failed to generate invoice')
@@ -146,14 +140,14 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
             <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Billing Workspace</div>
             <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 700, marginTop: 2 }}>{patientName}</div>
           </div>
-          <button className="dash-icon-btn" onClick={onClose}><CloseIcon /></button>
+          <button className="dash-icon-btn" onClick={onClose} aria-label="Close billing workspace"><AppIcon name="close" size={18} /></button>
         </div>
 
         <div className="dash-modal-body">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Automatic Charges</div>
             <button className="btn btn-ghost" style={{ width: 'auto', fontSize: 11.5, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={addCustomCharge}>
-              <PlusIcon /> Add Custom Charge
+              <AppIcon name="plus" size={14} /> Add Custom Charge
             </button>
           </div>
 
@@ -165,7 +159,7 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
                 const isSelected = selectedIds.includes(c.id)
                 return (
                   <div key={c.id} className={`billing-charge-row ${isSelected ? 'selected' : ''}`} onClick={() => toggleCharge(c.id)} style={{ cursor: 'pointer' }}>
-                    <div className="billing-charge-check">{isSelected && <CheckIcon />}</div>
+                    <div className="billing-charge-check">{isSelected && <AppIcon name="check" size={12} strokeWidth={3} />}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{c.item_name} (x{c.quantity})</div>
                       <div style={{ marginTop: 4 }}>
@@ -253,6 +247,15 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           </button>
         </div>
       </div>
+
+      {receiptInvoice && (
+        <InvoiceViewer
+          invoice={receiptInvoice}
+          hospital={hospital}
+          profile={profile}
+          onClose={() => { setReceiptInvoice(null); onClose() }}
+        />
+      )}
     </div>
   )
 }

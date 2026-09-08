@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import AppIcon from '../../components/icons'
+import SearchInput from '../../components/common/SearchInput'
+import { formatTime, formatDate, dayKeyInZone, getTimezone } from '../../lib/datetime'
 
 // Fixed department channels every staff member can see and post in.
 const DEPARTMENT_CHANNELS = [
@@ -20,24 +23,27 @@ function dmKey(idA, idB) {
   return [idA, idB].sort().join('__')
 }
 
-function formatMessageTime(value) {
+// Chat bubble stamp: time for today's messages, date · time otherwise.
+// "Today" is decided in the hospital's timezone, not the device's.
+function formatMessageTime(value, timezone) {
   if (!value) return ''
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return ''
-  const today = new Date()
-  const isToday = d.toDateString() === today.toDateString()
-  const time = d.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
+  const isToday = dayKeyInZone(d, timezone) === dayKeyInZone(new Date(), timezone)
+  const time = formatTime(d, timezone)
   if (isToday) return time
-  return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short' }) + ' · ' + time
+  return formatDate(d, timezone) + ' · ' + time
 }
 
 export default function Messages() {
   const { profile, hospital } = useAuth()
+  const timezone = getTimezone(hospital)
   const { records: messages, addRecord, syncFromServer, isOnline } = useOfflineTable('messages', hospital?.id)
 
   const [staff, setStaff] = useState([])
   const [loadingStaff, setLoadingStaff] = useState(true)
   const [activeChannel, setActiveChannel] = useState(null) // { type: 'department'|'dm', key, label }
+  const [staffFilter, setStaffFilter] = useState('')
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const threadEndRef = useRef(null)
@@ -99,6 +105,14 @@ export default function Messages() {
     ).length
   }
 
+  // Staff DM directory filter (global staff-search rule) — match on
+  // name or role so long staff lists stay navigable.
+  const visibleStaff = useMemo(() => {
+    const q = staffFilter.trim().toLowerCase()
+    if (!q) return staff
+    return staff.filter(s => `${s.full_name || ''} ${s.role || ''}`.toLowerCase().includes(q))
+  }, [staff, staffFilter])
+
   async function handleSend(e) {
     e.preventDefault()
     const body = draft.trim()
@@ -139,41 +153,49 @@ export default function Messages() {
             {DEPARTMENT_CHANNELS.map(ch => {
               const count = recentCount('department', ch.key)
               return (
-                <div
+                <button
                   key={ch.key}
+                  type="button"
+                  className="dash-channel-row"
                   onClick={() => setActiveChannel({ type: 'department', key: ch.key, label: ch.label })}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 10px', borderRadius: 9, cursor: 'pointer' }}
-                  onMouseDown={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
                 >
                   <span style={{ fontSize: 13, fontWeight: 600 }}># {ch.label}</span>
                   {count > 0 && <span className="dash-status stable">{count}</span>}
-                </div>
+                </button>
               )
             })}
 
             <div style={{ fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--muted-dim)', fontWeight: 700, padding: '18px 10px 6px' }}>Direct Messages</div>
+            {staff.length > 6 && (
+              <div style={{ padding: '0 10px 8px' }}>
+                <SearchInput value={staffFilter} onChange={setStaffFilter} placeholder="Search staff by name or role…" ariaLabel="Search staff" />
+              </div>
+            )}
             {loadingStaff ? (
               <div className="dash-empty-state">Loading staff…</div>
             ) : staff.length === 0 ? (
               <div className="dash-empty-state">No other staff found for this hospital yet.</div>
-            ) : staff.map(s => {
+            ) : visibleStaff.length === 0 ? (
+              <div className="dash-empty-state">No staff match “{staffFilter}”.</div>
+            ) : visibleStaff.map(s => {
               const key = dmKey(profile?.id, s.id)
               const count = recentCount('dm', key)
               return (
-                <div
+                <button
                   key={s.id}
+                  type="button"
+                  className="dash-channel-row"
                   onClick={() => setActiveChannel({ type: 'dm', key, label: s.full_name || 'Staff', otherId: s.id })}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 10px', borderRadius: 9, cursor: 'pointer' }}
                 >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600 }}>
-                    <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(145deg,#436579,#172a37)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: '#fff', flexShrink: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, minWidth: 0 }}>
+                    <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(145deg,#436579,#172a37)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: '#fff', flexShrink: 0 }}>
                       {(s.full_name || '?').charAt(0).toUpperCase()}
                     </span>
-                    {s.full_name || 'Staff member'}
-                    <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>{s.role || ''}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.full_name || 'Staff member'}</span>
+                    <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500, flexShrink: 0 }}>{s.role || ''}</span>
                   </span>
                   {count > 0 && <span className="dash-status stable">{count}</span>}
-                </div>
+                </button>
               )
             })}
           </div>
@@ -181,14 +203,16 @@ export default function Messages() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 220px)', minHeight: 420 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-            <button className="btn btn-ghost" style={{ width: 'auto', padding: '7px 12px' }} onClick={() => setActiveChannel(null)}>‹ Back</button>
+            <button className="btn btn-ghost" style={{ width: 'auto', padding: '7px 12px', display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setActiveChannel(null)}>
+              <AppIcon name="chevronLeft" size={14} /> Back
+            </button>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{activeChannel.type === 'department' ? `# ${activeChannel.label}` : activeChannel.label}</div>
             {!isOnline && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--muted)' }}>Offline — will send when back online</span>}
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
             {threadMessages.length === 0 ? (
-              <div className="dash-empty-state">No messages yet — say hello 👋</div>
+              <div className="dash-empty-state">No messages yet — send the first one to start the conversation.</div>
             ) : threadMessages.map(m => {
               const mine = m.sender_id === profile?.id
               return (
@@ -209,7 +233,7 @@ export default function Messages() {
                   }}>
                     {m.body}
                   </div>
-                  <span style={{ fontSize: 9.5, color: 'var(--muted-dim)', marginTop: 3, marginLeft: mine ? 0 : 4, marginRight: mine ? 4 : 0 }}>{formatMessageTime(m.created_at)}</span>
+                  <span style={{ fontSize: 9.5, color: 'var(--muted-dim)', marginTop: 3, marginLeft: mine ? 0 : 4, marginRight: mine ? 4 : 0 }}>{formatMessageTime(m.created_at, timezone)}</span>
                 </div>
               )
             })}

@@ -6,9 +6,18 @@ import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
-import { getTimezone, formatDateTime, formatDateTimeSec, formatDate } from '../../lib/datetime'
+import PatientAutocomplete from '../../components/common/PatientAutocomplete'
+import Autocomplete from '../../components/common/Autocomplete'
+import LabResultViewer from '../../components/LabResultViewer'
+import { writeAudit } from '../../lib/audit'
+import { getTimezone, formatDateTimeSec, formatDate } from '../../lib/datetime'
+import {
+  labStage, stageStatus, normalizeLabRow, LAB_STAGE_LABEL, ABNORMAL_FLAGS,
+} from '../../lib/lab'
 
-// NEW: List of common lab tests for the dropdown
+// Common lab tests power the test-name autocomplete (global rule: no
+// free-typing a value the system already knows). Anything unmatched can
+// still be added as a custom test via the autocomplete's free-text row.
 const COMMON_LAB_TESTS = [
   'Full Blood Count (FBC)',
   'Malaria Parasite Test',
@@ -40,14 +49,16 @@ const COMMON_LAB_TESTS = [
   'ECG',
 ]
 
+const TEST_OPTIONS = COMMON_LAB_TESTS.map(t => ({ id: t, label: t }))
+
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
   const timezone = getTimezone(hospital)
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
   const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder, syncFromServer: syncOrders } = useOfflineTable('lab_orders', hospital?.id)
-  const { records: patients } = useOfflineTable('patients', hospital?.id) 
+  const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
-  
+
   const loading = loadingTests || loadingOrders
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
@@ -55,22 +66,18 @@ export default function Laboratory(){
 
   function showToast(msg){
     setToast(msg)
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 3600)
   }
 
   // Live alert — the instant a doctor sends a lab order anywhere in
   // the hospital, it shows up here without needing a page refresh.
   useRealtimeAlert('lab_orders', hospital?.id, (newRow) => {
-    // No emoji — the unified icon system covers feedback visuals (req. #12).
     showToast(`New lab order: ${newRow.test_name || 'test'} for ${newRow.patient_name || 'a patient'}`)
     syncOrders()
   })
 
-
-  const [selectedPatient, setSelectedPatient] = useState(null) 
-  const [patientSearch, setPatientSearch] = useState('') 
-  const [testName, setTestName] = useState('')
-  const [customTestName, setCustomTestName] = useState('') // NEW: For custom input
+  const [selectedPatient, setSelectedPatient] = useState(null)
+  const [selectedTest, setSelectedTest] = useState(null) // { id, label, freeText? }
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -80,15 +87,41 @@ export default function Laboratory(){
   const [formTests, setFormTests] = useState([])
   const [formResults, setFormResults] = useState({})
 
-  const filteredPatients = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
+  // Lab Result Viewer state (shared viewer, also used by the doctor)
+  const [viewRow, setViewRow] = useState(null)
+  const [viewHistory, setViewHistory] = useState([])
+
+  // Writes a lab row. Migration-008 columns (units, ranges, flags,
+  // timestamps) are handled by useOfflineTable's built-in schema-gap
+  // tolerance: if the live database does not have a column yet, the
+  // write retries without it automatically and everything else still
+  // saves. Errors surface as toasts and never block the other rows.
+  async function updateLabRow(test, payload){
+    if (test.origin === 'doctor') {
+      await updateOrder(test.id, payload)
+    } else {
+      await updateRecord(test.id, payload)
+    }
+  }
+
+  function auditLab(action, test, summary, metadata = {}){
+    writeAudit({
+      hospitalId: hospital?.id,
+      actor: profile,
+      action,
+      entityType: 'lab_request',
+      entityId: test.id,
+      patientId: test.patient_id || null,
+      summary,
+      metadata: { test_name: test.test_name, origin: test.origin, ...metadata },
+    })
+  }
 
   async function handleAdd(e){
     e.preventDefault()
     setFormError('')
-    
-    // Determine final test name (from dropdown or custom input)
-    const finalTestName = testName === 'Other' ? customTestName : testName
-    
+
+    const finalTestName = selectedTest?.label?.trim()
     if (!selectedPatient || !finalTestName) {
       setFormError('Please select a patient and enter a test name.')
       return
@@ -100,7 +133,7 @@ export default function Laboratory(){
     setSaving(true)
     try {
       await addRecord({
-        patient_id: selectedPatient.id, 
+        patient_id: selectedPatient.id,
         patient_name: selectedPatient.full_name,
         test_name: finalTestName,
         status: 'pending',
@@ -108,8 +141,10 @@ export default function Laboratory(){
         requested_at: new Date().toISOString(),
         created_by: profile.id,
       })
+      auditLab('lab_request.created', { id: null, patient_id: selectedPatient.id, test_name: finalTestName, origin: 'lab' },
+        `Lab request raised for ${selectedPatient.full_name} — ${finalTestName}`)
       setShowModal(false)
-      setSelectedPatient(null); setPatientSearch(''); setTestName(''); setCustomTestName('')
+      setSelectedPatient(null); setSelectedTest(null)
       showToast(isOnline ? 'Test requested' : 'Test requested — will sync when back online')
     } catch (err) {
       setFormError(err.message || 'Could not save test request')
@@ -118,19 +153,77 @@ export default function Laboratory(){
     }
   }
 
+  // Pipeline advance: collect the sample / start processing.
+  async function handleAdvance(test, toStage){
+    const payload = { status: stageStatus(toStage, test.origin), updated_at: new Date().toISOString() }
+    if (toStage === 'sample_collected') { payload.collected_at = new Date().toISOString(); payload.collected_by = profile?.full_name || null }
+    try {
+      await updateLabRow(test, payload)
+      auditLab(`lab.${toStage}`, test, `${test.test_name} for ${test.patient_name}: ${LAB_STAGE_LABEL[toStage]}`)
+      showToast(`${test.test_name} — ${LAB_STAGE_LABEL[toStage]}`)
+    } catch (err) {
+      showToast(err.message || 'Could not update the request')
+    }
+  }
+
+  async function handleCancel(test){
+    if (!confirm(`Cancel this request for ${test.test_name} (${test.patient_name})? The record is kept for the audit trail.`)) return
+    try {
+      await updateLabRow(test, {
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancel_reason: `Cancelled by ${profile?.full_name || 'staff'}`,
+        updated_at: new Date().toISOString(),
+      })
+      auditLab('lab.cancelled', test, `${test.test_name} for ${test.patient_name}: request cancelled`)
+      showToast('Request cancelled')
+    } catch (err) {
+      showToast(err.message || 'Could not cancel the request')
+    }
+  }
+
+  async function handleReopen(test){
+    try {
+      await updateLabRow(test, { status: stageStatus('ordered', test.origin), resulted_at: null, verified_by: null, updated_at: new Date().toISOString() })
+      auditLab('lab.reopened', test, `${test.test_name} for ${test.patient_name}: reopened as Ordered`)
+      showToast(isOnline ? 'Marked pending' : 'Marked pending — will sync when back online')
+    } catch (err) {
+      showToast(err.message || 'Could not reopen the request')
+    }
+  }
+
   function openResultForm(test) {
     const patientDetails = patients.find(p => p.id === test.patient_id) || { full_name: test.patient_name, phone: 'N/A', id: test.patient_id }
     setFormPatient(patientDetails)
-    
+
     const pending = combined.filter(t => t.patient_id === test.patient_id && t.isPending)
     setFormTests(pending)
-    
+
     const initialResults = {}
     pending.forEach(t => {
-      initialResults[t.id] = { result: t.result || '', price: '0', result_file: null, file_name: t.file_name || '' }
+      initialResults[t.id] = {
+        result: t.result || '', price: '0', result_file: null, file_name: t.file_name || '',
+        result_unit: t.result_unit || '', reference_range: t.reference_range || '',
+        abnormal_flag: t.abnormal_flag || 'normal', result_notes: t.result_notes || '',
+      }
     })
     setFormResults(initialResults)
     setShowResultForm(true)
+  }
+
+  // Opens the shared Lab Result Viewer with comparison history for the
+  // same patient + test (previous results where available).
+  function openViewer(test){
+    const norm = normalizeLabRow(test.raw || test, test.origin)
+    const patient = patients.find(p => p.id === norm.patientId) || null
+    const history = combined
+      .filter(t => t.id !== norm.id && t.patient_id === norm.patientId &&
+        String(t.test_name || '').toLowerCase() === String(norm.testName || '').toLowerCase() &&
+        labStage(t.status) === 'completed')
+      .map(t => normalizeLabRow(t.raw || t, t.origin))
+      .sort((a, b) => new Date(b.resultedAt || 0) - new Date(a.resultedAt || 0))
+    setViewHistory(history)
+    setViewRow({ ...norm, patient })
   }
 
   function handleFileUpload(e, testId) {
@@ -154,17 +247,20 @@ export default function Laboratory(){
       if (!resData || resData.result.trim() === '') { failed.push(t); continue }
       try {
         const price = parseFloat(resData.price) || 0
+        const nowIso = new Date().toISOString()
         const payload = {
           status: 'completed',
           result: resData.result,
           result_file: resData.result_file || null,
-          updated_at: new Date().toISOString()
+          resulted_at: nowIso,
+          verified_by: profile?.full_name || null,
+          result_unit: resData.result_unit || null,
+          reference_range: resData.reference_range || null,
+          abnormal_flag: ABNORMAL_FLAGS.includes(resData.abnormal_flag) ? resData.abnormal_flag : null,
+          result_notes: resData.result_notes || null,
+          updated_at: nowIso,
         }
-        if (t.origin === 'doctor') {
-          await updateOrder(t.id, payload)
-        } else {
-          await updateRecord(t.id, payload)
-        }
+        await updateLabRow(t, payload)
         await addBillableCharge({
           hospital_id: hospital.id,
           patient_id: t.patient_id || null,
@@ -179,6 +275,9 @@ export default function Laboratory(){
           status: 'pending',
           created_by: profile?.id
         })
+        auditLab('lab_result.recorded', t,
+          `Result recorded for ${t.test_name} — ${t.patient_name}${resData.abnormal_flag && resData.abnormal_flag !== 'normal' ? ` (${resData.abnormal_flag})` : ''}`,
+          { abnormal_flag: resData.abnormal_flag || null, unit: resData.result_unit || null })
       } catch (err) {
         console.error(`Failed to save result for ${t.test_name}:`, err)
         failed.push(t)
@@ -192,7 +291,7 @@ export default function Laboratory(){
       showToast(`Saved successfully. ${failed.length} result(s) still need attention.`)
     }
     setSaving(false)
-}
+  }
   function handlePrintForm() {
     let testRows = ''
     formTests.forEach((t, i) => {
@@ -246,15 +345,6 @@ export default function Laboratory(){
     setTimeout(() => win.print(), 500)
   }
 
-  async function handleReopen(test){
-    if (test.origin === 'doctor') {
-      await updateOrder(test.id, { status: 'requested' })
-    } else {
-      await updateRecord(test.id, { status: 'pending' })
-    }
-    showToast(isOnline ? 'Marked pending' : 'Marked pending — will sync when back online')
-  }
-
   async function handleDelete(test){
     if (!confirm(`Delete this test request for ${test.patient_name}?`)) return
     if (test.origin === 'doctor') {
@@ -262,12 +352,13 @@ export default function Laboratory(){
     } else {
       await deleteRecord(test.id)
     }
+    auditLab('lab_request.deleted', test, `Lab request deleted — ${test.test_name} for ${test.patient_name}`)
     showToast('Test deleted')
   }
 
   const combined = [
-    ...tests.map(t => ({ ...t, origin: 'lab', isPending: t.status === 'pending' })),
-    ...orders.map(o => ({ ...o, origin: 'doctor', isPending: o.status !== 'completed' })),
+    ...tests.map(t => ({ ...t, origin: 'lab', isPending: labStage(t.status) !== 'completed' && labStage(t.status) !== 'cancelled' })),
+    ...orders.map(o => ({ ...o, origin: 'doctor', isPending: labStage(o.status) !== 'completed' && labStage(o.status) !== 'cancelled' })),
   ]
 
   const priorityWeight = { stat: 0, urgent: 1, routine: 2 }
@@ -281,7 +372,17 @@ export default function Laboratory(){
   const labSearch = searchTerm.trim().toLowerCase()
   const visibleSorted = labSearch ? sorted.filter(t => [t.patient_name, t.patient_id, t.test_name, t.request_number, t.status, t.result].some(v => String(v || '').toLowerCase().includes(labSearch))) : sorted
   const pendingCountStat = combined.filter(t => t.isPending).length
-  const completedCount = combined.filter(t => !t.isPending).length
+  const completedCount = combined.filter(t => labStage(t.status) === 'completed').length
+
+  // Stage-aware primary action per row (pipeline, global lab rule).
+  function stageAction(test){
+    const stage = labStage(test.status)
+    if (stage === 'ordered') return { label: 'Collect Sample', run: () => handleAdvance(test, 'sample_collected'), aria: `Mark sample collected for ${test.test_name} for ${test.patient_name}` }
+    if (stage === 'sample_collected') return { label: 'Start Processing', run: () => handleAdvance(test, 'processing'), aria: `Start processing ${test.test_name} for ${test.patient_name}` }
+    if (stage === 'processing') return { label: 'Enter Results', run: () => openResultForm(test), aria: `Enter results for ${test.test_name} for ${test.patient_name}` }
+    if (stage === 'completed') return { label: 'View Result', run: () => openViewer(test), aria: `View result for ${test.test_name} for ${test.patient_name}` }
+    return null
+  }
 
   return (
     <>
@@ -312,9 +413,9 @@ export default function Laboratory(){
         <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div className="dash-panel-title">Lab Requests</div>
-            <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <ConnectionState isOnline={isOnline} pendingCount={pendingCount} />
-              <span>Auto-sends charges to Billing</span>
+              <span>Ordered → Collected → Processing → Completed · auto-bills</span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%', maxWidth: 600 }}>
@@ -331,16 +432,19 @@ export default function Laboratory(){
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No lab requests yet. Add your first one above.</div>
         ) : (
           <div className="dash-table-wrap">
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
               <thead>
                 <tr>
-                  {['Patient', 'Test', 'Status', 'Result', 'Date', ''].map(h => (
+                  {['Patient', 'Test', 'Status', 'Result', 'Requested', ''].map(h => (
                     <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {visibleSorted.map(test => (
+                {visibleSorted.map(test => {
+                  const stage = labStage(test.status)
+                  const action = stageAction(test)
+                  return (
                   <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
                     <td style={{ padding: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
                       {test.patient_name}
@@ -357,34 +461,61 @@ export default function Laboratory(){
                     </td>
                     <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{test.test_name}</td>
                     <td style={{ padding: 12 }}>
-                      {/* A real button: the old clickable <span> was a ~24px
-                          touch target invisible to screen readers (QA B2). */}
-                      <button
-                        type="button"
-                        className="appt-status-btn"
-                        onClick={() => test.isPending ? openResultForm(test) : handleReopen(test)}
-                        style={{
-                          background: !test.isPending ? 'var(--teal-soft)' : 'rgba(201,169,97,0.14)',
-                          color: !test.isPending ? 'var(--teal)' : 'var(--gold)',
-                          whiteSpace: 'nowrap'
-                        }}
-                        title={test.isPending ? "Open the Result Form" : "Tap to re-open as pending"}
-                        aria-label={test.isPending ? `Enter results for ${test.test_name} for ${test.patient_name}` : `Mark ${test.test_name} for ${test.patient_name} as pending`}
-                      >
-                        {!test.isPending ? 'Completed' : 'Enter Results'}
-                      </button>
+                      <span className={`lab-stage is-${stage}`}>{LAB_STAGE_LABEL[stage]}</span>
                     </td>
                     <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {test.result || '—'}
+                      {test.result
+                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {test.abnormal_flag && test.abnormal_flag !== 'normal' && <span className={`lab-flag is-${test.abnormal_flag}`}>{test.abnormal_flag}</span>}
+                            {test.result}
+                          </span>
+                        : '—'}
                     </td>
                     <td style={{ padding: 12, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      {formatDate(test.updated_at || test.requested_at, timezone)}
+                      {formatDate(test.requested_at, timezone)}
                     </td>
-                    <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                      <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete"><TrashIcon size={14}/></button>
+                    <td style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {action && (
+                          <button
+                            type="button"
+                            className="appt-status-btn"
+                            onClick={action.run}
+                            aria-label={action.aria}
+                            style={stage === 'completed' ? { background: 'var(--teal-soft)', color: 'var(--teal)', whiteSpace: 'nowrap' } : { whiteSpace: 'nowrap' }}
+                          >
+                            {action.label}
+                          </button>
+                        )}
+                        {test.isPending && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
+                            onClick={() => handleCancel(test)}
+                            aria-label={`Cancel ${test.test_name} request for ${test.patient_name}`}
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        {stage === 'completed' && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
+                            onClick={() => handleReopen(test)}
+                            aria-label={`Reopen ${test.test_name} for ${test.patient_name} as pending`}
+                            title="Re-open as pending (correct a result)"
+                          >
+                            Reopen
+                          </button>
+                        )}
+                        <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete" aria-label={`Delete ${test.test_name} request for ${test.patient_name}`}><TrashIcon size={14}/></button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -399,47 +530,33 @@ export default function Laboratory(){
             <form onSubmit={handleAdd}>
               <div className="dash-modal-body">
                 {formError && <div className="error-box">{formError}</div>}
-              <div className="field" style={{ position: 'relative' }}>
-                <label>Select Patient</label>
-                <input type="text" value={selectedPatient ? selectedPatient.full_name : patientSearch} onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }} placeholder="Search patient name..." autoFocus disabled={!!selectedPatient} />
-                {filteredPatients.length > 0 && !selectedPatient && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, marginTop: 4, zIndex: 10, maxHeight: 150, overflowY: 'auto' }}>
-                    {filteredPatients.map(p => (<div key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch('') }} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>{p.full_name}</div>))}
-                  </div>
-                )}
-                {selectedPatient && (
-                  <button type="button" onClick={() => setSelectedPatient(null)} className="field-clear-btn" aria-label="Clear selected patient">
-                    <AppIcon name="close" size={14} />
-                  </button>
-                )}
+              <div className="field">
+                <label id="lab-patient-label">Select Patient</label>
+                <PatientAutocomplete
+                  patients={patients}
+                  value={selectedPatient
+                    ? { id: selectedPatient.id, label: selectedPatient.full_name, patient: selectedPatient }
+                    : null}
+                  onChange={opt => setSelectedPatient(opt?.patient || null)}
+                  ariaLabel="Patient"
+                />
               </div>
 
-              {/* NEW: Standard Select Dropdown for Test Name */}
+              {/* Test name — searchable autocomplete over the standard
+                  test list; unmatched names can be added as custom. */}
               <div className="field">
                 <label>Test Name</label>
-                <select 
-                  value={testName} 
-                  onChange={e => setTestName(e.target.value)} 
-                  style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
-                >
-                  <option value="">Select a test...</option>
-                  {COMMON_LAB_TESTS.map(test => <option key={test} value={test}>{test}</option>)}
-                  <option value="Other">Other (Type manually)</option>
-                </select>
+                <Autocomplete
+                  options={TEST_OPTIONS}
+                  value={selectedTest}
+                  onChange={setSelectedTest}
+                  placeholder="Search tests, e.g. blood count…"
+                  allowFreeText
+                  freeTextLabel='Use "{query}" as custom test'
+                  emptyText="No standard test matches — use the free-text row below"
+                  ariaLabel="Test name"
+                />
               </div>
-
-                {testName === 'Other' && (
-                <div className="field">
-                  <label>Enter Custom Test Name</label>
-                  <input 
-                    type="text" 
-                    value={customTestName} 
-                    onChange={e => setCustomTestName(e.target.value)} 
-                    placeholder="e.g. Special Blood Smear" 
-                    style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
-                  />
-                </div>
-              )}
               </div>
               <div className="dash-modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
@@ -460,14 +577,14 @@ export default function Laboratory(){
                 {hospital?.name || 'Hospital'}
                 <span style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginTop: 2 }}>Laboratory Test Request &amp; Result Form</span>
               </span>
-              <button type="button" className="field-clear-btn" onClick={() => setShowResultForm(false)} aria-label="Close result form">
+              <button type="button" className="field-clear-btn" style={{ position: 'static' }} onClick={() => setShowResultForm(false)} aria-label="Close result form">
                 <AppIcon name="close" size={16} />
               </button>
             </div>
-            
+
             <div className="dash-modal-body">
               {/* Auto-filled Patient Info Header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, background: 'var(--bg-elevated)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid var(--line-soft)' }}>
+              <div className="lab-viewer-grid" style={{ gridTemplateColumns: '1fr 1fr', background: 'var(--bg-elevated)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid var(--line-soft)' }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Patient Name</div>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{formPatient.full_name}</div>
@@ -494,35 +611,71 @@ export default function Laboratory(){
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>{index + 1}. {t.test_name}</div>
                       {t.origin === 'doctor' && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>DOCTOR ORDER</span>}
                     </div>
-                    
+
                     <div className="field" style={{ marginBottom: 12 }}>
                       <label>Result</label>
-                      <textarea 
-                        rows={3} 
-                        value={formResults[t.id]?.result || ''} 
-                        onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], result: e.target.value } }))} 
-                        placeholder="Enter result..." 
-                        style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '10px', color: 'var(--text)', fontSize: 14 }}
+                      <textarea
+                        rows={3}
+                        value={formResults[t.id]?.result || ''}
+                        onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], result: e.target.value } }))}
+                        placeholder="Enter result..."
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="field">
+                        <label>Unit</label>
+                        <input
+                          value={formResults[t.id]?.result_unit || ''}
+                          onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], result_unit: e.target.value } }))}
+                          placeholder="e.g. g/dL"
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Reference Range</label>
+                        <input
+                          value={formResults[t.id]?.reference_range || ''}
+                          onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], reference_range: e.target.value } }))}
+                          placeholder="e.g. 11.0 – 16.5"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="field" style={{ marginBottom: 12 }}>
+                      <label>Flag</label>
+                      <select
+                        value={formResults[t.id]?.abnormal_flag || 'normal'}
+                        onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], abnormal_flag: e.target.value } }))}
+                      >
+                        {ABNORMAL_FLAGS.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="field" style={{ marginBottom: 12 }}>
+                      <label>Comments / Notes</label>
+                      <input
+                        value={formResults[t.id]?.result_notes || ''}
+                        onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], result_notes: e.target.value } }))}
+                        placeholder="Optional remark for the requesting doctor"
                       />
                     </div>
 
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                       <div className="field" style={{ flex: 1, minWidth: 120 }}>
                         <label>Price (₦)</label>
-                        <input 
-                          type="number" 
-                          value={formResults[t.id]?.price || '0'} 
-                          onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], price: e.target.value } }))} 
-                          placeholder="0" 
-                          style={{ width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 6, padding: '8px', color: 'var(--text)', fontSize: 14 }}
+                        <input
+                          type="number"
+                          value={formResults[t.id]?.price || '0'}
+                          onChange={e => setFormResults(prev => ({ ...prev, [t.id]: { ...prev[t.id], price: e.target.value } }))}
+                          placeholder="0"
                         />
                       </div>
                       <div className="field" style={{ flex: 2, minWidth: 200 }}>
                         <label>Upload File</label>
-                        <input 
-                          type="file" 
-                          accept="image/*, .pdf" 
-                          onChange={e => handleFileUpload(e, t.id)} 
+                        <input
+                          type="file"
+                          accept="image/*, .pdf"
+                          onChange={e => handleFileUpload(e, t.id)}
                           style={{ fontSize: 12, color: 'var(--muted)', width: '100%' }}
                         />
                         {formResults[t.id]?.file_name && (
@@ -556,6 +709,17 @@ export default function Laboratory(){
             </div>
           </div>
         </div>
+      )}
+
+      {/* Shared Lab Result Viewer — also embedded in the Doctor Workbench */}
+      {viewRow && (
+        <LabResultViewer
+          row={viewRow}
+          patient={viewRow.patient}
+          history={viewHistory}
+          hospital={hospital}
+          onClose={() => { setViewRow(null); setViewHistory([]) }}
+        />
       )}
 
       {toast && (

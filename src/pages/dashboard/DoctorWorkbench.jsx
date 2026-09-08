@@ -1,8 +1,15 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import TrashIcon from '../../components/icons/TrashIcon'
+import AppIcon from '../../components/icons'
+import { formatDate, formatDateTime, getTimezone } from '../../lib/datetime'
 import { TagAutocomplete } from '../../components/ClinicalAutocomplete'
+import Autocomplete from '../../components/common/Autocomplete'
+import LabResultViewer from '../../components/LabResultViewer'
+import { writeAudit } from '../../lib/audit'
+import { labStage, normalizeLabRow, LAB_STAGE_LABEL } from '../../lib/lab'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
 import AdmissionRequestModal from '../../components/AdmissionRequestModal'
 
@@ -36,9 +43,11 @@ const EMPTY_MED = {
 
 export default function DoctorWorkbench() {
   const { profile, hospital } = useAuth()
+  const timezone = getTimezone(hospital)
   const { records: patients, loading: loadingPatients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { records: vitals, loading: loadingVitals, updateRecord: updateVitals } = useOfflineTable('patient_vitals', hospital?.id)
-  const { records: labOrders, loading: loadingLabOrders, addRecord: addLabOrder } = useOfflineTable('lab_orders', hospital?.id)
+  const { records: labOrders, loading: loadingLabOrders, addRecord: addLabOrder, syncFromServer: syncLabOrders } = useOfflineTable('lab_orders', hospital?.id)
+  const { records: labTests, syncFromServer: syncLabTests } = useOfflineTable('lab_tests', hospital?.id)
   const { records: prescriptions, loading: loadingPrescriptions, addRecord: addPrescription, updateRecord: updatePrescription, deleteRecord: deletePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: inventoryItems } = useOfflineTable('inventory_items', hospital?.id)
   const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
@@ -78,60 +87,86 @@ export default function DoctorWorkbench() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [showPreview, setShowPreview] = useState(false)
   const [savingPrescriptions, setSavingPrescriptions] = useState(false)
-  const [drugSearch, setDrugSearch] = useState('')
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
+  // Lab Result Viewer (shared with the Laboratory module)
+  const [viewRow, setViewRow] = useState(null)
+  const [viewHistory, setViewHistory] = useState([])
 
-  // NEW: Search Global Medications first, then cross-reference with Hospital Inventory
-  const drugSearchResults = useMemo(() => {
-    if (!drugSearch.trim()) return []
-    const q = drugSearch.toLowerCase()
-    
-    // Combine Global Meds + Hospital Inventory into one searchable list
-    const combinedResults = {}
-    
-    // Add matching hospital items
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3600) }
+
+  // Realtime: the instant the laboratory completes a result for THIS
+  // hospital, re-sync and — if it belongs to the selected patient —
+  // announce it. UPDATE events need migration 008 (replica identity
+  // full + publication); without it the 30s poll below still delivers.
+  useRealtimeAlert('lab_orders', hospital?.id, (row) => {
+    syncLabOrders()
+    if (labStage(row.status) === 'completed' && row.patient_id === activePatient?.id) {
+      showToast(`Lab result ready: ${row.test_name} — ${row.patient_name}`)
+    }
+  }, { event: 'UPDATE' })
+  useRealtimeAlert('lab_tests', hospital?.id, (row) => {
+    syncLabTests()
+    if (labStage(row.status) === 'completed' && row.patient_id === activePatient?.id) {
+      showToast(`Lab result ready: ${row.test_name} — ${row.patient_name}`)
+    }
+  }, { event: 'UPDATE' })
+
+  // Safety net when realtime is unavailable (no migration 008 yet,
+  // flaky connection): poll quietly while a consultation is open.
+  useEffect(() => {
+    if (!activeVitalsId || !hospital?.id) return
+    const id = setInterval(() => { syncLabOrders(); syncLabTests() }, 30000)
+    return () => clearInterval(id)
+  }, [activeVitalsId, hospital?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // NEW: Drug options = Hospital Inventory first, then the global
+  // reference list (so doctors can prescribe even with 0 stock).
+  // Filtering happens inside the shared Autocomplete; the option's right
+  // slot carries live stock so similar names stay distinguishable.
+  const drugOptions = useMemo(() => {
+    const map = new Map()
+    const push = (key, opt) => { if (!map.has(key)) map.set(key, opt) }
+
     inventoryItems.forEach(it => {
-      if (String(it.category).toLowerCase() === 'drug' && (String(it.name).toLowerCase().includes(q) || String(it.generic_name).toLowerCase().includes(q))) {
-        combinedResults[it.name] = {
-          id: it.id, global_med_id: null, name: it.name, generic: it.generic_name || 'Generic',
-          strength: it.strength || '', form: it.dosage_form || '', route: '',
-          stock: Number(it.quantity || 0)
-        }
-      }
+      if (String(it.category).toLowerCase() !== 'drug') return
+      push(String(it.name).toLowerCase(), {
+        id: `inv-${it.id}`, inventoryId: it.id, globalMedId: null,
+        label: it.name, generic: it.generic_name || 'Generic',
+        strength: it.strength || '', form: it.dosage_form || '', route: it.route || '',
+        stock: Number(it.quantity || 0),
+      })
     })
 
-    // Add matching global meds (if not already added by hospital inventory)
     GLOBAL_MEDICATIONS.forEach(gm => {
-      if (gm.name.toLowerCase().includes(q) || gm.generic.toLowerCase().includes(q)) {
-        if (!combinedResults[gm.name]) {
-          // Check if hospital has this global med in stock
-          const hospMatch = inventoryItems.find(it => it.name.toLowerCase() === gm.name.toLowerCase())
-          combinedResults[gm.name] = {
-            id: hospMatch?.id || null, global_med_id: gm.id, name: gm.name, generic: gm.generic,
-            strength: gm.strength, form: gm.form, route: gm.route,
-            stock: hospMatch ? Number(hospMatch.quantity || 0) : 0
-          }
-        }
-      }
+      const hospMatch = inventoryItems.find(it =>
+        String(it.name).toLowerCase() === gm.name.toLowerCase() && String(it.category).toLowerCase() === 'drug')
+      push(gm.name.toLowerCase(), {
+        id: `gmed-${gm.id}`, inventoryId: hospMatch?.id || null, globalMedId: gm.id,
+        label: gm.name, generic: gm.generic, strength: gm.strength, form: gm.form, route: gm.route,
+        stock: hospMatch ? Number(hospMatch.quantity || 0) : 0,
+      })
     })
 
-    return Object.values(combinedResults).slice(0, 8)
-  }, [drugSearch, inventoryItems])
+    return [...map.values()].map(o => ({
+      ...o,
+      sublabel: [o.generic, o.form, o.strength].filter(Boolean).join(' · '),
+      right: o.stock > 0 ? `In stock: ${o.stock}` : 'Out of stock',
+      rightTone: o.stock > 0 ? 'good' : 'bad',
+    }))
+  }, [inventoryItems])
 
   function selectDrug(item) {
     setMedBuilder(b => ({
-      ...b, 
-      inventory_item_id: item.id, 
-      global_med_id: item.global_med_id,
-      drugName: item.name, 
+      ...b,
+      inventory_item_id: item.inventoryId ?? null,
+      global_med_id: item.globalMedId ?? null,
+      drugName: item.label,
       dose: item.strength || b.dose,
-      route: item.route || item.form || b.route, 
-      stock_at_prescription: item.stock,
-      availability_status: item.stock > 0 ? 'AVAILABLE' : 'UNAVAILABLE', 
+      route: item.route || item.form || b.route,
+      stock_at_prescription: item.stock || 0,
+      availability_status: (item.stock || 0) > 0 ? 'AVAILABLE' : 'UNAVAILABLE',
       accepted_unavailable: false
     }))
-    setDrugSearch('')
   }
 
   const queue = vitals.filter(v => v.status === 'waiting').sort((a, b) => {
@@ -144,6 +179,42 @@ export default function DoctorWorkbench() {
   const activeVitals = vitals.find(v => v.id === activeVitalsId) || null
   const activePatient = activeVitals ? patients.find(p => p.id === activeVitals.patient_id) || null : null
   const activePatientLabOrders = activeVitals ? labOrders.filter(o => o.patient_vitals_id === activeVitals.id) : []
+
+  // Laboratory results for the selected patient — across ALL encounters,
+  // from both doctor orders (lab_orders) and lab-raised requests
+  // (lab_tests). Completed results surface on top; in-progress orders
+  // show the pipeline stage so the doctor knows what is pending.
+  const patientLabRows = useMemo(() => {
+    if (!activePatient) return { completed: [], active: [] }
+    const rows = [
+      ...labOrders.filter(r => r.patient_id === activePatient.id).map(r => normalizeLabRow(r, 'doctor')),
+      ...labTests.filter(r => r.patient_id === activePatient.id).map(r => normalizeLabRow(r, 'lab')),
+    ].filter(Boolean)
+    const completed = rows.filter(r => r.stage === 'completed')
+      .sort((a, b) => new Date(b.resultedAt || 0) - new Date(a.resultedAt || 0))
+    const active = rows.filter(r => r.stage !== 'completed' && r.stage !== 'cancelled')
+      .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0))
+    return { completed, active }
+  }, [activePatient, labOrders, labTests])
+
+  // Abnormal results lead the list — the doctor sees the red flags first.
+  const sortedCompletedResults = useMemo(
+    () => [...patientLabRows.completed].sort((a, b) => {
+      const rank = f => (f === 'critical' ? 0 : f === 'high' || f === 'low' ? 1 : 2)
+      const abn = rank(a.abnormalFlag) - rank(b.abnormalFlag)
+      if (abn !== 0) return abn
+      return new Date(b.resultedAt || 0) - new Date(a.resultedAt || 0)
+    }),
+    [patientLabRows.completed]
+  )
+
+  function openLabViewer(row){
+    const patient = patients.find(p => p.id === row.patientId) || null
+    const history = patientLabRows.completed.filter(r => r.id !== row.id && r.testName === row.testName)
+    setViewHistory(history)
+    setViewRow({ ...row, patient })
+  }
+
   const allTemplates = [...DEFAULT_TEMPLATES, ...hospitalTemplates.map(t => ({ ...t, builtin: false }))]
 
   function openConsultation(v) {
@@ -171,7 +242,7 @@ export default function DoctorWorkbench() {
     setMedications([]); resetMedBuilder(); setSelectedTemplateId(''); setShowPreview(false)
   }
 
-  function resetMedBuilder() { setMedBuilder(EMPTY_MED); setEditingMedLocalId(null); setDrugSearch('') }
+  function resetMedBuilder() { setMedBuilder(EMPTY_MED); setEditingMedLocalId(null) }
 
   function toggleLabTest(name) {
     setSelectedLabTests(prev => prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name])
@@ -203,6 +274,12 @@ export default function DoctorWorkbench() {
           created_by: profile.id,
         })
       }
+      writeAudit({
+        hospitalId: hospital.id, actor: profile, action: 'lab_order.sent',
+        entityType: 'lab_order', entityId: requestGroup, patientId: activeVitals.patient_id,
+        summary: `${allTests.length} lab test(s) ordered for ${activePatient?.full_name || 'patient'} (${labPriority})`,
+        metadata: { tests: allTests, priority: labPriority, request_group: requestGroup },
+      })
       setSelectedLabTests([]); setOtherLabTests(''); setLabPriority('routine'); setLabNotes('')
       showToast(`${allTests.length} lab test${allTests.length === 1 ? '' : 's'} sent to laboratory`)
     } catch (err) { showToast(err.message) } finally { setSavingLabOrder(false) }
@@ -233,7 +310,7 @@ export default function DoctorWorkbench() {
   }
 
   function handleEditMed(m) {
-    setMedBuilder({ ...m }); setEditingMedLocalId(m.localId); setDrugSearch('')
+    setMedBuilder({ ...m }); setEditingMedLocalId(m.localId)
   }
 
   async function handleRemoveMed(m) {
@@ -289,6 +366,14 @@ export default function DoctorWorkbench() {
         }
       }
       setMedications(updated)
+      if (status === 'active') {
+        writeAudit({
+          hospitalId: hospital.id, actor: profile, action: 'prescription.finalized',
+          entityType: 'prescription', entityId: activeVitals.id, patientId: activeVitals.patient_id,
+          summary: `Prescription finalized for ${payload.patient_name} (${medications.length} medication${medications.length === 1 ? '' : 's'})`,
+          metadata: { drugs: medications.map(m => m.drugName) },
+        })
+      }
       showToast(status === 'draft' ? 'Draft saved' : 'Prescription finalized & sent to Pharmacy')
     } catch (err) { showToast(err.message) } finally { setSavingPrescriptions(false) }
   }
@@ -297,7 +382,7 @@ export default function DoctorWorkbench() {
     if (medications.length === 0) return
     const patientName = activePatient?.full_name || 'Patient'
     const rows = medications.map((m, i) => `<li><strong>${i + 1}. ${m.drugName}</strong><br/>${m.dose} ${m.route || ''} ${m.frequency || ''}${m.duration ? ` for ${m.duration}` : ''}.${m.instructions ? `<br/><em>${m.instructions}</em>` : ''}</li>`).join('')
-    const html = `<html><head><title>Prescription</title><style>body{font-family:sans-serif;padding:32px;color:#111}h1{font-size:18px}.meta{color:#555;font-size:13px;margin-bottom:20px}ol{padding-left:20px}li{margin-bottom:14px}</style></head><body><h1>${hospital?.name || 'Prescription'}</h1><div class="meta">Patient: ${patientName} · Date: ${new Date().toLocaleDateString()} · Dr: ${profile?.full_name || ''}</div><ol>${rows}</ol></body></html>`
+    const html = `<html><head><title>Prescription</title><style>body{font-family:sans-serif;padding:32px;color:#111}h1{font-size:18px}.meta{color:#555;font-size:13px;margin-bottom:20px}ol{padding-left:20px}li{margin-bottom:14px}</style></head><body><h1>${hospital?.name || 'Prescription'}</h1><div class="meta">Patient: ${patientName} · Date: ${formatDate(new Date(), getTimezone(hospital))} · Dr: ${profile?.full_name || ''}</div><ol>${rows}</ol></body></html>`
     const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); win.print()
   }
 
@@ -335,14 +420,14 @@ export default function DoctorWorkbench() {
   const historySummary = [chiefComplaints && `Chief complaint: ${chiefComplaints}`, historyPresenting && `HPC: ${historyPresenting}`, pastMedicalHistory && `PMH: ${pastMedicalHistory}`, pastSurgicalHistory && `PSH: ${pastSurgicalHistory}`, drugHistory && `Drug Hx: ${drugHistory}`, allergyHistory && `Allergies: ${allergyHistory}`, familySocialHistory && `Family/Social: ${familySocialHistory}`].filter(Boolean).join(' · ')
     return (
     <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.3 7-6.3s7 2.8 7 6.3"/></svg></div><div><div className="dash-stat-label">Waiting for Doctor</div><div className="dash-stat-value">{queue.length}</div><div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged</div></div></div>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 6 9 17l-5-5"/></svg></div><div><div className="dash-stat-label">Completed</div><div className="dash-stat-value">{vitals.filter(v => v.status === 'completed').length}</div><div className="dash-stat-delta">total</div></div></div>
-        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M12 13v5M9.5 15.5h5"/></svg></div><div style={{ flex: 1 }}><div className="dash-stat-label">Active Consultation</div><div className="dash-stat-value" style={{ fontSize: 17 }}>{activePatient?.full_name || 'None'}</div><div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select'}</div>{activePatient && (() => { const req = getActiveAdmissionRequest(activePatient.id); if (!req) return <button type="button" className="btn btn-ghost" style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }} onClick={() => setShowAdmissionModal(true)}>Recommend Admission</button>; const l = { pending: 'Requested', approved: 'Approved', converted: 'Admitted' }; const c = { pending: 'var(--gold)', approved: 'var(--teal)', converted: 'var(--teal)' }; return <div style={{ marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, color: c[req.status] || 'var(--muted)', background: 'var(--bg-elevated)', border: `1px solid ${c[req.status]}` }}>{l[req.status] || req.status}</div> })()}</div></div>
+      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
+        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}><AppIcon name="users" size={20} /></div><div><div className="dash-stat-label">Waiting for Doctor</div><div className="dash-stat-value">{queue.length}</div><div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged</div></div></div>
+        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="check" size={20} /></div><div><div className="dash-stat-label">Completed</div><div className="dash-stat-value">{vitals.filter(v => v.status === 'completed').length}</div><div className="dash-stat-delta">total</div></div></div>
+        <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}><AppIcon name="clipboard" size={20} /></div><div style={{ flex: 1, minWidth: 0 }}><div className="dash-stat-label">Active Consultation</div><div className="dash-stat-value" style={{ fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activePatient?.full_name || 'None'}</div><div className="dash-stat-delta">{activeVitals ? 'in progress' : 'select'}</div>{activePatient && (() => { const req = getActiveAdmissionRequest(activePatient.id); if (!req) return <button type="button" className="btn btn-ghost" style={{ width: 'auto', marginTop: 10, padding: '6px 12px', fontSize: 12 }} onClick={() => setShowAdmissionModal(true)}>Recommend Admission</button>; const l = { pending: 'Requested', approved: 'Approved', converted: 'Admitted' }; const c = { pending: 'var(--gold)', approved: 'var(--teal)', converted: 'var(--teal)' }; return <div style={{ marginTop: 10, display: 'inline-block', padding: '5px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, color: c[req.status] || 'var(--muted)', background: 'var(--bg-elevated)', border: `1px solid ${c[req.status]}` }}>{l[req.status] || req.status}</div> })()}</div></div>
       </div>
 
       <div className="dash-row dash-row-2">
-        <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Queue</div><div className="dash-panel-sub">Triaged patients</div></div></div>{loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : queue.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients waiting.</div> : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{queue.map(v => { const p = patients.find(pt => pt.id === v.patient_id); const isActive = activeVitalsId === v.id; return <div key={v.id} onClick={() => openConsultation(v)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '10px 14px', borderRadius: 10, background: isActive ? 'var(--teal-soft)' : 'var(--bg-elevated)', border: isActive ? '1px solid var(--teal)' : '1px solid var(--line-soft)' }}><div><div style={{ fontWeight: 700, color: isActive ? 'var(--teal)' : undefined }}>{p?.full_name || v.patient_name}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>BP {v.blood_pressure || '—'} · Pulse {v.pulse_rate || '—'}</div></div><span style={{ fontSize: 11, fontWeight: 700, color: v.urgency === 'Emergency' ? 'var(--danger)' : 'var(--gold)' }}>{v.urgency || 'Waiting'}</span></div> })}</div>}</div>
+        <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Queue</div><div className="dash-panel-sub">Triaged patients</div></div></div>{loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : queue.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No patients waiting.</div> : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{queue.map(v => { const p = patients.find(pt => pt.id === v.patient_id); const isActive = activeVitalsId === v.id; return <div key={v.id} role="button" tabIndex={0} aria-label={`Open consultation for ${p?.full_name || v.patient_name}`} onClick={() => openConsultation(v)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openConsultation(v) } }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 14px', borderRadius: 10, background: isActive ? 'var(--teal-soft)' : 'var(--bg-elevated)', border: isActive ? '1px solid var(--teal)' : '1px solid var(--line-soft)' }}><div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, color: isActive ? 'var(--teal)' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p?.full_name || v.patient_name}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>BP {v.blood_pressure || '—'} · Pulse {v.pulse_rate || '—'}</div></div><span style={{ fontSize: 11, fontWeight: 700, color: v.urgency === 'Emergency' ? 'var(--danger)' : 'var(--gold)', flexShrink: 0 }}>{v.urgency || 'Waiting'}</span></div> })}</div>}</div>
         <div className="dash-panel"><div className="dash-panel-head"><div><div className="dash-panel-title">Recorded Vitals</div><div className="dash-panel-sub">{activePatient?.full_name || 'No patient selected'}</div></div></div>{!activeVitals ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Select a patient from the queue.</div> : <><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>{vitalRow('Blood Pressure', activeVitals.blood_pressure)}{vitalRow('Pulse', activeVitals.pulse_rate, 'bpm')}{vitalRow('Temperature', activeVitals.temperature, '°C')}{vitalRow('SpO2', activeVitals.spo2, '%')}{vitalRow('Resp Rate', activeVitals.respiratory_rate, 'bpm')}{vitalRow('Weight', activeVitals.weight, 'kg')}{vitalRow('Height', activeVitals.height, 'cm')}{vitalRow('Urgency', activeVitals.urgency)}</div>{activeVitals.nurse_notes && <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line-soft)', fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>Nurse note: "{activeVitals.nurse_notes}"</div>}</>}</div>
       </div>
 
@@ -408,7 +493,7 @@ export default function DoctorWorkbench() {
                 })()}
                 <button type="submit" className="btn btn-primary" disabled={savingLabOrder || (selectedLabTests.length === 0 && !otherLabTests.trim())}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
               </form>
-              {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: o.priority === 'stat' ? 'var(--danger)' : o.priority === 'urgent' ? 'var(--gold)' : 'var(--teal)' }} />{o.test_name}</span><span className="dash-legend-val">{o.status}</span></li>)}</ul>}
+              {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => { const stage = labStage(o.status); return <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: o.priority === 'stat' ? 'var(--danger)' : o.priority === 'urgent' ? 'var(--gold)' : 'var(--teal)' }} />{o.test_name}</span><span className="dash-legend-val" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span className={`lab-stage is-${stage}`}>{LAB_STAGE_LABEL[stage]}</span>{stage === 'completed' && <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '3px 9px', fontSize: 11 }} onClick={() => openLabViewer(normalizeLabRow(o, 'doctor'))} aria-label={`View completed result for ${o.test_name}`}>View Result</button>}</span></li> })}</ul>}
             </div>
 
             <div className="dash-panel">
@@ -416,19 +501,27 @@ export default function DoctorWorkbench() {
               <div className="field"><label>Load Template</label><div style={{ display: 'flex', gap: 8 }}><select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)} style={{ flex: 1 }}><option value="">Select…</option><optgroup label="Built-in">{DEFAULT_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>{hospitalTemplates.length > 0 && <optgroup label="Hospital">{hospitalTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>}</select><button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handleApplyTemplate} disabled={!selectedTemplateId}>Load</button></div></div>
 
               <div style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 14, marginTop: 6 }}>
-                <div className="field" style={{ position: 'relative' }}>
+                <div className="field">
                   <label>Drug / Medication Search</label>
-                  <input value={drugSearch} onChange={e => setDrugSearch(e.target.value)} placeholder="Search medication by generic or brand name..." />
-                  {drugSearchResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, marginTop: 4, zIndex: 10, maxHeight: 240, overflowY: 'auto' }}>
-                      {drugSearchResults.map(it => { const stock = Number(it.stock || 0); return <div key={it.global_med_id || it.id} onClick={() => selectDrug(it)} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)' }}><div style={{ fontWeight: 700, fontSize: 13 }}>{it.name}</div><div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: 11, color: 'var(--muted)' }}>{it.generic} • {it.form || 'N/A'}</span><span style={{ fontSize: 11, color: stock > 0 ? 'var(--teal)' : 'var(--danger)', fontWeight: 700 }}>{stock > 0 ? `🟢 In Stock: ${stock}` : '🔴 Out of Stock'}</span></div></div> })}
-                    </div>
-                  )}
+                  {/* Shared combobox (global rule): one dropdown behaviour,
+                      keyboard + touch + ARIA; stock shown per option so
+                      similar names are distinguishable. Unmatched queries
+                      can continue as free-typed medication. */}
+                  <Autocomplete
+                    options={drugOptions}
+                    value={null}
+                    onChange={item => { if (item) selectDrug(item) }}
+                    placeholder="Search medication by generic or brand name…"
+                    allowFreeText
+                    freeTextLabel='Keep "{query}" as free-typed medication'
+                    emptyText="No match in hospital inventory or the global reference list"
+                    ariaLabel="Medication search"
+                  />
                 </div>
 
                 {medBuilder.availability_status === 'UNAVAILABLE' && (
                   <div style={{ border: '1px solid var(--danger)', background: 'rgba(235,87,87,0.05)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-                    <div style={{ color: 'var(--danger)', fontWeight: 800, marginBottom: 6 }}>🔴 Medication Unavailable</div>
+                    <div style={{ color: 'var(--danger)', fontWeight: 800, marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}><AppIcon name="alert" size={14} /> Medication Unavailable</div>
                     <div style={{ fontSize: 13, marginBottom: 8 }}>This medication is not available in the hospital.</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Current hospital stock: 0</div>
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -437,8 +530,8 @@ export default function DoctorWorkbench() {
                     </div>
                   </div>
                 )}
-                {medBuilder.accepted_unavailable && <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 12, fontWeight: 700 }}>⚠ UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
-                {medBuilder.availability_status === 'AVAILABLE' && medBuilder.drugName && <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 12, fontWeight: 700 }}>🟢 AVAILABLE (Hospital Stock: {medBuilder.stock_at_prescription})</div>}
+                {medBuilder.accepted_unavailable && <div style={{ fontSize: 12, color: 'var(--gold)', marginBottom: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}><AppIcon name="warning" size={13} /> UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
+                {medBuilder.availability_status === 'AVAILABLE' && medBuilder.drugName && <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}><AppIcon name="check" size={13} /> AVAILABLE (Hospital Stock: {medBuilder.stock_at_prescription})</div>}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div className="field"><label>Dose</label><input value={medBuilder.dose} onChange={e => setMedBuilder(b => ({ ...b, dose: e.target.value }))} placeholder="e.g. 500 mg" /></div>
@@ -463,8 +556,8 @@ export default function DoctorWorkbench() {
                           <div>
                             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{m.drugName}</div>
                             <div style={{ fontSize: 12, color: 'var(--muted)' }}>{m.dose} · {m.route || '—'} · {m.frequency}{m.duration ? ` · ${m.duration}` : ''}</div>
-                            {m.availability_status === 'AVAILABLE' && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 6, fontWeight: 700 }}>🟢 AVAILABLE</div>}
-                            {m.availability_status === 'UNAVAILABLE' && m.accepted_unavailable && <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6, fontWeight: 700 }}>⚠ UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
+                            {m.availability_status === 'AVAILABLE' && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 6, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><AppIcon name="check" size={11} /> AVAILABLE</div>}
+                            {m.availability_status === 'UNAVAILABLE' && m.accepted_unavailable && <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><AppIcon name="warning" size={11} /> UNAVAILABLE AT TIME OF PRESCRIPTION</div>}
                           </div>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button type="button" onClick={() => handleEditMed(m)} className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}>Edit</button>
@@ -487,6 +580,85 @@ export default function DoctorWorkbench() {
             </div>
           </div>
 
+          {/* LABORATORY RESULTS — dedicated panel (global lab workflow
+              rule). Completed/verified results for the selected patient
+              across ALL encounters; abnormal flags lead the list; realtime
+              + a 30s poll keep it live; every row opens the shared
+              LabResultViewer with comparison history. */}
+          <div className="dash-panel" style={{ marginTop: 20 }}>
+            <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div className="dash-panel-title">Laboratory Results</div>
+                <div className="dash-panel-sub">{activePatient?.full_name || 'No patient selected'} · completed &amp; verified results, newest first</div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => { syncLabOrders(); syncLabTests() }}
+                aria-label="Refresh laboratory results"
+              >
+                <AppIcon name="refresh" size={14} /> Refresh
+              </button>
+            </div>
+
+            {!activeVitals ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>Select a patient from the queue to see their lab results.</div>
+            ) : sortedCompletedResults.length === 0 && patientLabRows.active.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>No lab results for this patient yet. Order tests from the Lab Orders panel.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {sortedCompletedResults.map(r => (
+                  <div
+                    key={r.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open result for ${r.testName}${r.abnormalFlag && r.abnormalFlag !== 'normal' ? ` (${r.abnormalFlag})` : ''}`}
+                    onClick={() => openLabViewer(r)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLabViewer(r) } }}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                      padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+                      background: r.abnormalFlag && r.abnormalFlag !== 'normal' ? 'var(--danger-soft)' : 'var(--bg-elevated)',
+                      border: r.abnormalFlag && r.abnormalFlag !== 'normal' ? '1px solid rgba(240,79,95,0.35)' : '1px solid var(--line-soft)',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {r.testName}
+                        {r.abnormalFlag && r.abnormalFlag !== 'normal' && <span className={`lab-flag is-${r.abnormalFlag}`}>{r.abnormalFlag}</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        Resulted {r.resultedAt ? formatDateTime(r.resultedAt, timezone) : '—'}
+                        {r.verifiedBy ? ` · by ${r.verifiedBy}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 700, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.result || '—'}{r.resultUnit ? ` ${r.resultUnit}` : ''}
+                      </span>
+                      <AppIcon name="chevron" size={15} />
+                    </div>
+                  </div>
+                ))}
+                {patientLabRows.active.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, margin: '6px 0' }}>In progress</div>
+                    {patientLabRows.active.map(r => (
+                      <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '9px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)', marginBottom: 6 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13 }}>{r.testName}{r.origin === 'lab' ? <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(201,169,97,0.14)', color: 'var(--gold)', verticalAlign: 'middle' }}>LAB-RAISED</span> : null}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Requested {r.requestedAt ? formatDateTime(r.requestedAt, timezone) : '—'}</div>
+                        </div>
+                        <span className={`lab-stage is-${r.stage}`} style={{ flexShrink: 0 }}>{LAB_STAGE_LABEL[r.stage]}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="dash-panel" style={{ marginTop: 20 }}>
             <div className="dash-panel-head"><div><div className="dash-panel-title">Consultation Summary</div></div></div>
             <div>{summaryRow('Patient', activePatient?.full_name)}{summaryRow('History', historySummary)}{summaryRow('Symptoms', symptoms.map(s => s.label).join(', '))}{summaryRow('Vitals', `BP ${activeVitals.blood_pressure || '—'} · Pulse ${activeVitals.pulse_rate || '—'}`)}{summaryRow('Diagnosis', diagnoses.map(d => d.label).join(', '))}{summaryRow('Prescription', medications.map(m => m.drugName).join('; '))}{summaryRow('Plan', treatmentPlan)}</div>
@@ -502,7 +674,16 @@ export default function DoctorWorkbench() {
         </>
       )}
 
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
+      {toast && <div className="dash-toast dash-toast-success" role="status">{toast}</div>}
+      {viewRow && (
+        <LabResultViewer
+          row={viewRow}
+          patient={viewRow.patient}
+          history={viewHistory}
+          hospital={hospital}
+          onClose={() => { setViewRow(null); setViewHistory([]) }}
+        />
+      )}
       {showAdmissionModal && activePatient && <AdmissionRequestModal patient={activePatient} consultationId={activeVitals?.id} prefillDiagnosis={diagnoses.map(d => d.label).join(', ')} onSubmit={handleSubmitAdmissionRequest} onClose={() => setShowAdmissionModal(false)} />}
     </>
   )

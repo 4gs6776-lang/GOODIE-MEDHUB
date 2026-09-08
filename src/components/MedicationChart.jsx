@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import '../theme/marChart.css'
+import AppIcon from './icons'
+import TrashIcon from './icons/TrashIcon'
+import { formatDate, calculateAge } from '../lib/datetime'
 
 // ============================================================
 // PREMIUM MEDICATION ADMINISTRATION CHART (MAR)
@@ -48,16 +51,6 @@ function formatTime12h(t){
   h = h % 12
   if (h === 0) h = 12
   return `${h}:${mStr} ${period}`
-}
-
-// Same trash icon used on the Owner Dashboard, so the delete action reads
-// consistently everywhere in the product rather than a plain "✕".
-function TrashIcon({ size = 15 }){
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 7h16" /><path d="M6 7v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7" /><path d="M9 7V4h6v3" />
-    </svg>
-  )
 }
 
 const ROLE_SIGN_PREFIX = {
@@ -236,14 +229,17 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   }
 
   const age = patient.age ?? (
-    patient.date_of_birth
-      ? Math.floor((Date.now() - new Date(patient.date_of_birth).getTime()) / (365.25 * 24 * 3600 * 1000))
-      : null
+    patient.date_of_birth ? calculateAge(patient.date_of_birth) : null
   )
 
+  // Date-only display through the central formatter. MedicationChart does
+  // not receive the hospital object, so the app default timezone applies
+  // (identical wall clock to the previous device-locale behaviour for all
+  // current hospitals); pass getTimezone(hospital) here when hospital is
+  // threaded through as a prop.
   const dateAdmitted = admissionRequest?.created_at
-    ? new Date(admissionRequest.created_at).toLocaleDateString()
-    : (patient.created_at ? new Date(patient.created_at).toLocaleDateString() : '')
+    ? formatDate(admissionRequest.created_at)
+    : (patient.created_at ? formatDate(patient.created_at) : '')
 
   // ---------------------------------------------------------
   // PRINT — builds a standalone document covering EVERY chart
@@ -256,7 +252,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
     const totalPages = pageCount
     const printHospitalName = hospitalName || 'HOSPITAL MEDICATION CHART'
     const allergyHtml = header.allergies
-      ? `<div class="mar-allergy-banner mar-allergy-danger"><b>⚠ Allergies:</b> ${escapeHtml(header.allergies)}</div>`
+      ? `<div class="mar-allergy-banner mar-allergy-danger"><b>Allergies:</b> ${escapeHtml(header.allergies)}</div>`
       : `<div class="mar-allergy-banner mar-allergy-nkda">No known drug allergies recorded (NKDA)</div>`
     const patientInfoHtml = `
       <div class="p-grid">
@@ -284,7 +280,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
           <td>${escapeHtml(e.dosage || '')}</td>
           <td>${escapeHtml(e.route || '')}</td>
           <td>${escapeHtml(e.frequency || '')}</td>
-          <td class="${overdue ? 'mar-cell-overdue' : ''}">${escapeHtml(formatTime12h(e.next_dose))}${overdue ? ' ⚠' : ''}</td>
+          <td class="${overdue ? 'mar-cell-overdue' : ''}">${escapeHtml(formatTime12h(e.next_dose))}${overdue ? ' (OVERDUE)' : ''}</td>
           <td>${escapeHtml(e.sign || '')}</td>
         </tr>`
       }).join('')
@@ -329,7 +325,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
             </div>
             <div class="mar-prepared">
               <div>Prepared by: <b>${escapeHtml(profile?.full_name || '')}</b></div>
-              <div>${new Date().toLocaleDateString()}</div>
+              <div>${formatDate(new Date())}</div>
             </div>
           </div>
           <div class="mar-footer">Page ${pIdx + 1} of ${totalPages} · This is a computer-generated record</div>
@@ -392,8 +388,8 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   return (
     <div className="mar-chart">
       <div className="mar-toolbar">
-        <button type="button" className="mar-btn mar-btn-primary" onClick={openAddForm}>+ Add Medication</button>
-        <button type="button" className="mar-btn mar-btn-ghost" onClick={handlePrint}>🖨 Print Chart</button>
+        <button type="button" className="mar-btn mar-btn-primary" onClick={openAddForm}><AppIcon name="plus" size={14} /> Add Medication</button>
+        <button type="button" className="mar-btn mar-btn-ghost" onClick={handlePrint}><AppIcon name="print" size={14} /> Print Chart</button>
       </div>
 
       <div className="mar-document">
@@ -458,7 +454,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
               {pageEntries.map((e, i) => {
                 const overdue = isOverdue(e)
                 return (
-                  <tr key={e.id} className={`mar-row-filled${overdue ? ' mar-row-overdue' : ''}`} onClick={() => openEditForm(e)}>
+                  <tr key={e.id} className={`mar-row-filled${overdue ? ' mar-row-overdue' : ''}`} onClick={() => openEditForm(e)} tabIndex={0} role="button" aria-label={`Edit medication entry ${e.drug_name}`} onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openEditForm(e) } }}>
                     <td className="mar-col-num">{(page - 1) * ROWS_PER_PAGE + i + 1}</td>
                     <td>{e.entry_date || ''}</td>
                     <td>{e.entry_time ? formatTime12h(e.entry_time) : ''}</td>
@@ -505,7 +501,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
           </div>
           <div className="mar-prepared">
             <span>Prepared by: <b>{profile?.full_name || '—'}</b></span>
-            <span>{new Date().toLocaleDateString()}</span>
+            <span>{formatDate(new Date())}</span>
           </div>
         </div>
 
@@ -513,11 +509,11 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
       </div>
 
       <div className="mar-pagination">
-        <button type="button" className="mar-page-btn" disabled={page === 1} onClick={() => setPage(1)}>« First</button>
-        <button type="button" className="mar-page-btn" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>‹ Previous</button>
+        <button type="button" className="mar-page-btn" disabled={page === 1} onClick={() => setPage(1)} aria-label="Go to first page"><AppIcon name="chevronsLeft" size={14} /> First</button>
+        <button type="button" className="mar-page-btn" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))} aria-label="Previous page"><AppIcon name="chevronLeft" size={14} /> Previous</button>
         <span className="mar-page-indicator">Page {page} of {pageCount}</span>
-        <button type="button" className="mar-page-btn" disabled={page === pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}>Next ›</button>
-        <button type="button" className="mar-page-btn" disabled={page === pageCount} onClick={() => setPage(pageCount)}>Last »</button>
+        <button type="button" className="mar-page-btn" disabled={page === pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))} aria-label="Next page">Next <AppIcon name="chevron" size={14} /></button>
+        <button type="button" className="mar-page-btn" disabled={page === pageCount} onClick={() => setPage(pageCount)} aria-label="Go to last page">Last <AppIcon name="chevronsRight" size={14} /></button>
       </div>
 
       {showForm && (

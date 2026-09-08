@@ -22,7 +22,7 @@
 import {
   Activity, AlertTriangle, Ambulance, ArrowDown, ArrowLeft,
   ArrowLeftRight, ArrowRight, ArrowUp, BarChart3, BedDouble, Bell,
-  Building2, Calendar, Camera, Check, CheckCircle2, ChevronRight, ClipboardList, Clock,
+  Building2, Calendar, Camera, Check, CheckCircle2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ClipboardList, Clock,
   CloudOff, ConciergeBell, Download, Eye, FileText, FlaskConical,
   HeartPulse, House, Info, ListFilter, Loader2, Lock, Menu, MessageCircle, Mic,
   Moon, MoreHorizontal, Package, Pause, Pencil, Phone, Pill, Play,
@@ -87,6 +87,9 @@ const ICONS = {
   arrowLeft: { C: ArrowLeft },
   arrowRight: { C: ArrowRight },
   chevron: { C: ChevronRight },
+  chevronLeft: { C: ChevronLeft },
+  chevronsLeft: { C: ChevronsLeft },
+  chevronsRight: { C: ChevronsRight },
 
   // Status / feedback
   alert: { C: AlertTriangle },

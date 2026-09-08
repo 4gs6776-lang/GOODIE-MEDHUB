@@ -1,4 +1,21 @@
 import { useMemo, useState } from 'react'
+import AppIcon from './icons'
+import Autocomplete from './common/Autocomplete'
+
+// =====================================================================
+// Clinical autocomplete family (consolidated, global search rule)
+//
+//   TagAutocomplete  — MULTI-select chip picker (symptoms, diagnoses).
+//                      Unmatched queries can be added as free-text chips.
+//   DrugSearchInput  — SINGLE-select drug combobox, now a thin wrapper
+//                      over the shared Autocomplete (one dropdown
+//                      behaviour app-wide; keyboard + ARIA + touch).
+//                      Unmatched queries stay free-typed text so doctors
+//                      are never blocked by an incomplete catalog.
+//
+// Both read from src/lib/clinicalData.js / pharmacy inventory — no
+// module defines its own search UI anymore.
+// =====================================================================
 
 // Multi-select, searchable chip picker. Type to filter `options`, click or
 // press Enter to add a chip, click a chip's × to remove it. If allowCustom
@@ -64,10 +81,10 @@ export function TagAutocomplete({ options, value, onChange, placeholder, allowCu
                 onClick={() => removeItem(item.id)}
                 style={{
                   background: 'rgba(0,0,0,0.15)', border: 'none', color: 'inherit', cursor: 'pointer',
-                  borderRadius: '50%', width: 18, height: 18, fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: '50%', width: 18, height: 18, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
                 aria-label={`Remove ${item.label}`}
-              >✕</button>
+              ><AppIcon name="close" size={11} /></button>
             </span>
           ))}
         </div>
@@ -100,9 +117,9 @@ export function TagAutocomplete({ options, value, onChange, placeholder, allowCu
           {allowCustom && query.trim() && !matches.some(m => m.label.toLowerCase() === query.trim().toLowerCase()) && (
             <div
               onMouseDown={addCustom}
-              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--gold)' }}
+              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              + Add "{query.trim()}"
+              <AppIcon name="plus" size={12} /> Add "{query.trim()}"
             </div>
           )}
         </div>
@@ -111,51 +128,27 @@ export function TagAutocomplete({ options, value, onChange, placeholder, allowCu
   )
 }
 
-// Single-select searchable combobox for picking a drug from the pharmacy
-// catalog (falls back to free typing if nothing matches — the pharmacy may
-// not stock everything a doctor needs to write down).
+// Single-select combobox for picking a drug from the pharmacy catalog +
+// global reference list. Falls back to free typing when nothing matches —
+// the pharmacy may not stock everything a doctor needs to write down.
 //
-// drugOptions: [{ id, label }] — usually sourced from the pharmacy_items table
-export function DrugSearchInput({ drugOptions, value, onChange, placeholder }){
-  const [open, setOpen] = useState(false)
-
-  const matches = useMemo(() => {
-    if (!value.trim()) return []
-    const q = value.trim().toLowerCase()
-    return drugOptions.filter(d => d.label.toLowerCase().includes(q)).slice(0, 8)
-  }, [value, drugOptions])
-
+// Consolidated: the dropdown, keyboard navigation, ARIA and touch
+// behaviour all come from the shared Autocomplete component.
+//
+// drugOptions: [{ id, label, sublabel?, stock? }]
+// value:       selected option object | null
+// onChange:    (option | null) => void
+export function DrugSearchInput({ drugOptions, value, onChange, placeholder, emptyText }){
   return (
-    <div style={{ position: 'relative' }}>
-      <input
-        value={value}
-        onChange={e => { onChange(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder}
-      />
-      {open && matches.length > 0 && (
-        <div style={{
-          position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, marginTop: 4,
-          background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 10,
-          maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-        }}>
-          {matches.map(d => (
-            <div
-              key={d.id}
-              onMouseDown={() => { onChange(d.label); setOpen(false) }}
-              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid var(--line-soft)', display: 'flex', justifyContent: 'space-between' }}
-            >
-              <span>{d.label}</span>
-              {d.stock != null && (
-                <span style={{ color: d.stock <= 0 ? 'var(--danger)' : 'var(--muted)', fontSize: 11.5 }}>
-                  {d.stock <= 0 ? 'out of stock' : `${d.stock} in stock`}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <Autocomplete
+      options={drugOptions}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      allowFreeText
+      freeTextLabel='Keep "{query}" as free-typed medication'
+      emptyText={emptyText || 'No matching medication in catalog or inventory'}
+      clearable={false}
+    />
   )
 }
