@@ -7,9 +7,13 @@ import './theme/components.css'
 import './theme/dashboard.css'
 import './theme/owner.css'
 import './theme/billing.css'
-import './theme/mobile.css'
 import './theme/premium-global.css'
 import './theme/handover.css'
+// mobile.css MUST be imported last (its own header demands it): the whole
+// responsive layer loses the cascade otherwise — e.g. premium-global.css's
+// unconditional .dash-modal{border-radius:14px} was overriding the phone
+// bottom-sheet radius from mobile.css.
+import './theme/mobile.css'
 
 // Apply the saved theme immediately, before any page renders. Dark is
 // the app-wide default — light mode only turns on if the person has
