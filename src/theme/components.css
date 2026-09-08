@@ -62,3 +62,56 @@
 .auth-sub{ font-size:13px; color:var(--muted); text-align:center; margin-bottom:26px; }
 .auth-switch{ text-align:center; margin-top:20px; font-size:13px; color:var(--muted); }
 .auth-switch a{ color:var(--teal); font-weight:700; }
+
+/* =====================================================================
+   Stage 1 additions — shared primitives
+   ===================================================================== */
+
+/* Icon spin animation (loading icons from components/icons) */
+@keyframes gmedhub-spin{ from{ transform:rotate(0deg) } to{ transform:rotate(360deg) } }
+
+/* Connection/sync state chip (components/common/ConnectionState.jsx) */
+.conn-state{
+  display:inline-flex; align-items:center; gap:7px;
+  padding:6px 12px; border-radius:999px;
+  font-size:11.5px; font-weight:700; letter-spacing:.02em;
+  border:1px solid var(--line);
+  background:var(--bg-elevated); color:var(--muted);
+  cursor:default; white-space:nowrap;
+}
+.conn-state.clickable{ cursor:pointer; }
+.conn-state .conn-dot{
+  width:7px; height:7px; border-radius:50%;
+  background:currentColor; flex-shrink:0;
+}
+.conn-state.is-synced{ color:var(--success); border-color:var(--mint-border); background:var(--mint-soft); }
+.conn-state.is-syncing{ color:var(--blue); border-color:rgba(59,130,246,.3); background:rgba(59,130,246,.1); }
+.conn-state.is-pending{ color:var(--gold); border-color:rgba(232,184,46,.3); background:rgba(232,184,46,.1); }
+.conn-state.is-offline{ color:var(--danger); border-color:rgba(240,79,95,.3); background:var(--danger-soft); }
+.conn-state.is-failed{ color:var(--danger); border-color:rgba(240,79,95,.4); background:var(--danger-soft); }
+
+/* Success toast variant (Reception reuses the shared dash-toast shell) */
+.dash-toast-success{ border-color:var(--teal); color:var(--teal); }
+
+/* ---------------------------------------------------------------------
+   SearchInput (components/common/SearchInput.jsx) — shared search field.
+   Inside a horizontal toolbar row it grows to fill leftover space; the
+   grow behaviour lives here (not inline) so the phone layout below can
+   cancel it: when a .dash-panel-head stacks vertically (<=600px) the
+   flex main axis flips and `flex-basis:280px` would become HEIGHT,
+   stretching the search box ~280px tall (pair-1 mobile QA finding).
+   --------------------------------------------------------------------- */
+.gmed-search-grow{ flex:1 1 280px; }
+@media (max-width:600px){
+  .dash-panel-head .gmed-search-grow{ flex:0 0 auto; }
+}
+
+/* Phones: the topbar cannot fit the full "Pending sync (3)" label.
+   "Synced" is the one safe state to compress to dot+icon only — the
+   states that need attention keep their text. The chip is role="status"
+   with a title tooltip carrying the full meaning, so the collapsed
+   "Synced" state stays understandable. */
+@media (max-width:600px){
+  .conn-state.is-synced .conn-label{ display:none; }
+  .conn-state{ padding:6px 9px; }
+}
