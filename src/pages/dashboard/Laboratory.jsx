@@ -57,7 +57,7 @@ export default function Laboratory(){
   const { records: tests, loading: loadingTests, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('lab_tests', hospital?.id)
   const { records: orders, loading: loadingOrders, updateRecord: updateOrder, deleteRecord: deleteOrder, syncFromServer: syncOrders } = useOfflineTable('lab_orders', hospital?.id)
   const { records: patients } = useOfflineTable('patients', hospital?.id)
-  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
+  const { records: billableCharges, addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
 
   const loading = loadingTests || loadingOrders
   const [showModal, setShowModal] = useState(false)
@@ -261,20 +261,30 @@ export default function Laboratory(){
           updated_at: nowIso,
         }
         await updateLabRow(t, payload)
-        await addBillableCharge({
-          hospital_id: hospital.id,
-          patient_id: t.patient_id || null,
-          patient_name: t.patient_name,
-          source_module: 'Laboratory',
-          source_transaction_id: `LAB-${t.id}`,
-          item_name: t.test_name,
-          category: 'Lab Test',
-          quantity: 1,
-          unit_price: price,
-          total: price,
-          status: 'pending',
-          created_by: profile?.id
-        })
+        // Guard against double-billing: "LAB-<test id>" is a deterministic
+        // unique reference, so re-entering results through the Reopen flow
+        // must NOT create a second charge for the same test — the database
+        // enforces unique_source_transaction and the duplicate would jam
+        // the offline sync queue.
+        const alreadyBilled = billableCharges.some(
+          (c) => c.source_transaction_id === `LAB-${t.id}` && c._discarded !== true
+        )
+        if (!alreadyBilled) {
+          await addBillableCharge({
+            hospital_id: hospital.id,
+            patient_id: t.patient_id || null,
+            patient_name: t.patient_name,
+            source_module: 'Laboratory',
+            source_transaction_id: `LAB-${t.id}`,
+            item_name: t.test_name,
+            category: 'Lab Test',
+            quantity: 1,
+            unit_price: price,
+            total: price,
+            status: 'pending',
+            created_by: profile?.id
+          })
+        }
         auditLab('lab_result.recorded', t,
           `Result recorded for ${t.test_name} — ${t.patient_name}${resData.abnormal_flag && resData.abnormal_flag !== 'normal' ? ` (${resData.abnormal_flag})` : ''}`,
           { abnormal_flag: resData.abnormal_flag || null, unit: resData.result_unit || null })

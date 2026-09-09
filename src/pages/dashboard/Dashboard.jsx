@@ -1061,7 +1061,7 @@ export default function Dashboard(){
                 <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <AppIcon name="alert" size={14} /> Sync needs attention
                 </strong>
-                <span>{stuckTables.length} table{stuckTables.length > 1 ? 's' : ''} has pending records.</span>
+                <span>{stuckTables.length} table{stuckTables.length > 1 ? 's' : ''} {stuckTables.length === 1 ? 'has' : 'have'} pending records.</span>
               </div>
               <button onClick={() => setSyncPanelOpen(v => !v)}>Review</button>
             </div>

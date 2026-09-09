@@ -132,8 +132,24 @@ export default function Nursing(){
   }
 
   try {
+    // The database refuses medication_administrations rows without a
+    // patient. Prescriptions issued before patient_id was added to the
+    // payload (or built from a vitals row that lacked it) would otherwise
+    // poison the sync queue with a permanent NOT-NULL failure — resolve
+    // by name as a fallback, and refuse cleanly if the link truly cannot
+    // be established.
+    const resolvedPatientId =
+      rx.patient_id ||
+      patients.find((p) => p.full_name === rx.patient_name)?.id ||
+      null
+
+    if (!resolvedPatientId) {
+      showToast('Cannot record: this prescription has no linked patient. Ask the doctor to re-issue it.')
+      return
+    }
+
     await addMedicationAdministration({
-      patient_id: rx.patient_id || null,
+      patient_id: resolvedPatientId,
       prescription_id: rx.id,
 
       patient_name: rx.patient_name,

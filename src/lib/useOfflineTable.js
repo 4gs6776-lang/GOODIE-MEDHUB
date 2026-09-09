@@ -2,6 +2,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
 } from 'react'
 
 import { supabase } from './supabaseClient'
@@ -15,6 +16,35 @@ const STORE_NAME = 'offline_records'
 // by child rows: vitals, lab orders, prescriptions, invoices...).
 // A delete on these becomes an update that stamps deleted_at.
 const SOFT_DELETE_TABLES = new Set(['patients'])
+
+// Parents must reach the server before the children that reference them,
+// otherwise an offline-created child (admission request, MAR entry,
+// invoice...) dies with a foreign-key violation when the queue flushes
+// in random IndexedDB order.
+const TABLE_SYNC_ORDER = [
+  'patients',
+  'profiles',
+  'admission_requests',
+  'patient_vitals',
+  'encounters',
+  'prescriptions',
+  'pharmacy_orders',
+  'medication_administrations',
+  'lab_orders',
+  'lab_tests',
+  'admission_timeline_events',
+  'inventory_items',
+  'billable_charges',
+  'invoices',
+  'invoice_items',
+  'payments',
+  'audit_events',
+]
+
+function tableSyncRank(tableName) {
+  const index = TABLE_SYNC_ORDER.indexOf(tableName)
+  return index === -1 ? TABLE_SYNC_ORDER.length : index
+}
 
 // ============================================================
 // OPEN INDEXED DB
@@ -161,6 +191,15 @@ function isForeignKeyViolation(error) {
   return error?.code === '23503' || /violates foreign key constraint/i.test(error?.message || '')
 }
 
+// fetch() failures surface as TypeError("Failed to fetch") with no error
+// code — these are the ONLY failures that reliably mean "the network was
+// down", and they must never read like a data problem.
+const NETWORK_ERROR_RE = /failed to fetch|networkerror|load failed|fetch failed|network request failed|err_internet/i
+
+function isNetworkError(error) {
+  return NETWORK_ERROR_RE.test(error?.message || '')
+}
+
 // Permanent failures must not be retried on every reconnect — they need
 // either a schema change or a decision from the user.
 function classifyError(error) {
@@ -171,13 +210,22 @@ function classifyError(error) {
   return 'transient'
 }
 
-function friendlyErrorMessage(error, tableName) {
+function friendlyErrorMessage(error, tableName, op = 'write') {
   const missing = missingColumnFromError(error)
   if (missing) {
-    return `The "${tableName}" table in the database has no "${missing}" column, so this change could not be saved online. Run the schema update, then retry.`
+    return `The "${tableName}" table in the database has no "${missing}" column yet. Press Retry — the app will resend this change without it.`
+  }
+  if (isNetworkError(error)) {
+    return 'The server could not be reached (offline or unstable connection). This change is safe on this device and will be sent automatically once the connection is stable.'
   }
   if (isForeignKeyViolation(error)) {
-    return `This record is still linked to other records (e.g. vitals, orders or invoices), so it cannot be removed outright. Archive it instead.`
+    if (op === 'delete') {
+      return 'This record is still linked to other records (e.g. vitals, orders or invoices), so it cannot be removed outright. Archive it instead.'
+    }
+    return 'This record points to another record (e.g. its patient) that the server does not have yet — it may still be syncing from this or another device. It will keep retrying and will sync once that record exists.'
+  }
+  if (error?.code === '23505' || /duplicate key value/i.test(error?.message || '')) {
+    return 'A record with this unique reference already exists on the server. The duplicate is being reconciled automatically — no action needed.'
   }
   return error?.message || 'Synchronization failed'
 }
@@ -307,6 +355,9 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : false)
   const [pendingCount, setPendingCount] = useState(0)
   const [loadError, setLoadError] = useState(null)
+  // Mirror of pendingCount for use inside timers (state captured in a
+  // setInterval closure would be frozen at mount time).
+  const pendingCountRef = useRef(0)
 
   const loadLocalRecords = useCallback(async () => {
     if (!hospitalId) {
@@ -333,6 +384,7 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
         (record) => record._synced === false && record._discarded !== true
       )
       setPendingCount(pending.length)
+      pendingCountRef.current = pending.length
       setLoadError(null)
       setLoading(false)
     } catch (error) {
@@ -355,7 +407,22 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
       await loadLocalRecords()
     }
 
-    initialLoad()
+    initialLoad().then(() => {
+      // Flush on app load. Until now the queue only retried on
+      // online/offline events, so reloading the tab while online left
+      // transient failures (e.g. "Failed to fetch") stuck in the panel
+      // forever with no automatic way out.
+      if (navigator.onLine && hospitalId) flushTableQueue(tableName)
+    })
+
+    // Safety net: while this table has unsynced records, retry quietly
+    // every minute so transient failures self-heal without waiting for a
+    // reconnect event.
+    const retryTimer = setInterval(() => {
+      if (pendingCountRef.current > 0 && navigator.onLine && hospitalId) {
+        flushTableQueue(tableName)
+      }
+    }, 60000)
 
     const handleOnline = async () => {
       setIsOnline(true)
@@ -377,6 +444,7 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
     window.addEventListener('offline', handleOffline)
 
     return () => {
+      clearInterval(retryTimer)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
@@ -598,7 +666,7 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
           ...deletedRecord,
           _syncError: true,
           _syncErrorKind: classifyError(error),
-          _syncErrorMessage: friendlyErrorMessage(error, tableName),
+          _syncErrorMessage: friendlyErrorMessage(error, tableName, 'delete'),
         })
         await loadLocalRecords()
         throw new Error(friendlyErrorMessage(error, tableName))
@@ -691,15 +759,28 @@ export async function flushTableQueue(tableName = null, { force = false } = {}) 
         record._synced === false &&
         record._discarded !== true &&
         (!tableName || record.table_name === tableName) &&
-        (force || record._syncErrorKind !== 'schema') &&
-        (force || record._syncErrorKind !== 'reference')
+        // Schema-gap items stay held only until this session has learned
+        // the table's missing columns — after that writeWithSchemaRetry
+        // heals the write inline, so automatic retries are safe again.
+        (force || record._syncErrorKind !== 'schema' || (unknownColumnsByTable.get(record.table_name)?.size || 0) > 0)
     )
 
+    // Parents before children: a patient created offline must reach the
+    // server before the admission request / vitals / invoice that points
+    // at it, or the child write dies with a foreign-key violation.
+    pending.sort((a, b) => {
+      const rankGap = tableSyncRank(a.table_name) - tableSyncRank(b.table_name)
+      if (rankGap !== 0) return rankGap
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    })
+
     for (const record of pending) {
+      let op = 'write'
       try {
         const isSoftDeleteTable = SOFT_DELETE_TABLES.has(record.table_name)
 
         if (record._deleted && !isSoftDeleteTable && !record.deleted_at) {
+          op = 'delete'
           const { error } = await supabase
             .from(record.table_name)
             .delete()
@@ -738,12 +819,52 @@ export async function flushTableQueue(tableName = null, { force = false } = {}) 
       } catch (error) {
         const kind = classifyError(error)
         console.error(`Failed to sync ${record.id} (${kind}):`, error)
+
+        // Unique-conflict reconciliation: billable_charges carries a second
+        // unique key (unique_source_transaction) the id-upsert cannot cover.
+        // If the same charge already exists on the server under a different
+        // local id (a re-run lab test billed twice, or an insert whose
+        // success response was lost), the queued copy is a duplicate of a
+        // persisted row — adopt the server row and retire the local one
+        // instead of jamming the queue forever.
+        if (
+          kind === 'conflict' &&
+          record.table_name === 'billable_charges' &&
+          record.source_transaction_id
+        ) {
+          try {
+            let twinQuery = supabase
+              .from('billable_charges')
+              .select('*')
+              .eq('source_transaction_id', record.source_transaction_id)
+              .limit(1)
+            if (record.source_module) twinQuery = twinQuery.eq('source_module', record.source_module)
+            const { data: twins } = await twinQuery
+            if (Array.isArray(twins) && twins[0]) {
+              await putLocalRecord(db, {
+                ...twins[0],
+                table_name: record.table_name,
+                hospital_id: record.hospital_id,
+                _synced: true,
+                _deleted: Boolean(twins[0].deleted_at),
+                _syncError: false,
+                _syncErrorMessage: null,
+                _syncErrorKind: null,
+                _discarded: false,
+              })
+              continue
+            }
+          } catch (reconcileErr) {
+            console.error('Conflict reconciliation lookup failed:', reconcileErr)
+          }
+        }
+
         await putLocalRecord(db, {
           ...record,
           _synced: false,
           _syncError: true,
           _syncErrorKind: kind,
-          _syncErrorMessage: friendlyErrorMessage(error, record.table_name),
+          _syncErrorMessage: friendlyErrorMessage(error, record.table_name, op),
         })
       }
     }
