@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useOfflineTable } from '../lib/useOfflineTable'
 import MedicationChart from './MedicationChart'
+import AppIcon from './icons'
 
 const TABS = ['Overview', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
@@ -230,21 +231,23 @@ function detailRow(label, value){
 }
 
 const ADMISSION_STATUS_MAP = {
-  pending: { heading: '🏥 ADMISSION RECOMMENDED', label: 'Awaiting Admission', color: 'var(--gold)' },
-  approved: { heading: '🏥 ADMISSION APPROVED', label: 'Admission Approved', color: 'var(--teal)' },
-  converted: { heading: '🏥 CURRENTLY ADMITTED', label: 'Currently Admitted', color: 'var(--teal)' },
+  pending: { heading: 'ADMISSION RECOMMENDED', label: 'Awaiting Admission', color: 'var(--gold)' },
+  approved: { heading: 'ADMISSION APPROVED', label: 'Admission Approved', color: 'var(--teal)' },
+  converted: { heading: 'CURRENTLY ADMITTED', label: 'Currently Admitted', color: 'var(--teal)' },
 }
 
 function AdmissionStatusCard({ request }){
   if (!request) return null
-  const meta = ADMISSION_STATUS_MAP[request.status] || { heading: '🏥 ADMISSION REQUEST', label: request.status, color: 'var(--muted)' }
+  const meta = ADMISSION_STATUS_MAP[request.status] || { heading: 'ADMISSION REQUEST', label: request.status, color: 'var(--muted)' }
 
   return (
     <div style={{
       marginBottom: 20, padding: 16, borderRadius: 10,
       background: 'var(--bg-elevated)', border: `1px solid ${meta.color}`,
     }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: meta.color, marginBottom: 10 }}>{meta.heading}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: meta.color, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <AppIcon name="bed" size={15} /> {meta.heading}
+      </div>
       <div style={{ fontSize: 13, marginBottom: 10 }}>
         {request.doctor_name ? `Dr. ${request.doctor_name}` : 'A doctor'} has recommended admission.
       </div>
