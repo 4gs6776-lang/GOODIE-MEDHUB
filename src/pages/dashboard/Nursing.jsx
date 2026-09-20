@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import PatientProfile from '../../components/PatientProfile'
 import SearchInput from '../../components/common/SearchInput'
+import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 
 const URGENCY_LEVELS = ['Routine', 'Urgent', 'Emergency']
 
@@ -104,12 +105,8 @@ export default function Nursing(){
 
   // Patient lookup — search any patient (not just those currently in the
   // queue), see their details, doctor's orders, and latest consultation.
-  const [patientSearch, setPatientSearch] = useState('')
   const [selectedLookupPatientId, setSelectedLookupPatientId] = useState('')
 
-  const lookupResults = patientSearch.trim()
-    ? patients.filter(p => p.full_name.toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 20)
-    : []
   const selectedLookupPatient = patients.find(p => p.id === selectedLookupPatientId) || null
   const lookupOrders = selectedLookupPatient
     ? activeOrders.filter(rx => rx.patient_name === selectedLookupPatient.full_name)
@@ -122,7 +119,6 @@ export default function Nursing(){
 
   function selectLookupPatient(id){
     setSelectedLookupPatientId(id)
-    setPatientSearch('')
   }
 
   async function handleMarkAdministered(rx){
@@ -362,34 +358,14 @@ export default function Nursing(){
 
         {!selectedLookupPatient && (
           <div className="field" style={{ marginBottom: 0 }}>
-            <input
-              value={patientSearch}
-              onChange={e => setPatientSearch(e.target.value)}
+            <PatientAutocomplete
+              patients={patients}
+              value={null}
+              onChange={opt => { if (opt?.patient) selectLookupPatient(opt.patient.id) }}
               placeholder="Search patients by name…"
+              ariaLabel="Patient lookup"
             />
           </div>
-        )}
-
-        {patientSearch.trim() && !selectedLookupPatient && (
-          lookupResults.length === 0 ? (
-            <div style={{ padding: '16px 0', color: 'var(--muted)', fontSize: 13 }}>No patients match "{patientSearch}".</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-              {lookupResults.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => selectLookupPatient(p.id)}
-                  style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer',
-                    padding: '9px 12px', borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
-                  }}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{p.full_name}</span>
-                  <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.age ? `${p.age} yrs` : ''}{p.queue_status ? ` · ${p.queue_status.replace('_', ' ')}` : ''}</span>
-                </div>
-              ))}
-            </div>
-          )
         )}
 
         {selectedLookupPatient && (
