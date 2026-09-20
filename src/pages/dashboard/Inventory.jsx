@@ -5,6 +5,8 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import PatientAutocomplete from '../../components/common/PatientAutocomplete'
+import AppIcon from '../../components/icons'
 
 const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
 
@@ -25,7 +27,7 @@ export default function Inventory() {
   const [batchNumber, setBatchNumber] = useState(''); const [expiryDate, setExpiryDate] = useState(''); const [genericName, setGenericName] = useState(''); const [strength, setStrength] = useState(''); const [dosageForm, setDosageForm] = useState('')
   const [saving, setSaving] = useState(false); const [formError, setFormError] = useState('')
   const [showDispenseModal, setShowDispenseModal] = useState(false); const [dispensingItem, setDispensingItem] = useState(null); const [dispenseQuantity, setDispenseQuantity] = useState('')
-  const [dispensing, setDispensing] = useState(false); const [dispenseError, setDispenseError] = useState(''); const [patientSearch, setPatientSearch] = useState(''); const [selectedPatient, setSelectedPatient] = useState(null)
+  const [dispensing, setDispensing] = useState(false); const [dispenseError, setDispenseError] = useState(''); const [selectedPatient, setSelectedPatient] = useState(null)
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 3000) }
 
@@ -33,7 +35,7 @@ export default function Inventory() {
   // syncFromServer so the new item is actually pulled down, not just
   // re-read from whatever was already cached locally.
   useRealtimeAlert('inventory_items', hospital?.id, (newRow) => {
-    showToast(`📦 New item added: ${newRow.name || 'inventory item'}`)
+    showToast(`New item added: ${newRow.name || 'inventory item'}`)
     syncFromServer()
   })
   const resetForm = () => { setEditingId(null); setName(''); setCategory(CATEGORIES[0]); setQuantity(''); setUnit('units'); setSupplier(''); setReorderLevel('10'); setCostPrice(''); setSellingPrice(''); setBatchNumber(''); setExpiryDate(''); setGenericName(''); setStrength(''); setDosageForm(''); setFormError('') }
@@ -68,9 +70,8 @@ export default function Inventory() {
   }
 
   const handleDelete = async (item) => { if (!window.confirm(`Remove ${item.name}?`)) return; try { await deleteRecord(item.id); showToast('Removed') } catch (e) { showToast(e.message) } }
-  const openDispense = (item) => { setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setShowDispenseModal(true) }
-  const closeDispense = () => { if (dispensing) return; setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null) }
-  const filteredPatients = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
+  const openDispense = (item) => { setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setShowDispenseModal(true) }
+  const closeDispense = () => { if (dispensing) return; setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null) }
 
   const handleDispense = async (e) => {
     e.preventDefault(); if (!dispensingItem) return; setDispenseError('')
@@ -122,7 +123,7 @@ export default function Inventory() {
         <div className="dash-panel-head">
           <div><div className="dash-panel-title">Inventory & Supplies</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />{isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search item..." style={{ minWidth: 260, maxWidth: 420 }} />
-          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setIsImportModalOpen(true)}>📊 Import Excel</button><button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => { resetForm(); setShowModal(true) }}>+ New Item</button></div>
+          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setIsImportModalOpen(true)}><AppIcon name="import" size={14} /> Import Excel</button><button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => { resetForm(); setShowModal(true) }}>+ New Item</button></div>
         </div>
         {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : sorted.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No items found.</div> : (
           <div style={{ overflowX: 'auto' }}>
@@ -183,15 +184,14 @@ export default function Inventory() {
             </div>
             {dispenseError && <div className="error-box" style={{ marginBottom: 12 }}>{dispenseError}</div>}
             <form onSubmit={handleDispense}>
-              <div className="field" style={{ position: 'relative' }}>
+              <div className="field">
                 <label>Select Patient</label>
-                <input type="text" value={selectedPatient ? selectedPatient.full_name : patientSearch} onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }} placeholder="Search patient..." autoFocus disabled={!!selectedPatient} />
-                {filteredPatients.length > 0 && !selectedPatient && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, marginTop: 4, zIndex: 10, maxHeight: 150, overflowY: 'auto' }}>
-                    {filteredPatients.map(p => (<div key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch('') }} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>{p.full_name}</div>))}
-                  </div>
-                )}
-                {selectedPatient && <button type="button" onClick={() => setSelectedPatient(null)} style={{ position: 'absolute', right: 10, top: 35, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>}
+                <PatientAutocomplete
+                  patients={patients}
+                  value={selectedPatient ? { id: selectedPatient.id, label: selectedPatient.full_name, patient: selectedPatient } : null}
+                  onChange={opt => setSelectedPatient(opt?.patient || null)}
+                  ariaLabel="Patient"
+                />
               </div>
               <div className="field"><label>Quantity</label><input type="number" min="1" max={dispensingItem.quantity} value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} /></div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}><button type="button" className="btn btn-ghost" onClick={closeDispense} disabled={dispensing}>Cancel</button><button type="submit" className="btn btn-primary" disabled={dispensing}>{dispensing ? 'Dispensing…' : 'Confirm'}</button></div>
