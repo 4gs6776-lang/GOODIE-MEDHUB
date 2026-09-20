@@ -42,7 +42,7 @@ export default function IPD({ onGoToAdmissions }){
   // syncFromServer (not refreshTable) so we actually pull the updated bed rows down,
   // not just re-read whatever was already sitting in the local offline cache.
   useRealtimeAlert('admissions', hospital?.id, () => {
-    showToast('🏥 A new patient was admitted — bed list refreshed')
+    showToast('A new patient was admitted — bed list refreshed')
     syncFromServer()
   })
 
