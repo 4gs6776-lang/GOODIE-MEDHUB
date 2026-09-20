@@ -5,6 +5,7 @@ import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
+import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import useMediaQuery from '../../lib/useMediaQuery'
 import { getTimezone, formatDate as formatDateTz } from '../../lib/datetime'
 
@@ -28,7 +29,6 @@ export default function Pharmacy() {
   const [dispenseQuantity, setDispenseQuantity] = useState('')
   const [dispensing, setDispensing] = useState(false)
   const [dispenseError, setDispenseError] = useState('')
-  const [patientSearch, setPatientSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [activeRx, setActiveRx] = useState(null) // Tracks if dispensing from a doctor's order
 
@@ -131,7 +131,7 @@ export default function Pharmacy() {
 
   // Manual Dispense (Over the counter)
   const openDispense = (item) => { 
-    setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setActiveRx(null); setShowDispenseModal(true) 
+    setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null); setShowDispenseModal(true) 
   }
 
   // NEW: Cancel Prescription from Doctor's Queue
@@ -176,7 +176,6 @@ export default function Pharmacy() {
 
     setDispenseQuantity(rx.quantity || '1')
     setDispenseError('')
-    setPatientSearch('')
     setSelectedPatient(matchedPatient)
     setActiveRx(rx) // Link this dispense to the doctor's prescription
     setShowDispenseModal(true)
@@ -184,10 +183,8 @@ export default function Pharmacy() {
 
   const closeDispense = () => { 
     if (dispensing) return
-    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setPatientSearch(''); setSelectedPatient(null); setActiveRx(null) 
+    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null) 
   }
-  
-  const filteredPatients = patientSearch.trim() ? patients.filter(p => String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase())).slice(0, 5) : []
 
   const handleDispense = async (e) => {
     e.preventDefault()
@@ -398,19 +395,15 @@ export default function Pharmacy() {
               </div>
             </div>
             {dispenseError && <div className="error-box" style={{ marginBottom: 12 }}>{dispenseError}</div>}
-            <div className="field" style={{ position: 'relative' }}>
+            <div className="field">
                 <label>Select Patient</label>
-                <input type="text" value={selectedPatient ? selectedPatient.full_name : patientSearch} onChange={e => { setPatientSearch(e.target.value); setSelectedPatient(null) }} placeholder="Search patient name..." autoFocus disabled={!!selectedPatient} />
-                {filteredPatients.length > 0 && !selectedPatient && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-elevated)', border: '1px solid var(--line)', borderRadius: 8, marginTop: 4, zIndex: 10, maxHeight: 150, overflowY: 'auto' }}>
-                    {filteredPatients.map(p => (<div key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch('') }} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>{p.full_name}</div>))}
-                  </div>
-                )}
-                {selectedPatient && (
-                  <button type="button" onClick={() => setSelectedPatient(null)} className="field-clear-btn" aria-label="Clear selected patient">
-                    <AppIcon name="close" size={14} />
-                  </button>
-                )}
+                <PatientAutocomplete
+                  patients={patients}
+                  value={selectedPatient ? { id: selectedPatient.id, label: selectedPatient.full_name, patient: selectedPatient } : null}
+                  onChange={opt => setSelectedPatient(opt?.patient || null)}
+                  placeholder="Search patient name…"
+                  ariaLabel="Patient"
+                />
               </div>
               <div className="field"><label>Quantity to Dispense</label><input type="number" min="1" value={dispenseQuantity} onChange={e => setDispenseQuantity(e.target.value)} placeholder="Enter quantity" /></div>
             </div>
