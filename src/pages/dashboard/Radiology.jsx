@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import Pagination from '../../components/common/Pagination'
+import { usePagination } from '../../lib/usePagination'
 
 const MODALITIES = ['X-Ray', 'CT Scan', 'MRI', 'Ultrasound', 'Mammography', 'Fluoroscopy']
 
@@ -94,6 +96,16 @@ export default function Radiology(){
   const sorted = [...scans].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
   const radiologySearch = searchTerm.trim().toLowerCase()
   const visibleSorted = radiologySearch ? sorted.filter(s => [s.patient_name, s.patient_id, s.modality, s.body_area, s.request_number, s.status, s.report].some(v => String(v || '').toLowerCase().includes(radiologySearch))) : sorted
+
+  // Pagination — the underlying array is already fully loaded locally
+  // (offline-first), this just controls what's actually rendered on
+  // screen at once so a hospital with hundreds of scans doesn't render
+  // a giant scrolling table. Resets to page 1 whenever the search term
+  // changes (resetKey).
+  const {
+    page, setPage, pageSize, setPageSize, pageCount, totalCount, pageItems, rangeLabel,
+  } = usePagination(visibleSorted, { pageSize: 20, resetKey: radiologySearch })
+
   const requestedCount = scans.filter(s => s.status === 'requested').length
   const inProgressCount = scans.filter(s => s.status === 'in_progress').length
   const completedCount = scans.filter(s => s.status === 'completed').length
@@ -151,49 +163,55 @@ export default function Radiology(){
         ) : visibleSorted.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No scan requests yet. Add your first one above.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Patient', 'Modality', 'Area', 'Status', 'Report', ''].map(h => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleSorted.map(scan => {
-                const meta = statusMeta(scan.status)
-                return (
-                  <tr key={scan.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: 12, fontWeight: 700 }}>{scan.patient_name}</td>
-                    <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{scan.modality}</td>
-                    <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{scan.body_part}</td>
-                    <td style={{ padding: 12 }}>
-                      <span
-                        onClick={nextAction(scan)}
-                        style={{
-                          fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
-                          background: meta.bg, color: meta.color,
-                        }}
-                        title="Tap to change"
-                      >
-                        {meta.label}
-                      </span>
-                    </td>
-                    <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {scan.report || '—'}
-                    </td>
-                    <td style={{ padding: 12 }}>
-                      <button
-                        onClick={() => handleDelete(scan)}
-                        className="icon-btn-delete"
-                        title="Delete"
-                      ><TrashIcon size={14}/></button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Patient', 'Modality', 'Area', 'Status', 'Report', ''].map(h => (
+                    <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map(scan => {
+                  const meta = statusMeta(scan.status)
+                  return (
+                    <tr key={scan.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                      <td style={{ padding: 12, fontWeight: 700 }}>{scan.patient_name}</td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{scan.modality}</td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{scan.body_part}</td>
+                      <td style={{ padding: 12 }}>
+                        <span
+                          onClick={nextAction(scan)}
+                          style={{
+                            fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
+                            background: meta.bg, color: meta.color,
+                          }}
+                          title="Tap to change"
+                        >
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {scan.report || '—'}
+                      </td>
+                      <td style={{ padding: 12 }}>
+                        <button
+                          onClick={() => handleDelete(scan)}
+                          className="icon-btn-delete"
+                          title="Delete"
+                        ><TrashIcon size={14}/></button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <Pagination
+              page={page} setPage={setPage} pageCount={pageCount} totalCount={totalCount}
+              rangeLabel={rangeLabel} pageSize={pageSize} setPageSize={setPageSize}
+            />
+          </>
         )}
       </div>
 
