@@ -15,7 +15,9 @@ const STORE_NAME = 'offline_records'
 // Tables that must NEVER be hard-deleted (clinical history is referenced
 // by child rows: vitals, lab orders, prescriptions, invoices...).
 // A delete on these becomes an update that stamps deleted_at.
-const SOFT_DELETE_TABLES = new Set(['patients'])
+// Stage 1 cleanup: lab_orders/lab_tests/radiology_scans joined patients
+// here — clinical results must be archived, not destroyed (rule 16).
+const SOFT_DELETE_TABLES = new Set(['patients', 'lab_orders', 'lab_tests', 'radiology_scans'])
 
 // Parents must reach the server before the children that reference them,
 // otherwise an offline-created child (admission request, MAR entry,
@@ -627,10 +629,12 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
     return updatedRecord
   }
 
-  // Deleting a patient used to issue a hard DELETE, which the database
-  // refuses while vitals / orders / invoices still reference the row.
-  // For those tables we archive instead: deleted_at is stamped, history
-  // is preserved, and the record disappears from every list.
+  // Deleting a patient (and now lab orders/tests, radiology scans) used
+  // to issue a hard DELETE, which the database refuses while other
+  // records still reference the row — and even when it succeeds, it
+  // destroys clinical history. For SOFT_DELETE_TABLES we archive
+  // instead: deleted_at is stamped, history is preserved, and the
+  // record disappears from every list.
   const deleteRecord = async (id) => {
     if (SOFT_DELETE_TABLES.has(tableName)) {
       return updateRecord(id, { deleted_at: nowISO() })
