@@ -9,6 +9,7 @@ import './theme/owner.css'
 import './theme/billing.css'
 import './theme/premium-global.css'
 import './theme/handover.css'
+import './theme/pagination.css'
 // mobile.css MUST be imported last (its own header demands it): the whole
 // responsive layer loses the cascade otherwise — e.g. premium-global.css's
 // unconditional .dash-modal{border-radius:14px} was overriding the phone
