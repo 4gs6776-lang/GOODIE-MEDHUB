@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import Pagination from '../../components/common/Pagination'
+import { usePagination } from '../../lib/usePagination'
 
 const PROVIDERS = ['NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
@@ -93,6 +95,13 @@ export default function Insurance(){
   const sorted = [...claims].sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
   const insuranceSearch = searchTerm.trim().toLowerCase()
   const visibleClaims = insuranceSearch ? sorted.filter(c => [c.patient_name, c.patient_id, c.provider, c.policy_number, c.claim_number, c.pa_number, c.icd_code, c.status].some(v => String(v || '').toLowerCase().includes(insuranceSearch))) : sorted
+
+  // Pagination — see Radiology.jsx for the explanation of why this is
+  // client-side over the already-loaded (offline-first) records list.
+  const {
+    page, setPage, pageSize, setPageSize, pageCount, totalCount, pageItems, rangeLabel,
+  } = usePagination(visibleClaims, { pageSize: 20, resetKey: insuranceSearch })
+
   const submittedCount = claims.filter(c => c.status === 'submitted').length
   const approvedTotal = claims.filter(c => c.status === 'approved').reduce((sum, c) => sum + Number(c.amount), 0)
   const rejectedCount = claims.filter(c => c.status === 'rejected').length
@@ -184,59 +193,65 @@ export default function Insurance(){
         ) : visibleClaims.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No claims yet. Add your first one above.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                {['Patient', 'Provider', 'Policy No.', 'Amount', 'Status', ''].map(h => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleClaims.map(claim => {
-                const meta = statusMeta(claim.status)
-                return (
-                  <tr key={claim.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: 12, fontWeight: 700 }}>{claim.patient_name}</td>
-                    <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{claim.provider}</td>
-                    <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{claim.policy_number}</td>
-                    <td style={{ padding: 12, fontWeight: 700 }}>{formatMoney(claim.amount)}</td>
-                    <td style={{ padding: 12 }}>
-                      {claim.status === 'submitted' ? (
-                        <div style={{ display: 'flex', gap: 6 }}>
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Patient', 'Provider', 'Policy No.', 'Amount', 'Status', ''].map(h => (
+                    <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map(claim => {
+                  const meta = statusMeta(claim.status)
+                  return (
+                    <tr key={claim.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                      <td style={{ padding: 12, fontWeight: 700 }}>{claim.patient_name}</td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{claim.provider}</td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{claim.policy_number}</td>
+                      <td style={{ padding: 12, fontWeight: 700 }}>{formatMoney(claim.amount)}</td>
+                      <td style={{ padding: 12 }}>
+                        {claim.status === 'submitted' ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <span
+                              onClick={() => handleApprove(claim)}
+                              style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--teal-soft)', color: 'var(--teal)' }}
+                              title="Approve"
+                            >Approve</span>
+                            <span
+                              onClick={() => handleReject(claim)}
+                              style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}
+                              title="Reject"
+                            >Reject</span>
+                          </div>
+                        ) : (
                           <span
-                            onClick={() => handleApprove(claim)}
-                            style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: 'var(--teal-soft)', color: 'var(--teal)' }}
-                            title="Approve"
-                          >Approve</span>
-                          <span
-                            onClick={() => handleReject(claim)}
-                            style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}
-                            title="Reject"
-                          >Reject</span>
-                        </div>
-                      ) : (
-                        <span
-                          onClick={() => handleReopen(claim)}
-                          style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: meta.bg, color: meta.color }}
-                          title={claim.status === 'rejected' && claim.rejection_reason ? claim.rejection_reason : 'Tap to reopen'}
-                        >
-                          {meta.label}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: 12 }}>
-                      <button
-                        onClick={() => handleDelete(claim)}
-                        className="icon-btn-delete"
-                        title="Delete"
-                      ><TrashIcon size={14}/></button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                            onClick={() => handleReopen(claim)}
+                            style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: meta.bg, color: meta.color }}
+                            title={claim.status === 'rejected' && claim.rejection_reason ? claim.rejection_reason : 'Tap to reopen'}
+                          >
+                            {meta.label}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: 12 }}>
+                        <button
+                          onClick={() => handleDelete(claim)}
+                          className="icon-btn-delete"
+                          title="Delete"
+                        ><TrashIcon size={14}/></button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <Pagination
+              page={page} setPage={setPage} pageCount={pageCount} totalCount={totalCount}
+              rangeLabel={rangeLabel} pageSize={pageSize} setPageSize={setPageSize}
+            />
+          </>
         )}
       </div>
 
