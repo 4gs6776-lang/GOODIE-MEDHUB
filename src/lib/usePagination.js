@@ -1,64 +1,69 @@
 import { useState, useEffect, useMemo } from 'react'
 
 // =====================================================================
-// GOODIE-MEDHUB — shared pagination logic (client-side, over an
-// already-loaded and already-filtered array).
+// GOODIE-MEDHUB — Shared pagination hook (Global Pagination Rule)
 //
-// This intentionally paginates data ALREADY held locally (from the
-// existing offline-first useOfflineTable system), not a fresh database
-// query per page. True server-side pagination would conflict with the
-// app's offline-first design, where a whole table is downloaded once so
-// the app keeps working without a connection. See the accompanying
-// explanation delivered alongside this file for the reasoning.
+// Takes a full array of records already loaded into memory (from
+// useOfflineTable) and returns just the slice for the current page,
+// plus everything a <Pagination /> control needs to drive it.
 //
-// Usage:
-//   const pg = usePagination(filteredList, { initialPageSize: 20, resetKey: searchTerm })
-//   pg.pageItems   -> just the current page's records
-//   pg.page, pg.pageCount, pg.total, pg.pageSize
-//   pg.setPage(n), pg.setPageSize(n)
+// IMPORTANT ARCHITECTURE NOTE:
+// This app's offline-first design (useOfflineTable) pulls every row for
+// the hospital down into the browser's local database so the app keeps
+// working without internet. That means pagination here happens in the
+// browser, over data that is already local — it does NOT re-query
+// Supabase page by page. True server-side LIMIT/OFFSET pagination would
+// conflict with that offline design (a page you never visited while
+// online would never load without internet). This hook still delivers
+// the visible behaviour requested (only render 20/50 rows at a time,
+// proper Previous/Next, "Showing X-Y of Z") without breaking offline mode.
 //
-// resetKey: pass whatever value should snap the view back to page 1
-// when it changes (a search term, a status filter, a date range...).
+// resetKey: pass in your search term / filters. Whenever this value
+// changes, the page resets to 1 automatically, so a new search never
+// leaves the user stranded on "page 4 of 1".
 // =====================================================================
 
-export function usePagination(items, { initialPageSize = 20, resetKey } = {}) {
-  const [page, setPage] = useState(1)
+export function usePagination(items, { pageSize: initialPageSize = 20, resetKey } = {}) {
+  const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(initialPageSize)
 
-  // Reset to page 1 whenever the caller's reset key changes (e.g. the
-  // search box or a filter dropdown changed) — never leave someone
-  // stranded on "page 4" of a search that now only has 1 result.
+  // Reset to page 1 whenever the search/filter changes.
   useEffect(() => {
-    setPage(1)
-  }, [resetKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    setCurrentPage(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey])
 
-  const total = items.length
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const totalItems = items.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
 
-  // If the list shrank (e.g. a filter removed items) and the current
-  // page no longer exists, snap back to the last real page instead of
-  // showing a blank screen.
+  // If the list shrank (e.g. a record was deleted) and the current page
+  // no longer exists, snap back instead of showing a blank page.
   useEffect(() => {
-    setPage(p => Math.min(p, pageCount))
-  }, [pageCount])
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [currentPage, totalPages])
 
-  const pageItems = useMemo(() => {
-    const start = (page - 1) * pageSize
-    return items.slice(start, start + pageSize)
-  }, [items, page, pageSize])
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = Math.min(startIndex + pageSize, totalItems)
+
+  const pageItems = useMemo(
+    () => items.slice(startIndex, endIndex),
+    [items, startIndex, endIndex]
+  )
 
   function changePageSize(newSize) {
     setPageSize(newSize)
-    setPage(1)
+    setCurrentPage(1)
   }
 
   return {
-    page,
-    setPage,
+    pageItems,
+    currentPage,
+    setCurrentPage,
     pageSize,
     setPageSize: changePageSize,
-    total,
-    pageCount,
-    pageItems,
+    totalPages,
+    totalItems,
+    startIndex,
+    endIndex,
   }
 }
