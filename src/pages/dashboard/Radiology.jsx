@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
-import Pagination from '../../components/common/Pagination'
-import { usePagination } from '../../lib/usePagination'
 
 const MODALITIES = ['X-Ray', 'CT Scan', 'MRI', 'Ultrasound', 'Mammography', 'Fluoroscopy']
 
@@ -96,19 +96,17 @@ export default function Radiology(){
   const sorted = [...scans].sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at))
   const radiologySearch = searchTerm.trim().toLowerCase()
   const visibleSorted = radiologySearch ? sorted.filter(s => [s.patient_name, s.patient_id, s.modality, s.body_area, s.request_number, s.status, s.report].some(v => String(v || '').toLowerCase().includes(radiologySearch))) : sorted
-
-  // Pagination — the underlying array is already fully loaded locally
-  // (offline-first), this just controls what's actually rendered on
-  // screen at once so a hospital with hundreds of scans doesn't render
-  // a giant scrolling table. Resets to page 1 whenever the search term
-  // changes (resetKey).
-  const {
-    page, setPage, pageSize, setPageSize, pageCount, totalCount, pageItems, rangeLabel,
-  } = usePagination(visibleSorted, { pageSize: 20, resetKey: radiologySearch })
-
   const requestedCount = scans.filter(s => s.status === 'requested').length
   const inProgressCount = scans.filter(s => s.status === 'in_progress').length
   const completedCount = scans.filter(s => s.status === 'completed').length
+
+  // Global Pagination Rule — the full radiology_scans table for this
+  // hospital already lives in the browser (offline cache), so we only
+  // render one page of it at a time instead of the whole list.
+  const {
+    pageItems: pagedScans, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(visibleSorted, { pageSize: 10, resetKey: radiologySearch })
 
   return (
     <>
@@ -173,7 +171,7 @@ export default function Radiology(){
                 </tr>
               </thead>
               <tbody>
-                {pageItems.map(scan => {
+                {pagedScans.map(scan => {
                   const meta = statusMeta(scan.status)
                   return (
                     <tr key={scan.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
@@ -207,9 +205,17 @@ export default function Radiology(){
                 })}
               </tbody>
             </table>
+
             <Pagination
-              page={page} setPage={setPage} pageCount={pageCount} totalCount={totalCount}
-              rangeLabel={rangeLabel} pageSize={pageSize} setPageSize={setPageSize}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="scan requests"
             />
           </>
         )}
