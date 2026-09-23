@@ -1,55 +1,55 @@
 import AppIcon from '../icons'
 
-const DEFAULT_PAGE_SIZES = [10, 20, 25, 50]
+// =====================================================================
+// GOODIE-MEDHUB — Pagination (Global Pagination Rule)
+//
+// ONE pagination control used everywhere a list of records can grow
+// large: Pharmacy, Inventory, Laboratory, Radiology, Insurance, Staff,
+// Notifications, Billing, Admissions, Reports, etc. No module should
+// hand-roll its own "Previous/Next" buttons anymore.
+//
+// Shows "Showing 1-20 of 245", Previous/Next, numbered page buttons
+// (with an ellipsis for long lists), and an optional page-size picker.
+// On phones the numbered buttons collapse to a compact "Page 2 of 13"
+// label next to Previous/Next, so nothing overflows at 320-430px.
+// =====================================================================
 
-// =====================================================================
-// GOODIE-MEDHUB — Pagination: the ONE pagination control used across
-// the whole app (global pagination rule).
-//
-// Renders:
-//   - "Showing 1–20 of 245 <items>" summary text
-//   - Optional page-size selector (10/20/25/50 per page)
-//   - Previous / Next buttons
-//   - A compact window of page numbers on desktop (1 … 4 5 [6] 7 8 … 20)
-//   - A compact "Page X of Y" label on phones instead of page numbers,
-//     so nothing overflows at 320–430px screen widths.
-//
-// Renders nothing when there are zero records — an empty list already
-// has its own "no results" message elsewhere on the page.
-// =====================================================================
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 25, 50]
 
 export default function Pagination({
-  page,
-  pageCount,
-  total,
+  currentPage,
+  totalPages,
+  totalItems,
+  startIndex,
+  endIndex,
   pageSize,
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = DEFAULT_PAGE_SIZES,
-  itemLabel = 'items',
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  itemLabel = 'records',
 }) {
-  if (!total) return null
+  // Nothing to paginate — don't clutter the UI with empty controls.
+  if (!totalItems) return null
 
-  const start = (page - 1) * pageSize + 1
-  const end = Math.min(page * pageSize, total)
-
-  // Builds a small set of page numbers to show: always first, last,
-  // current, and one neighbour on each side of current — with a "…"
-  // gap marker wherever numbers aren't consecutive.
-  function pageWindow() {
-    const pages = new Set([1, pageCount, page])
-    for (let i = page - 1; i <= page + 1; i++) {
-      if (i >= 1 && i <= pageCount) pages.add(i)
+  // Build a compact page-number list: first, last, current +/-1, with
+  // "…" gaps for anything skipped — the same convention most apps use.
+  function pageNumbers() {
+    const pages = []
+    const add = (p) => { if (!pages.includes(p)) pages.push(p) }
+    add(1)
+    for (let p = currentPage - 1; p <= currentPage + 1; p++) {
+      if (p > 1 && p < totalPages) add(p)
     }
-    return [...pages].sort((a, b) => a - b)
+    if (totalPages > 1) add(totalPages)
+    return pages.sort((a, b) => a - b)
   }
 
-  const numbers = pageWindow()
+  const pages = pageNumbers()
 
   return (
     <div className="gmed-pagination">
       <div className="gmed-pagination-info">
-        Showing {start}–{end} of {total} {itemLabel}
+        Showing {totalItems === 0 ? 0 : startIndex + 1}–{endIndex} of {totalItems} {itemLabel}
       </div>
 
       <div className="gmed-pagination-controls">
@@ -69,45 +69,40 @@ export default function Pagination({
         <button
           type="button"
           className="gmed-pagination-btn"
-          onClick={() => onPageChange(page - 1)}
-          disabled={page <= 1}
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage <= 1}
           aria-label="Previous page"
         >
           <AppIcon name="chevronLeft" size={15} />
         </button>
 
-        <div className="gmed-pagination-numbers">
-          {numbers.map((n, i) => {
-            const prev = numbers[i - 1]
-            const showGap = prev != null && n - prev > 1
-            return (
-              <span key={n} style={{ display: 'inline-flex', alignItems: 'center' }}>
-                {showGap && <span className="gmed-pagination-ellipsis">…</span>}
-                <button
-                  type="button"
-                  className={`gmed-pagination-num${n === page ? ' is-active' : ''}`}
-                  onClick={() => onPageChange(n)}
-                  aria-current={n === page ? 'page' : undefined}
-                  aria-label={`Page ${n}`}
-                >
-                  {n}
-                </button>
-              </span>
-            )
-          })}
-        </div>
+        {/* Numbered buttons — hidden on phones via CSS, replaced by the
+            compact "Page x of y" text. */}
+        <span className="gmed-pagination-numbers">
+          {pages.map((p, i) => (
+            <span key={p} style={{ display: 'inline-flex', alignItems: 'center' }}>
+              {i > 0 && p - pages[i - 1] > 1 && <span className="gmed-pagination-ellipsis">…</span>}
+              <button
+                type="button"
+                className={`gmed-pagination-btn gmed-pagination-num${p === currentPage ? ' is-active' : ''}`}
+                onClick={() => onPageChange(p)}
+                aria-current={p === currentPage ? 'page' : undefined}
+                aria-label={`Page ${p}`}
+              >
+                {p}
+              </button>
+            </span>
+          ))}
+        </span>
 
-        {/* Phones (<=600px, see pagination.css): number buttons are
-            hidden and this compact label takes their place instead. */}
-        <div className="gmed-pagination-compact">
-          Page {page} of {pageCount}
-        </div>
+        {/* Mobile-only compact label */}
+        <span className="gmed-pagination-compact">Page {currentPage} of {totalPages}</span>
 
         <button
           type="button"
           className="gmed-pagination-btn"
-          onClick={() => onPageChange(page + 1)}
-          disabled={page >= pageCount}
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages}
           aria-label="Next page"
         >
           <AppIcon name="chevron" size={15} />
