@@ -14,6 +14,8 @@ import { getTimezone, formatDateTimeSec, formatDate } from '../../lib/datetime'
 import {
   labStage, stageStatus, normalizeLabRow, LAB_STAGE_LABEL, ABNORMAL_FLAGS,
 } from '../../lib/lab'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 // Common lab tests power the test-name autocomplete (global rule: no
 // free-typing a value the system already knows). Anything unmatched can
@@ -384,6 +386,15 @@ export default function Laboratory(){
   const pendingCountStat = combined.filter(t => t.isPending).length
   const completedCount = combined.filter(t => labStage(t.status) === 'completed').length
 
+  // Global Pagination Rule — the combined lab_tests + lab_orders list
+  // can grow into the hundreds over time, so only the current page's
+  // rows are rendered into the table. Page size 10 (same as Radiology
+  // and Insurance) because each row carries a lot of clinical detail.
+  const {
+    pageItems: pagedTests, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(visibleSorted, { pageSize: 10, resetKey: labSearch })
+
   // Stage-aware primary action per row (pipeline, global lab rule).
   function stageAction(test){
     const stage = labStage(test.status)
@@ -441,94 +452,108 @@ export default function Laboratory(){
         ) : visibleSorted.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No lab requests yet. Add your first one above.</div>
         ) : (
-          <div className="dash-table-wrap">
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
-              <thead>
-                <tr>
-                  {['Patient', 'Test', 'Status', 'Result', 'Requested', ''].map(h => (
-                    <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {visibleSorted.map(test => {
-                  const stage = labStage(test.status)
-                  const action = stageAction(test)
-                  return (
-                  <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                    <td style={{ padding: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                      {test.patient_name}
-                      {test.origin === 'doctor' && (
-                        <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)', verticalAlign: 'middle' }}>
-                          DOCTOR
-                        </span>
-                      )}
-                      {(test.priority === 'urgent' || test.priority === 'stat') && (
-                        <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: test.priority === 'stat' ? 'var(--danger-soft)' : 'rgba(201,169,97,0.14)', color: test.priority === 'stat' ? 'var(--danger)' : 'var(--gold)', verticalAlign: 'middle' }}>
-                          {test.priority === 'stat' ? 'STAT' : 'URGENT'}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{test.test_name}</td>
-                    <td style={{ padding: 12 }}>
-                      <span className={`lab-stage is-${stage}`}>{LAB_STAGE_LABEL[stage]}</span>
-                    </td>
-                    <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {test.result
-                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            {test.abnormal_flag && test.abnormal_flag !== 'normal' && <span className={`lab-flag is-${test.abnormal_flag}`}>{test.abnormal_flag}</span>}
-                            {test.result}
-                          </span>
-                        : '—'}
-                    </td>
-                    <td style={{ padding: 12, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      {formatDate(test.requested_at, timezone)}
-                    </td>
-                    <td style={{ padding: 12 }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        {action && (
-                          <button
-                            type="button"
-                            className="appt-status-btn"
-                            onClick={action.run}
-                            aria-label={action.aria}
-                            style={stage === 'completed' ? { background: 'var(--teal-soft)', color: 'var(--teal)', whiteSpace: 'nowrap' } : { whiteSpace: 'nowrap' }}
-                          >
-                            {action.label}
-                          </button>
-                        )}
-                        {test.isPending && (
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
-                            onClick={() => handleCancel(test)}
-                            aria-label={`Cancel ${test.test_name} request for ${test.patient_name}`}
-                          >
-                            Cancel
-                          </button>
-                        )}
-                        {stage === 'completed' && (
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
-                            onClick={() => handleReopen(test)}
-                            aria-label={`Reopen ${test.test_name} for ${test.patient_name} as pending`}
-                            title="Re-open as pending (correct a result)"
-                          >
-                            Reopen
-                          </button>
-                        )}
-                        <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete" aria-label={`Delete ${test.test_name} request for ${test.patient_name}`}><TrashIcon size={14}/></button>
-                      </div>
-                    </td>
+          <>
+            <div className="dash-table-wrap">
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+                <thead>
+                  <tr>
+                    {['Patient', 'Test', 'Status', 'Result', 'Requested', ''].map(h => (
+                      <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
                   </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pagedTests.map(test => {
+                    const stage = labStage(test.status)
+                    const action = stageAction(test)
+                    return (
+                    <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                      <td style={{ padding: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {test.patient_name}
+                        {test.origin === 'doctor' && (
+                          <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)', verticalAlign: 'middle' }}>
+                            DOCTOR
+                          </span>
+                        )}
+                        {(test.priority === 'urgent' || test.priority === 'stat') && (
+                          <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: test.priority === 'stat' ? 'var(--danger-soft)' : 'rgba(201,169,97,0.14)', color: test.priority === 'stat' ? 'var(--danger)' : 'var(--gold)', verticalAlign: 'middle' }}>
+                            {test.priority === 'stat' ? 'STAT' : 'URGENT'}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{test.test_name}</td>
+                      <td style={{ padding: 12 }}>
+                        <span className={`lab-stage is-${stage}`}>{LAB_STAGE_LABEL[stage]}</span>
+                      </td>
+                      <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {test.result
+                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              {test.abnormal_flag && test.abnormal_flag !== 'normal' && <span className={`lab-flag is-${test.abnormal_flag}`}>{test.abnormal_flag}</span>}
+                              {test.result}
+                            </span>
+                          : '—'}
+                      </td>
+                      <td style={{ padding: 12, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {formatDate(test.requested_at, timezone)}
+                      </td>
+                      <td style={{ padding: 12 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {action && (
+                            <button
+                              type="button"
+                              className="appt-status-btn"
+                              onClick={action.run}
+                              aria-label={action.aria}
+                              style={stage === 'completed' ? { background: 'var(--teal-soft)', color: 'var(--teal)', whiteSpace: 'nowrap' } : { whiteSpace: 'nowrap' }}
+                            >
+                              {action.label}
+                            </button>
+                          )}
+                          {test.isPending && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
+                              onClick={() => handleCancel(test)}
+                              aria-label={`Cancel ${test.test_name} request for ${test.patient_name}`}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          {stage === 'completed' && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
+                              onClick={() => handleReopen(test)}
+                              aria-label={`Reopen ${test.test_name} for ${test.patient_name} as pending`}
+                              title="Re-open as pending (correct a result)"
+                            >
+                              Reopen
+                            </button>
+                          )}
+                          <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete" aria-label={`Delete ${test.test_name} request for ${test.patient_name}`}><TrashIcon size={14}/></button>
+                        </div>
+                      </td>
+                    </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="lab requests"
+            />
+          </>
         )}
       </div>
 
