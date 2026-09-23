@@ -6,6 +6,8 @@ import AppIcon from '../../components/icons'
 import Timestamp from '../../components/common/Timestamp'
 import { buildPermissions, ROLE_LABELS } from '../../lib/permissions'
 import { writeAudit } from '../../lib/audit'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 const FN_CREATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-staff`
 const FN_UPDATE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-staff-login`
@@ -147,6 +149,14 @@ export default function Staff(){
   const staffSearch = searchTerm.trim().toLowerCase()
   const visibleStaff = staffSearch ? staff.filter(m => [m.full_name, m.email, m.role, m.id].some(v => String(v || '').toLowerCase().includes(staffSearch))) : staff
 
+  // Global Pagination Rule — the staff list can grow into the dozens
+  // for larger hospitals, so only the current page's rows are rendered.
+  // Page size 20 to match Inventory/Pharmacy (staff cards are compact).
+  const {
+    pageItems: pagedStaff, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(visibleStaff, { pageSize: 20, resetKey: staffSearch })
+
   // Stage 1: permission check now flows through the central permissions
   // module. `staff.manage` is granted to admin (as before); owner sees
   // the module but cannot add/edit staff logins — same as today.
@@ -174,53 +184,67 @@ export default function Staff(){
         ) : visibleStaff.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No staff yet.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {visibleStaff.map(member => (
-              <div key={member.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, opacity: member.active === false ? 0.55 : 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(150deg,var(--blue),#2a5cc9)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: 0.5 }}>
-                    {initials(member.full_name)}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>
-                      {member.full_name} {member.id === profile?.id && <span style={{ color: 'var(--muted)', fontWeight: 500 }}>(you)</span>}
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {pagedStaff.map(member => (
+                <div key={member.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, opacity: member.active === false ? 0.55 : 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(150deg,var(--blue),#2a5cc9)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: 0.5 }}>
+                      {initials(member.full_name)}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                      {ROLE_LABELS[member.role] || member.role}
-                      {' · joined '}
-                      <Timestamp iso={member.created_at} hospital={hospital} />
-                      {member.active === false && <span style={{ color: 'var(--danger)', fontWeight: 700 }}> · Deactivated</span>}
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>
+                        {member.full_name} {member.id === profile?.id && <span style={{ color: 'var(--muted)', fontWeight: 500 }}>(you)</span>}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                        {ROLE_LABELS[member.role] || member.role}
+                        {' · joined '}
+                        <Timestamp iso={member.created_at} hospital={hospital} />
+                        {member.active === false && <span style={{ color: 'var(--danger)', fontWeight: 700 }}> · Deactivated</span>}
+                      </div>
                     </div>
                   </div>
-                </div>
-                {canManageStaff && (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => openEdit(member)}
-                      className="btn btn-ghost"
-                      style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}
-                    >
-                      Edit Login
-                    </button>
-                    {member.id !== profile?.id && (
+                  {canManageStaff && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
-                        onClick={() => handleToggleActive(member)}
+                        onClick={() => openEdit(member)}
                         className="btn btn-ghost"
-                        style={{
-                          width: 'auto', padding: '6px 12px', fontSize: 12,
-                          background: member.active === false ? 'var(--teal-soft)' : 'var(--danger-soft)',
-                          border: member.active === false ? '1px solid var(--teal)' : '1px solid rgba(225,104,94,0.35)',
-                          color: member.active === false ? 'var(--teal)' : 'var(--danger)',
-                        }}
+                        style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}
                       >
-                        {member.active === false ? 'Reactivate' : 'Deactivate'}
+                        Edit Login
                       </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+                      {member.id !== profile?.id && (
+                        <button
+                          onClick={() => handleToggleActive(member)}
+                          className="btn btn-ghost"
+                          style={{
+                            width: 'auto', padding: '6px 12px', fontSize: 12,
+                            background: member.active === false ? 'var(--teal-soft)' : 'var(--danger-soft)',
+                            border: member.active === false ? '1px solid var(--teal)' : '1px solid rgba(225,104,94,0.35)',
+                            color: member.active === false ? 'var(--teal)' : 'var(--danger)',
+                          }}
+                        >
+                          {member.active === false ? 'Reactivate' : 'Deactivate'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="staff members"
+            />
+          </>
         )}
       </div>
 
