@@ -1,142 +1,50 @@
 /* =========================================================
-   GOODIE-MEDHUB — shared pagination control styling
-   Used everywhere the Pagination component appears, so
-   the control looks and behaves identically across modules.
+   GOODIE-MEDHUB — Global Pagination control styling
+   Used by src/components/common/Pagination.jsx everywhere
+   a record list can grow large. See usePagination.js for
+   the logic; this file only styles the bar.
    ========================================================= */
 
 .gmed-pagination{
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  margin-top:16px;
-  padding-top:14px;
+  display:flex; align-items:center; justify-content:space-between;
+  flex-wrap:wrap; gap:12px;
+  margin-top:16px; padding-top:14px;
   border-top:1px solid var(--line-soft);
-  font-size:12px;
-  color:var(--muted);
 }
-
 .gmed-pagination-info{
-  white-space:nowrap;
+  font-size:11.5px; color:var(--muted); white-space:nowrap;
 }
-
 .gmed-pagination-controls{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  flex-wrap:wrap;
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap;
 }
-
 .gmed-pagination-size{
-  height:34px;
-  padding:0 8px;
-  border-radius:7px;
-  border:1px solid var(--line);
-  background:var(--bg-elevated);
-  color:var(--ivory);
-  font-size:11.5px;
+  height:34px; font-size:11.5px; padding:0 8px;
+  border-radius:7px; border:1px solid var(--line);
+  background:var(--bg-elevated); color:var(--ivory);
 }
-
 .gmed-pagination-btn{
-  width:34px;
-  height:34px;
-  border-radius:7px;
-  border:1px solid var(--line);
-  background:var(--bg-elevated);
-  color:var(--muted);
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  cursor:pointer;
+  min-width:34px; height:34px; padding:0 8px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:7px; border:1px solid var(--line);
+  background:var(--bg-elevated); color:var(--ivory);
+  font-size:12px; font-weight:700; cursor:pointer;
   transition:.15s;
-  flex-shrink:0;
 }
-.gmed-pagination-btn:hover:not(:disabled){
-  color:var(--teal);
-  border-color:var(--teal-border);
-}
-.gmed-pagination-btn:disabled{
-  opacity:.4;
-  cursor:not-allowed;
-}
-
-.gmed-pagination-numbers{
-  display:flex;
-  align-items:center;
-  gap:3px;
-}
-
-.gmed-pagination-num{
-  min-width:32px;
-  height:32px;
-  padding:0 6px;
-  border-radius:7px;
-  border:1px solid transparent;
-  background:transparent;
-  color:var(--muted);
-  font-size:12px;
-  font-weight:700;
-  cursor:pointer;
-  font-family:var(--font-body);
-}
-.gmed-pagination-num:hover{
-  background:rgba(255,255,255,.04);
-  color:var(--ivory);
-}
+.gmed-pagination-btn:hover:not(:disabled){ border-color:var(--teal-border); color:var(--teal); }
+.gmed-pagination-btn:disabled{ opacity:.4; cursor:not-allowed; }
 .gmed-pagination-num.is-active{
-  background:var(--teal-soft);
-  color:var(--teal);
-  border-color:var(--teal-border);
+  background:var(--teal-soft); border-color:var(--teal); color:var(--teal);
 }
-
 .gmed-pagination-ellipsis{
-  color:var(--muted-dim);
-  padding:0 2px;
-  font-size:12px;
+  padding:0 4px; color:var(--muted-dim); font-size:12px;
 }
+.gmed-pagination-compact{ display:none; font-size:11.5px; color:var(--muted); padding:0 6px; white-space:nowrap; }
 
-/* Compact "Page X of Y" label — hidden on desktop, shown on phones
-   in place of the numbered buttons (see media query below). */
-.gmed-pagination-compact{
-  display:none;
-  font-size:12px;
-  font-weight:700;
-  color:var(--ivory);
-  white-space:nowrap;
-}
-
-/* ---------------------------------------------------------
-   Mobile: never let controls overflow at 320–430px. Numbered
-   page buttons are replaced with a compact "Page X of Y" text,
-   the info line centers above the controls, and Previous/Next
-   plus the page-size selector stay as the only interactive
-   controls, spaced to fill the width evenly.
-   --------------------------------------------------------- */
+/* Phones: numbered page buttons take too much width and can overflow
+   at 320-430px — collapse to Prev [Page x of y] Next instead. */
 @media (max-width:600px){
-  .gmed-pagination{
-    flex-direction:column;
-    align-items:stretch;
-    gap:10px;
-  }
-  .gmed-pagination-info{
-    text-align:center;
-  }
-  .gmed-pagination-controls{
-    justify-content:space-between;
-  }
-  .gmed-pagination-numbers{
-    display:none;
-  }
-  .gmed-pagination-compact{
-    display:block;
-    flex:1;
-    text-align:center;
-  }
-}
-
-@media (max-width:360px){
-  .gmed-pagination-size{
-    display:none;
-  }
+  .gmed-pagination{ justify-content:center; text-align:center; }
+  .gmed-pagination-numbers{ display:none; }
+  .gmed-pagination-compact{ display:inline-flex; }
+  .gmed-pagination-size{ order:3; width:100%; margin-top:8px; }
 }
