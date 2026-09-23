@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext'
 import ImportExcelModal from '../../components/inventory/ImportExcelModal'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
@@ -106,6 +108,13 @@ export default function Inventory() {
   const sorted = [...items].filter(item => !searchTerm.trim() || [item.name, item.category, item.supplier, item.batch_number].some(v => String(v || '').toLowerCase().includes(searchTerm.toLowerCase()))).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
   const lowStockItems = items.filter(item => Number(item.quantity || 0) <= Number(item.reorder_level || 0))
 
+  // Global Pagination Rule — inventory can grow into the hundreds of
+  // items; only the current page's rows get rendered into the table.
+  const {
+    pageItems: pagedItems, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(sorted, { pageSize: 20, resetKey: searchTerm })
+
   return (
     <>
       <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginBottom: 20 }}>
@@ -126,30 +135,44 @@ export default function Inventory() {
           <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setIsImportModalOpen(true)}><AppIcon name="import" size={14} /> Import Excel</button><button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => { resetForm(); setShowModal(true) }}>+ New Item</button></div>
         </div>
         {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : sorted.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No items found.</div> : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['Item', 'Category', 'Stock', 'Batch', 'Expiry', ''].map(h => <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>)}</tr></thead>
-              <tbody>
-                {sorted.map(item => {
-                  const q = Number(item.quantity || 0), r = Number(item.reorder_level || 0), low = q <= r
-                  return (
-                    <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                      <td style={{ padding: 12, fontWeight: 700 }}>{item.name}</td>
-                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{item.category}</td>
-                      <td style={{ padding: 12 }}><span onClick={() => handleRestock(item)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}>{q} {item.unit}</span></td>
-                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12 }}>{item.batch_number || '—'}</td>
-                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12 }}>{item.expiry_date || '—'}</td>
-                      <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                        <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: q <= 0 ? 0.5 : 1 }} disabled={q <= 0} onClick={() => openDispense(item)}>Dispense</button>
-                        <button onClick={() => openEdit(item)} className="btn btn-ghost" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, border: '1px solid var(--line)' }}>Edit</button>
-                        <button onClick={() => handleDelete(item)} className="icon-btn-delete" title="Delete"><TrashIcon size={14}/></button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>{['Item', 'Category', 'Stock', 'Batch', 'Expiry', ''].map(h => <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {pagedItems.map(item => {
+                    const q = Number(item.quantity || 0), r = Number(item.reorder_level || 0), low = q <= r
+                    return (
+                      <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                        <td style={{ padding: 12, fontWeight: 700 }}>{item.name}</td>
+                        <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{item.category}</td>
+                        <td style={{ padding: 12 }}><span onClick={() => handleRestock(item)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer', background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}>{q} {item.unit}</span></td>
+                        <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12 }}>{item.batch_number || '—'}</td>
+                        <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12 }}>{item.expiry_date || '—'}</td>
+                        <td style={{ padding: 12, display: 'flex', gap: 6 }}>
+                          <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: q <= 0 ? 0.5 : 1 }} disabled={q <= 0} onClick={() => openDispense(item)}>Dispense</button>
+                          <button onClick={() => openEdit(item)} className="btn btn-ghost" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, border: '1px solid var(--line)' }}>Edit</button>
+                          <button onClick={() => handleDelete(item)} className="icon-btn-delete" title="Delete"><TrashIcon size={14}/></button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="items"
+            />
+          </>
         )}
       </div>
 
