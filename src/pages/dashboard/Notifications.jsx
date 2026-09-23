@@ -4,6 +4,8 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import { formatTime, dayKeyInZone, getTimezone } from '../../lib/datetime'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 const HOUR = 60 * 60 * 1000
 
@@ -50,11 +52,46 @@ export default function Notifications(){
   const unacknowledgedHandovers = handovers.filter(h => h.status === 'submitted')
 
   const notificationSearch = searchTerm.trim().toLowerCase()
-  const visibleSoon = notificationSearch ? soonAppointments.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : soonAppointments
-  const visibleToday = notificationSearch ? todayAppointments.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : todayAppointments
-  const visibleLowStock = notificationSearch ? lowStockItems.filter(i => [i.name, i.category, i.supplier].some(v => String(v || '').toLowerCase().includes(notificationSearch))) : lowStockItems
+
+  // Combine "soon" + "today" into one time-ordered list so the panel can
+  // be paginated as a single control. Each row is still marked as "soon"
+  // (urgent, red) or "today" (neutral) at render time, so nothing about
+  // the visual grouping actually changes — this only affects how many
+  // rows show on screen at once.
+  const allReminders = [
+    ...soonAppointments.map(a => ({ ...a, _reminderKind: 'soon' })),
+    ...todayAppointments.map(a => ({ ...a, _reminderKind: 'today' })),
+  ]
+  const visibleReminders = notificationSearch
+    ? allReminders.filter(a => [a.patient_name, a.doctor_name, a.status].some(v => String(v || '').toLowerCase().includes(notificationSearch)))
+    : allReminders
+
+  const visibleLowStock = notificationSearch
+    ? lowStockItems.filter(i => [i.name, i.category, i.supplier].some(v => String(v || '').toLowerCase().includes(notificationSearch)))
+    : lowStockItems
 
   const totalAlerts = soonAppointments.length + lowStockItems.length + unacknowledgedHandovers.length
+
+  // Global Pagination Rule — appointment reminders and low stock alerts
+  // can each grow past a screenful on a busy day / large inventory, so
+  // both get their own pagination control. Unacknowledged Handovers is
+  // deliberately left unpaginated: it's structurally small (bounded by
+  // ward count and twice-daily shift handovers), so a pagination bar
+  // there would just be clutter — revisit only if that assumption stops
+  // holding true (e.g. many more wards are added later).
+  const {
+    pageItems: pagedReminders, currentPage: reminderPage, setCurrentPage: setReminderPage,
+    pageSize: reminderPageSize, setPageSize: setReminderPageSize,
+    totalPages: reminderTotalPages, totalItems: reminderTotalItems,
+    startIndex: reminderStart, endIndex: reminderEnd,
+  } = usePagination(visibleReminders, { pageSize: 10, resetKey: notificationSearch })
+
+  const {
+    pageItems: pagedLowStock, currentPage: stockPage, setCurrentPage: setStockPage,
+    pageSize: stockPageSize, setPageSize: setStockPageSize,
+    totalPages: stockTotalPages, totalItems: stockTotalItems,
+    startIndex: stockStart, endIndex: stockEnd,
+  } = usePagination(visibleLowStock, { pageSize: 10, resetKey: notificationSearch })
 
   function minutesUntil(iso){
     const diff = Math.round((new Date(iso) - now) / 60000)
@@ -126,35 +163,52 @@ export default function Notifications(){
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
-          ) : soonAppointments.length === 0 && todayAppointments.length === 0 ? (
+          ) : allReminders.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No more appointments today.</div>
+          ) : visibleReminders.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No reminders match your search.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {visibleSoon.map(a => (
-                <div key={a.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '10px 14px', borderRadius: 10, background: 'rgba(225,104,94,0.10)', border: '1px solid rgba(225,104,94,0.25)',
-                }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.patient_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time, timezone)}</div>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)' }}>{minutesUntil(a.appointment_time)}</span>
-                </div>
-              ))}
-              {visibleToday.map(a => (
-                <div key={a.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
-                }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.patient_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time, timezone)}</div>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{minutesUntil(a.appointment_time)}</span>
-                </div>
-              ))}
-            </div>
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {pagedReminders.map(a => (
+                  a._reminderKind === 'soon' ? (
+                    <div key={a.id} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '10px 14px', borderRadius: 10, background: 'rgba(225,104,94,0.10)', border: '1px solid rgba(225,104,94,0.25)',
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.patient_name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time, timezone)}</div>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)' }}>{minutesUntil(a.appointment_time)}</span>
+                    </div>
+                  ) : (
+                    <div key={a.id} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '10px 14px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.patient_name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.doctor_name ? `Dr. ${a.doctor_name} · ` : ''}{formatTime(a.appointment_time, timezone)}</div>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{minutesUntil(a.appointment_time)}</span>
+                    </div>
+                  )
+                ))}
+              </div>
+
+              <Pagination
+                currentPage={reminderPage}
+                totalPages={reminderTotalPages}
+                totalItems={reminderTotalItems}
+                startIndex={reminderStart}
+                endIndex={reminderEnd}
+                pageSize={reminderPageSize}
+                onPageChange={setReminderPage}
+                onPageSizeChange={setReminderPageSize}
+                itemLabel="reminders"
+              />
+            </>
           )}
         </div>
 
@@ -170,21 +224,37 @@ export default function Notifications(){
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
           ) : lowStockItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>All stock levels are healthy.</div>
+          ) : visibleLowStock.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No low stock items match your search.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {visibleLowStock.map(item => (
-                <div key={item.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '10px 14px', borderRadius: 10, background: 'rgba(201,169,97,0.10)', border: '1px solid rgba(201,169,97,0.25)',
-                }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{item.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.category}</div>
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {pagedLowStock.map(item => (
+                  <div key={item.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 14px', borderRadius: 10, background: 'rgba(201,169,97,0.10)', border: '1px solid rgba(201,169,97,0.25)',
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{item.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.category}</div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gold)' }}>{item.quantity} {item.unit} left</span>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gold)' }}>{item.quantity} {item.unit} left</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+
+              <Pagination
+                currentPage={stockPage}
+                totalPages={stockTotalPages}
+                totalItems={stockTotalItems}
+                startIndex={stockStart}
+                endIndex={stockEnd}
+                pageSize={stockPageSize}
+                onPageChange={setStockPage}
+                onPageSizeChange={setStockPageSize}
+                itemLabel="low stock items"
+              />
+            </>
           )}
 
           <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line-soft)', display: 'flex', gap: 18, fontSize: 12, color: 'var(--muted)' }}>
