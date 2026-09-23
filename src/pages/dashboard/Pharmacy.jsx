@@ -56,12 +56,6 @@ export default function Pharmacy() {
   const expiredCount = drugs.filter(item => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); return e < today }).length
   const expiringSoonCount = drugs.filter(item => { if (!item.expiry_date) return false; const e = new Date(item.expiry_date); e.setHours(0,0,0,0); const d = (e.getTime() - today.getTime()) / (1000*60*60*24); return d >= 0 && d <= 30 }).length
 
-  // Global pagination rule: paginate the already-searched/filtered lists
-  // instead of rendering every drug or every pending prescription at once.
-  // Typing in the search box (searchTerm as resetKey) snaps back to page 1.
-  const drugsPg = usePagination(visibleItems, { initialPageSize: 20, resetKey: searchTerm })
-  const rxPg = usePagination(pendingRx, { initialPageSize: 10 })
-
   const formatMoney = (v) => '₦' + Number(v || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   // Delegates to the centralized date utility with the hospital timezone (req. #11)
   const formatDate = (v) => formatDateTz(v, timezone)
@@ -253,6 +247,14 @@ export default function Pharmacy() {
     } finally { setDispensing(false) }
   }
 
+  // Global Pagination Rule — the pharmacy drug catalogue can run into
+  // the hundreds of SKUs; only the current page of the search results
+  // gets rendered (both desktop table and phone card list use this).
+  const {
+    pageItems: pagedItems, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(visibleItems, { pageSize: 20, resetKey: searchTerm })
+
   return (
     <>
       {/* Stats — shared .dash-stats grid (collapses 4→2→1 via CSS) and
@@ -288,7 +290,11 @@ export default function Pharmacy() {
         </div>
       </div>
 
-      {/* DOCTOR'S PRESCRIPTION QUEUE */}
+      {/* DOCTOR'S PRESCRIPTION QUEUE — an actionable work queue, not a
+          browsable record list, so it is intentionally left unpaginated
+          per the "don't apply pagination where it hurts the workflow"
+          rule. If this queue starts running into the hundreds in
+          practice, it should get pagination too — flag it if so. */}
       <div className="dash-panel" style={{ marginBottom: 20, borderColor: 'var(--teal)' }}>
         <div className="dash-panel-head">
           <div>
@@ -299,67 +305,43 @@ export default function Pharmacy() {
         {pendingRx.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>No pending prescriptions from doctors.</div>
         ) : isPhone ? (
-          <>
-            <div className="appt-list" style={{ padding: '4px 0 12px' }}>
-              {rxPg.pageItems.map(rx => <RxCard key={rx.id} rx={rx} />)}
-            </div>
-            <Pagination
-              page={rxPg.page}
-              pageCount={rxPg.pageCount}
-              total={rxPg.total}
-              pageSize={rxPg.pageSize}
-              onPageChange={rxPg.setPage}
-              onPageSizeChange={rxPg.setPageSize}
-              pageSizeOptions={[10, 20, 50]}
-              itemLabel="prescriptions"
-            />
-          </>
+          <div className="appt-list" style={{ padding: '4px 0 12px' }}>
+            {pendingRx.map(rx => <RxCard key={rx.id} rx={rx} />)}
+          </div>
         ) : (
-          <>
-            <div className="dash-table-wrap">
-              <table className="dash-full-table">
-                <thead>
-                  <tr>
-                    <th>Patient</th>
-                    <th>Drug Prescribed</th>
-                    <th>Dosage / Frequency</th>
-                    <th>Doctor</th>
-                    <th>Action</th>
+          <div className="dash-table-wrap">
+            <table className="dash-full-table">
+              <thead>
+                <tr>
+                  <th>Patient</th>
+                  <th>Drug Prescribed</th>
+                  <th>Dosage / Frequency</th>
+                  <th>Doctor</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingRx.map(rx => (
+                  <tr key={rx.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                    <td style={{ padding: 12, fontWeight: 700 }}>{rx.patient_name}</td>
+                    <td style={{ padding: 12 }}>{rx.drug_name}</td>
+                    <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>{rx.dosage} · {rx.frequency}</td>
+                    <td style={{ padding: 12, fontSize: 12 }}>{rx.doctor_name || '—'}</td>
+                    <td style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>
+                          Dispense
+                        </button>
+                        <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 14px', fontSize: 12, color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => handleCancelRx(rx)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rxPg.pageItems.map(rx => (
-                    <tr key={rx.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                      <td style={{ padding: 12, fontWeight: 700 }}>{rx.patient_name}</td>
-                      <td style={{ padding: 12 }}>{rx.drug_name}</td>
-                      <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>{rx.dosage} · {rx.frequency}</td>
-                      <td style={{ padding: 12, fontSize: 12 }}>{rx.doctor_name || '—'}</td>
-                      <td style={{ padding: 12 }}>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 14px', fontSize: 12 }} onClick={() => openDispenseRx(rx)}>
-                            Dispense
-                          </button>
-                          <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 14px', fontSize: 12, color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => handleCancelRx(rx)}>
-                            Cancel
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={rxPg.page}
-              pageCount={rxPg.pageCount}
-              total={rxPg.total}
-              pageSize={rxPg.pageSize}
-              onPageChange={rxPg.setPage}
-              onPageSizeChange={rxPg.setPageSize}
-              pageSizeOptions={[10, 20, 50]}
-              itemLabel="prescriptions"
-            />
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -369,62 +351,56 @@ export default function Pharmacy() {
           <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><ConnectionState isOnline={isOnline} pendingCount={pendingCount} />{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug..." style={{ minWidth: 260, maxWidth: 420 }} />
         </div>
-        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : isPhone ? (
+        {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : (
           <>
-            <div className="appt-list" style={{ padding: '4px 0 12px' }}>
-              {drugsPg.pageItems.map(item => <DrugCard key={item.id} item={item} />)}
-            </div>
+            {isPhone ? (
+              <div className="appt-list" style={{ padding: '4px 0 12px' }}>
+                {pagedItems.map(item => <DrugCard key={item.id} item={item} />)}
+              </div>
+            ) : (
+              <div className="dash-table-wrap">
+                <table className="dash-full-table">
+                  <thead><tr>{['Drug', 'Batch', 'Expiry', 'Stock', 'Price', 'Status', ''].map(h => <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {pagedItems.map(item => {
+                      const q = Number(item.quantity || 0), r = Number(item.reorder_level || 0), low = q <= r, exp = isExpired(item), soon = isExpiringSoon(item)
+                      return (
+                        <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                          <td style={{ padding: 12, fontWeight: 700 }}>{item.name}</td>
+                          <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{item.batch_number || '—'}</td>
+                          <td style={{ padding: 12, fontSize: 12 }}><span style={{ color: exp ? 'var(--danger)' : soon ? 'var(--gold)' : 'var(--muted)', fontWeight: exp || soon ? 700 : 400 }}>{formatDate(item.expiry_date)}</span></td>
+                          <td style={{ padding: 12 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleRestock(item)}
+                              className="appt-status-btn"
+                              style={{ fontSize: 11, fontWeight: 700, background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}
+                              title="Tap to restock"
+                              aria-label={`Stock ${q} ${item.unit || 'units'}. Tap to restock ${item.name}`}
+                            >{q} {item.unit || 'units'}</button>
+                          </td>
+                          <td style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>{formatMoney(item.selling_price)}</td>
+                          <td style={{ padding: 12 }}>{exp ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span> : low ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span> : soon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>}</td>
+                          <td style={{ padding: 12 }}>
+                            <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: exp || q <= 0 ? 0.5 : 1 }} disabled={exp || q <= 0} onClick={() => openDispense(item)}>Dispense</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <Pagination
-              page={drugsPg.page}
-              pageCount={drugsPg.pageCount}
-              total={drugsPg.total}
-              pageSize={drugsPg.pageSize}
-              onPageChange={drugsPg.setPage}
-              onPageSizeChange={drugsPg.setPageSize}
-              itemLabel="drugs"
-            />
-          </>
-        ) : (
-          <>
-            <div className="dash-table-wrap">
-              <table className="dash-full-table">
-                <thead><tr>{['Drug', 'Batch', 'Expiry', 'Stock', 'Price', 'Status', ''].map(h => <th key={h} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {drugsPg.pageItems.map(item => {
-                    const q = Number(item.quantity || 0), r = Number(item.reorder_level || 0), low = q <= r, exp = isExpired(item), soon = isExpiringSoon(item)
-                    return (
-                      <tr key={item.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                        <td style={{ padding: 12, fontWeight: 700 }}>{item.name}</td>
-                        <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{item.batch_number || '—'}</td>
-                        <td style={{ padding: 12, fontSize: 12 }}><span style={{ color: exp ? 'var(--danger)' : soon ? 'var(--gold)' : 'var(--muted)', fontWeight: exp || soon ? 700 : 400 }}>{formatDate(item.expiry_date)}</span></td>
-                        <td style={{ padding: 12 }}>
-                          <button
-                            type="button"
-                            onClick={() => handleRestock(item)}
-                            className="appt-status-btn"
-                            style={{ fontSize: 11, fontWeight: 700, background: low ? 'rgba(225,104,94,0.14)' : 'var(--teal-soft)', color: low ? 'var(--danger)' : 'var(--teal)' }}
-                            title="Tap to restock"
-                            aria-label={`Stock ${q} ${item.unit || 'units'}. Tap to restock ${item.name}`}
-                          >{q} {item.unit || 'units'}</button>
-                        </td>
-                        <td style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>{formatMoney(item.selling_price)}</td>
-                        <td style={{ padding: 12 }}>{exp ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>EXPIRED</span> : low ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--danger)' }}>LOW STOCK</span> : soon ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gold)' }}>EXPIRING</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)' }}>AVAILABLE</span>}</td>
-                        <td style={{ padding: 12 }}>
-                          <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 12px', fontSize: 11, opacity: exp || q <= 0 ? 0.5 : 1 }} disabled={exp || q <= 0} onClick={() => openDispense(item)}>Dispense</button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <Pagination
-              page={drugsPg.page}
-              pageCount={drugsPg.pageCount}
-              total={drugsPg.total}
-              pageSize={drugsPg.pageSize}
-              onPageChange={drugsPg.setPage}
-              onPageSizeChange={drugsPg.setPageSize}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
               itemLabel="drugs"
             />
           </>
