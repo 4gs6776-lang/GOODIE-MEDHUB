@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
-import Pagination from '../../components/common/Pagination'
-import { usePagination } from '../../lib/usePagination'
 
 const PROVIDERS = ['NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
@@ -95,13 +95,6 @@ export default function Insurance(){
   const sorted = [...claims].sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
   const insuranceSearch = searchTerm.trim().toLowerCase()
   const visibleClaims = insuranceSearch ? sorted.filter(c => [c.patient_name, c.patient_id, c.provider, c.policy_number, c.claim_number, c.pa_number, c.icd_code, c.status].some(v => String(v || '').toLowerCase().includes(insuranceSearch))) : sorted
-
-  // Pagination — see Radiology.jsx for the explanation of why this is
-  // client-side over the already-loaded (offline-first) records list.
-  const {
-    page, setPage, pageSize, setPageSize, pageCount, totalCount, pageItems, rangeLabel,
-  } = usePagination(visibleClaims, { pageSize: 20, resetKey: insuranceSearch })
-
   const submittedCount = claims.filter(c => c.status === 'submitted').length
   const approvedTotal = claims.filter(c => c.status === 'approved').reduce((sum, c) => sum + Number(c.amount), 0)
   const rejectedCount = claims.filter(c => c.status === 'rejected').length
@@ -119,6 +112,13 @@ export default function Insurance(){
         return acc
       }, {})
   ).sort((a, b) => b.total - a.total)
+
+  // Global Pagination Rule — claims already live locally (offline
+  // cache); only the current page is rendered into the DOM.
+  const {
+    pageItems: pagedClaims, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(visibleClaims, { pageSize: 10, resetKey: insuranceSearch })
 
   return (
     <>
@@ -203,7 +203,7 @@ export default function Insurance(){
                 </tr>
               </thead>
               <tbody>
-                {pageItems.map(claim => {
+                {pagedClaims.map(claim => {
                   const meta = statusMeta(claim.status)
                   return (
                     <tr key={claim.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
@@ -247,9 +247,17 @@ export default function Insurance(){
                 })}
               </tbody>
             </table>
+
             <Pagination
-              page={page} setPage={setPage} pageCount={pageCount} totalCount={totalCount}
-              rangeLabel={rangeLabel} pageSize={pageSize} setPageSize={setPageSize}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="claims"
             />
           </>
         )}
