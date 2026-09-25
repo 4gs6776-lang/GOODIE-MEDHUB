@@ -4,6 +4,8 @@ import { supabase } from '../../lib/supabaseClient'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import AppIcon from '../../components/icons'
 import { formatDateTime, formatDateOnly, todayKeyInZone, getTimezone } from '../../lib/datetime'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 // ============================================================
 // Shift Handover module
@@ -84,8 +86,6 @@ const SUBNAV = [
   { key: 'history', label: 'Handover History' },
   { key: 'templates', label: 'Templates' },
 ]
-
-const PAGE_SIZE = 10
 
 // Date/time formatting goes through src/lib/datetime.js so every
 // screen shares the hospital's timezone (hospitals.timezone).
@@ -426,7 +426,6 @@ export default function ShiftHandover() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDate, setFilterDate] = useState('')
   const [searchText, setSearchText] = useState('')
-  const [page, setPage] = useState(1)
   const [detailHandover, setDetailHandover] = useState(null)
 
   const listSource = useMemo(() => {
@@ -449,10 +448,21 @@ export default function ShiftHandover() {
     return base.slice().sort((a, b) => new Date(b.handover_date) - new Date(a.handover_date) || new Date(b.created_at) - new Date(a.created_at))
   }, [handovers, hoPatients, subTab, filterWard, filterShift, filterStatus, filterDate, searchText, profile?.id])
 
-  const pageCount = Math.max(1, Math.ceil(listSource.length / PAGE_SIZE))
-  const pageItems = listSource.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-
-  useEffect(() => { setPage(1) }, [subTab, filterWard, filterShift, filterStatus, filterDate, searchText])
+  // Global Pagination Rule — this list (Mine/Ward/History tabs) is now
+  // paginated with the SAME shared component every other module uses,
+  // replacing the module's own bespoke Prev/Next pager. resetKey
+  // combines every filter + the active tab, so switching tabs or
+  // changing any filter always lands back on page 1, matching the old
+  // manual-reset behaviour exactly — just handled by the shared hook.
+  const {
+    pageItems: pagedHandovers, currentPage: listPage, setCurrentPage: setListPage,
+    pageSize: listPageSize, setPageSize: setListPageSize,
+    totalPages: listTotalPages, totalItems: listTotalItems,
+    startIndex: listStart, endIndex: listEnd,
+  } = usePagination(listSource, {
+    pageSize: 10,
+    resetKey: `${subTab}|${filterWard}|${filterShift}|${filterStatus}|${filterDate}|${searchText}`,
+  })
 
   function patientsOf(handoverId) { return hoPatients.filter(p => p.handover_id === handoverId) }
   function tasksOf(handoverId) { return hoTasks.filter(t => t.handover_id === handoverId) }
@@ -772,7 +782,7 @@ export default function ShiftHandover() {
           </div>
 
           <div className="dash-panel">
-            {pageItems.length > 0 ? pageItems.map(h => (
+            {pagedHandovers.length > 0 ? pagedHandovers.map(h => (
               <div className="ho-history-row" key={h.id} role="button" tabIndex={0} onClick={() => openHandover(h)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHandover(h) } }} aria-label={`Open ${wardLabel(h.ward)} handover from ${formatDateOnly(h.handover_date)}`}>
                 <div><b style={{ fontSize: 12.5 }}>{formatDateOnly(h.handover_date)}</b><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{SHIFT_LABELS[h.shift_type]}</div></div>
                 <div>
@@ -786,13 +796,17 @@ export default function ShiftHandover() {
             )}
           </div>
 
-          {pageCount > 1 && (
-            <div className="ho-pager">
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</button>
-              <span>Page {page} of {pageCount}</span>
-              <button disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
-            </div>
-          )}
+          <Pagination
+            currentPage={listPage}
+            totalPages={listTotalPages}
+            totalItems={listTotalItems}
+            startIndex={listStart}
+            endIndex={listEnd}
+            pageSize={listPageSize}
+            onPageChange={setListPage}
+            onPageSizeChange={setListPageSize}
+            itemLabel="handovers"
+          />
         </>
       )}
 
