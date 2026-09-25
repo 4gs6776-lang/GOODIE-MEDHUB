@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import CashierWorkspace from '../../components/CashierWorkspace'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -71,6 +73,16 @@ export default function Billing({ initialSearch = '' }) {
 
     return queueArr
   }, [billableCharges, search])
+
+  // Global Pagination Rule — the patient billing queue can grow past a
+  // screenful during busy periods (many patients with pending charges
+  // waiting for cashier review at once), so only the current page's
+  // rows are rendered into the table. Page size 10 to match Insurance,
+  // the other billing-adjacent module.
+  const {
+    pageItems: pagedQueue, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(patientQueue, { pageSize: 10, resetKey: search })
 
   const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 
@@ -151,47 +163,61 @@ export default function Billing({ initialSearch = '' }) {
             No pending charges. When Pharmacy or Inventory dispenses an item, the patient will appear here automatically.
           </div>
         ) : (
-          <div className="dash-table-wrap">
-            <table className="dash-full-table">
-              <thead>
-                <tr>
-                  <th>Patient</th>
-                  <th>Pending Items</th>
-                  <th>Pending Total</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {patientQueue.map(p => (
-                  <tr key={p.id}>
-                    <td>
-                      <div className="dash-patient-name">
-                        <span>{initials(p.name)}</span>
-                        {p.name}
-                      </div>
-                    </td>
-                    <td>{p.items} item{p.items !== 1 ? 's' : ''}</td>
-                    <td style={{ fontWeight: 700, color: 'var(--gold)' }}>{formatMoney(p.total)}</td>
-                    <td>
-                      <span className="dash-status" style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}>
-                        AWAITING REVIEW
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-primary"
-                        style={{ width: 'auto', padding: '7px 14px', fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                        onClick={() => setSelectedPatient({ id: p.id, name: p.name })}
-                      >
-                        Open Billing <Icon name="arrowRight" size={13} />
-                      </button>
-                    </td>
+          <>
+            <div className="dash-table-wrap">
+              <table className="dash-full-table">
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Pending Items</th>
+                    <th>Pending Total</th>
+                    <th>Status</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pagedQueue.map(p => (
+                    <tr key={p.id}>
+                      <td>
+                        <div className="dash-patient-name">
+                          <span>{initials(p.name)}</span>
+                          {p.name}
+                        </div>
+                      </td>
+                      <td>{p.items} item{p.items !== 1 ? 's' : ''}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--gold)' }}>{formatMoney(p.total)}</td>
+                      <td>
+                        <span className="dash-status" style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}>
+                          AWAITING REVIEW
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-primary"
+                          style={{ width: 'auto', padding: '7px 14px', fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                          onClick={() => setSelectedPatient({ id: p.id, name: p.name })}
+                        >
+                          Open Billing <Icon name="arrowRight" size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="patients in queue"
+            />
+          </>
         )}
       </div>
 
