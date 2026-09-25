@@ -47,6 +47,8 @@ import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 // Same option lists used in Reception's registration form, kept in sync
 // so a patient added here has the exact same fields/choices available.
@@ -525,6 +527,18 @@ export default function Dashboard(){
   const filteredPatients = displayedPatients.filter(p =>
     !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
   )
+
+  // Global Pagination Rule — the master patient list can grow into the
+  // hundreds (or thousands) of records over a hospital's lifetime, so
+  // only the current page's rows are rendered into the table. Page size
+  // 20 matches Inventory/Pharmacy/Staff; resets to page 1 whenever the
+  // search box above changes.
+  const {
+    pageItems: pagedPatients, currentPage: patientsPage, setCurrentPage: setPatientsPage,
+    pageSize: patientsPageSize, setPageSize: setPatientsPageSize,
+    totalPages: patientsTotalPages, totalItems: patientsTotalItems,
+    startIndex: patientsStart, endIndex: patientsEnd,
+  } = usePagination(filteredPatients, { pageSize: 20, resetKey: search })
 
   // Global search: live results across patients, appointments, and invoices
   const globalSearchResults = useMemo(() => {
@@ -1362,22 +1376,36 @@ export default function Dashboard(){
                       {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
                     </div>
                   ) : (
-                    <div className="dash-table-wrap">
-                      <table className="dash-full-table">
-                        <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
-                        <tbody>
-                          {filteredPatients.map(p => (
-                            <tr key={p.id}>
-                              <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
-                              <td>{p.age}</td>
-                              <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
-                              <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at, hospitalTz)}</td>
-                              <td><button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <>
+                      <div className="dash-table-wrap">
+                        <table className="dash-full-table">
+                          <thead><tr><th>Name</th><th>Age</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+                          <tbody>
+                            {pagedPatients.map(p => (
+                              <tr key={p.id}>
+                                <td onClick={() => setProfilePatientId(p.id)} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.full_name}</td>
+                                <td>{p.age}</td>
+                                <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
+                                <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at, hospitalTz)}</td>
+                                <td><button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <Pagination
+                        currentPage={patientsPage}
+                        totalPages={patientsTotalPages}
+                        totalItems={patientsTotalItems}
+                        startIndex={patientsStart}
+                        endIndex={patientsEnd}
+                        pageSize={patientsPageSize}
+                        onPageChange={setPatientsPage}
+                        onPageSizeChange={setPatientsPageSize}
+                        itemLabel="patients"
+                      />
+                    </>
                   )}
                 </div>
               </>
