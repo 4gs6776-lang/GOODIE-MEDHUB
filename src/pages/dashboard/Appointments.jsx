@@ -16,6 +16,8 @@ import {
   dayKeyInZone,
   todayKeyInZone,
 } from '../../lib/datetime'
+import { usePagination } from '../../lib/usePagination'
+import Pagination from '../../components/common/Pagination'
 
 const STATUS_CYCLE = { scheduled: 'completed', completed: 'cancelled', cancelled: 'scheduled' }
 const STATUS_LABEL = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' }
@@ -145,6 +147,20 @@ export default function Appointments({ initialSearch = '' }){
   const searchedSorted = appointmentSearch ? sorted.filter(a => [a.patient_name, a.patient_id, a.doctor_name, a.appointment_id, a.status].some(v => String(v || '').toLowerCase().includes(appointmentSearch))) : sorted
   const searchedDayList = appointmentSearch ? dayList.filter(a => [a.patient_name, a.patient_id, a.doctor_name, a.appointment_id, a.status].some(v => String(v || '').toLowerCase().includes(appointmentSearch))) : dayList
   const searchedVisible = viewMode === 'day' ? searchedDayList : searchedSorted
+
+  // Global Pagination Rule — "All Appointments" is a flat chronological
+  // list that can grow into the hundreds over time, so it gets paginated.
+  // "Day View" (below) is deliberately left unpaginated: it only ever
+  // shows one calendar day's appointments grouped by doctor, which is
+  // naturally small — same reasoning as Beds Awaiting Cleaning in
+  // Admissions.jsx. Both the desktop table and the phone card list for
+  // "All Appointments" read from this same paged slice.
+  const {
+    pageItems: pagedAllAppointments, currentPage: allPage, setCurrentPage: setAllPage,
+    pageSize: allPageSize, setPageSize: setAllPageSize,
+    totalPages: allTotalPages, totalItems: allTotalItems,
+    startIndex: allStart, endIndex: allEnd,
+  } = usePagination(searchedSorted, { pageSize: 10, resetKey: appointmentSearch })
 
   const todayKey = todayKeyInZone(hospitalTz)
   const todayCount = sorted.filter(a => dayKeyInZone(a.appointment_time, hospitalTz) === todayKey).length
@@ -346,51 +362,67 @@ export default function Appointments({ initialSearch = '' }){
             <EmptyNote>No appointments yet. Add your first one above.</EmptyNote>
           ) : searchedVisible.length === 0 ? (
             <EmptyNote>No appointments match your search.</EmptyNote>
-          ) : isPhone ? (
-            <div className="appt-list">
-              {searchedVisible.map(appt => <ApptCard key={appt.id} appt={appt} showDoctorInMeta />)}
-            </div>
           ) : (
-            <div className="dash-table-wrap">
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {['When', 'Patient', 'Doctor', 'Status', ''].map(h => (
-                      <th key={h || 'actions'} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchedVisible.map(appt => (
-                    <tr key={appt.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
-                      <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                        <Timestamp iso={appt.appointment_time} timezone={hospitalTz} mode="datetime" />
-                      </td>
-                      <td style={{ padding: 12, fontWeight: 700 }}>{appt.patient_name}</td>
-                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{appt.doctor_name || '—'}</td>
-                      <td style={{ padding: 12 }}>
-                        <button
-                          type="button"
-                          className="appt-status-btn"
-                          onClick={() => cycleStatus(appt)}
-                          style={{ background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
-                          title="Tap to change status"
-                          aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
-                        >{STATUS_LABEL[appt.status]}</button>
-                      </td>
-                      <td style={{ padding: 12 }}>
-                        <button
-                          onClick={() => handleDelete(appt)}
-                          className="icon-btn-delete"
-                          title="Delete"
-                          aria-label={`Delete appointment for ${appt.patient_name}`}
-                        ><TrashIcon size={14}/></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {isPhone ? (
+                <div className="appt-list">
+                  {pagedAllAppointments.map(appt => <ApptCard key={appt.id} appt={appt} showDoctorInMeta />)}
+                </div>
+              ) : (
+                <div className="dash-table-wrap">
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        {['When', 'Patient', 'Doctor', 'Status', ''].map(h => (
+                          <th key={h || 'actions'} style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedAllAppointments.map(appt => (
+                        <tr key={appt.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                          <td style={{ padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                            <Timestamp iso={appt.appointment_time} timezone={hospitalTz} mode="datetime" />
+                          </td>
+                          <td style={{ padding: 12, fontWeight: 700 }}>{appt.patient_name}</td>
+                          <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5 }}>{appt.doctor_name || '—'}</td>
+                          <td style={{ padding: 12 }}>
+                            <button
+                              type="button"
+                              className="appt-status-btn"
+                              onClick={() => cycleStatus(appt)}
+                              style={{ background: STATUS_BG[appt.status], color: STATUS_COLOR[appt.status] }}
+                              title="Tap to change status"
+                              aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
+                            >{STATUS_LABEL[appt.status]}</button>
+                          </td>
+                          <td style={{ padding: 12 }}>
+                            <button
+                              onClick={() => handleDelete(appt)}
+                              className="icon-btn-delete"
+                              title="Delete"
+                              aria-label={`Delete appointment for ${appt.patient_name}`}
+                            ><TrashIcon size={14}/></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <Pagination
+                currentPage={allPage}
+                totalPages={allTotalPages}
+                totalItems={allTotalItems}
+                startIndex={allStart}
+                endIndex={allEnd}
+                pageSize={allPageSize}
+                onPageChange={setAllPage}
+                onPageSizeChange={setAllPageSize}
+                itemLabel="appointments"
+              />
+            </>
           )}
         </div>
       )}
