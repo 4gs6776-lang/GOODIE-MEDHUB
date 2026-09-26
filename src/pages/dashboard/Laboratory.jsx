@@ -357,15 +357,20 @@ export default function Laboratory(){
     setTimeout(() => win.print(), 500)
   }
 
-  async function handleDelete(test){
-    if (!confirm(`Delete this test request for ${test.patient_name}?`)) return
+  // Renamed from "handleDelete" to make clear this is an archive, not a
+  // destructive delete. useOfflineTable.js already routes lab_tests and
+  // lab_orders through its soft-delete path (SOFT_DELETE_TABLES), so this
+  // has ALWAYS safely stamped deleted_at and hidden the record rather than
+  // erasing it — only the button/dialog wording was misleading before.
+  async function handleArchive(test){
+    if (!confirm(`Archive this test request for ${test.patient_name} (${test.test_name})?\n\nIt will be hidden from this list, but the record is kept for the clinical history — nothing is permanently erased.`)) return
     if (test.origin === 'doctor') {
       await deleteOrder(test.id)
     } else {
       await deleteRecord(test.id)
     }
-    auditLab('lab_request.deleted', test, `Lab request deleted — ${test.test_name} for ${test.patient_name}`)
-    showToast('Test deleted')
+    auditLab('lab_request.archived', test, `Lab request archived — ${test.test_name} for ${test.patient_name}`)
+    showToast('Test archived')
   }
 
   const combined = [
@@ -532,7 +537,7 @@ export default function Laboratory(){
                               Reopen
                             </button>
                           )}
-                          <button onClick={() => handleDelete(test)} className="icon-btn-delete" title="Delete" aria-label={`Delete ${test.test_name} request for ${test.patient_name}`}><TrashIcon size={14}/></button>
+                          <button onClick={() => handleArchive(test)} className="icon-btn-delete" title="Archive" aria-label={`Archive ${test.test_name} request for ${test.patient_name}`}><TrashIcon size={14}/></button>
                         </div>
                       </td>
                     </tr>
