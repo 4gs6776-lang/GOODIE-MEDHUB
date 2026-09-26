@@ -373,6 +373,73 @@ export default function Laboratory(){
     showToast('Test archived')
   }
 
+  // ---- Bulk actions for a bundle of tests requested together ----
+  // When a doctor sends several tests at once (Doctor Workbench →
+  // "Send to Lab"), every one of those tests is saved with the SAME
+  // `request_group` id. The functions below let the lab team act on an
+  // entire bundle — collect samples, start processing, cancel, archive —
+  // with ONE click and ONE confirmation/toast, instead of repeating the
+  // action once per test. "Enter Results" already opens every pending
+  // test for the patient in one form (see openResultForm below), so it
+  // does not need a bulk version of its own.
+  const STAGE_ORDER = ['ordered', 'sample_collected', 'processing']
+
+  // The stage that should drive the bundle's action button: the
+  // earliest pipeline stage still present among its tests. e.g. if 2
+  // tests already have samples collected but 1 is still just
+  // "ordered", the whole bundle still needs a sample collected first.
+  function groupPrimaryStage(groupTests) {
+    for (const s of STAGE_ORDER) {
+      if (groupTests.some(t => labStage(t.status) === s)) return s
+    }
+    return 'processing'
+  }
+
+  async function handleAdvanceGroup(groupTests, toStage) {
+    const targets = groupTests.filter(t => labStage(t.status) === groupPrimaryStage(groupTests))
+    try {
+      for (const t of targets) {
+        const payload = { status: stageStatus(toStage, t.origin), updated_at: new Date().toISOString() }
+        if (toStage === 'sample_collected') { payload.collected_at = new Date().toISOString(); payload.collected_by = profile?.full_name || null }
+        await updateLabRow(t, payload)
+        auditLab(`lab.${toStage}`, t, `${t.test_name} for ${t.patient_name}: ${LAB_STAGE_LABEL[toStage]}`)
+      }
+      showToast(`${targets.length} test(s) — ${LAB_STAGE_LABEL[toStage]}`)
+    } catch (err) {
+      showToast(err.message || 'Could not update the requests')
+    }
+  }
+
+  function groupStageAction(groupRow) {
+    const stage = groupPrimaryStage(groupRow.groupTests)
+    const count = groupRow.groupTests.filter(t => labStage(t.status) === stage).length
+    if (stage === 'ordered') return { label: `Collect Samples (${count})`, run: () => handleAdvanceGroup(groupRow.groupTests, 'sample_collected'), aria: `Mark samples collected for ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
+    if (stage === 'sample_collected') return { label: `Start Processing (${count})`, run: () => handleAdvanceGroup(groupRow.groupTests, 'processing'), aria: `Start processing ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
+    return { label: 'Enter Results', run: () => openResultForm(groupRow.groupTests[0]), aria: `Enter results for ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
+  }
+
+  async function handleCancelGroup(groupRow) {
+    if (!confirm(`Cancel all ${groupRow.groupTests.length} test(s) requested together for ${groupRow.patient_name}? The records are kept for the audit trail.`)) return
+    try {
+      for (const t of groupRow.groupTests) {
+        await updateLabRow(t, { status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: `Cancelled by ${profile?.full_name || 'staff'}`, updated_at: new Date().toISOString() })
+        auditLab('lab.cancelled', t, `${t.test_name} for ${t.patient_name}: request cancelled`)
+      }
+      showToast(`${groupRow.groupTests.length} test(s) cancelled`)
+    } catch (err) {
+      showToast(err.message || 'Could not cancel the requests')
+    }
+  }
+
+  async function handleArchiveGroup(groupRow) {
+    if (!confirm(`Archive all ${groupRow.groupTests.length} test(s) requested together for ${groupRow.patient_name}?\n\nThey will be hidden from this list, but the records are kept for the clinical history — nothing is permanently erased.`)) return
+    for (const t of groupRow.groupTests) {
+      await deleteOrder(t.id)
+      auditLab('lab_request.archived', t, `Lab request archived — ${t.test_name} for ${t.patient_name}`)
+    }
+    showToast(`${groupRow.groupTests.length} test(s) archived`)
+  }
+
   const combined = [
     ...tests.map(t => ({ ...t, origin: 'lab', isPending: labStage(t.status) !== 'completed' && labStage(t.status) !== 'cancelled' })),
     ...orders.map(o => ({ ...o, origin: 'doctor', isPending: labStage(o.status) !== 'completed' && labStage(o.status) !== 'cancelled' })),
@@ -388,6 +455,27 @@ export default function Laboratory(){
   })
   const labSearch = searchTerm.trim().toLowerCase()
   const visibleSorted = labSearch ? sorted.filter(t => [t.patient_name, t.patient_id, t.test_name, t.request_number, t.status, t.result].some(v => String(v || '').toLowerCase().includes(labSearch))) : sorted
+
+  // Bundle same-request_group, still-pending doctor orders into one row
+  // (see the bulk-action comment above). A "bundle" of just 1 test is
+  // downgraded back to a normal single row so the UI stays uncluttered.
+  const groupedRows = []
+  const groupIndex = new Map()
+  visibleSorted.forEach(t => {
+    if (t.origin === 'doctor' && t.request_group && t.isPending) {
+      let g = groupIndex.get(t.request_group)
+      if (!g) {
+        g = { ...t, isGroup: true, groupTests: [], displayKey: `group-${t.request_group}` }
+        groupIndex.set(t.request_group, g)
+        groupedRows.push(g)
+      }
+      g.groupTests.push(t)
+    } else {
+      groupedRows.push({ ...t, isGroup: false, groupTests: [t], displayKey: t.id })
+    }
+  })
+  groupedRows.forEach(row => { if (row.isGroup && row.groupTests.length <= 1) row.isGroup = false })
+
   const pendingCountStat = combined.filter(t => t.isPending).length
   const completedCount = combined.filter(t => labStage(t.status) === 'completed').length
 
@@ -398,7 +486,7 @@ export default function Laboratory(){
   const {
     pageItems: pagedTests, currentPage, setCurrentPage, pageSize, setPageSize,
     totalPages, totalItems, startIndex, endIndex,
-  } = usePagination(visibleSorted, { pageSize: 10, resetKey: labSearch })
+  } = usePagination(groupedRows, { pageSize: 10, resetKey: labSearch })
 
   // Stage-aware primary action per row (pipeline, global lab rule).
   function stageAction(test){
@@ -469,10 +557,10 @@ export default function Laboratory(){
                 </thead>
                 <tbody>
                   {pagedTests.map(test => {
-                    const stage = labStage(test.status)
-                    const action = stageAction(test)
+                    const stage = test.isGroup ? groupPrimaryStage(test.groupTests) : labStage(test.status)
+                    const action = test.isGroup ? groupStageAction(test) : stageAction(test)
                     return (
-                    <tr key={test.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                    <tr key={test.displayKey} style={{ borderTop: '1px solid var(--line-soft)' }}>
                       <td style={{ padding: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
                         {test.patient_name}
                         {test.origin === 'doctor' && (
@@ -486,17 +574,28 @@ export default function Laboratory(){
                           </span>
                         )}
                       </td>
-                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, whiteSpace: 'nowrap' }}>{test.test_name}</td>
+                      <td style={{ padding: 12, color: 'var(--muted)', fontSize: 12.5, maxWidth: 260 }}>
+                        {test.isGroup ? (
+                          <>
+                            <div style={{ fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>{test.groupTests.length} tests requested together</div>
+                            <div style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{test.groupTests.map(g => g.test_name).join(', ')}</div>
+                          </>
+                        ) : (
+                          <span style={{ whiteSpace: 'nowrap' }}>{test.test_name}</span>
+                        )}
+                      </td>
                       <td style={{ padding: 12 }}>
                         <span className={`lab-stage is-${stage}`}>{LAB_STAGE_LABEL[stage]}</span>
                       </td>
                       <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {test.result
-                          ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              {test.abnormal_flag && test.abnormal_flag !== 'normal' && <span className={`lab-flag is-${test.abnormal_flag}`}>{test.abnormal_flag}</span>}
-                              {test.result}
-                            </span>
-                          : '—'}
+                        {test.isGroup
+                          ? '—'
+                          : (test.result
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {test.abnormal_flag && test.abnormal_flag !== 'normal' && <span className={`lab-flag is-${test.abnormal_flag}`}>{test.abnormal_flag}</span>}
+                                {test.result}
+                              </span>
+                            : '—')}
                       </td>
                       <td style={{ padding: 12, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {formatDate(test.requested_at, timezone)}
@@ -519,13 +618,13 @@ export default function Laboratory(){
                               type="button"
                               className="btn btn-ghost"
                               style={{ width: 'auto', padding: '5px 10px', fontSize: 11.5 }}
-                              onClick={() => handleCancel(test)}
-                              aria-label={`Cancel ${test.test_name} request for ${test.patient_name}`}
+                              onClick={() => (test.isGroup ? handleCancelGroup(test) : handleCancel(test))}
+                              aria-label={test.isGroup ? `Cancel all requested tests for ${test.patient_name}` : `Cancel ${test.test_name} request for ${test.patient_name}`}
                             >
                               Cancel
                             </button>
                           )}
-                          {stage === 'completed' && (
+                          {stage === 'completed' && !test.isGroup && (
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -537,7 +636,12 @@ export default function Laboratory(){
                               Reopen
                             </button>
                           )}
-                          <button onClick={() => handleArchive(test)} className="icon-btn-delete" title="Archive" aria-label={`Archive ${test.test_name} request for ${test.patient_name}`}><TrashIcon size={14}/></button>
+                          <button
+                            onClick={() => (test.isGroup ? handleArchiveGroup(test) : handleArchive(test))}
+                            className="icon-btn-delete"
+                            title="Archive"
+                            aria-label={test.isGroup ? `Archive all requested tests for ${test.patient_name}` : `Archive ${test.test_name} request for ${test.patient_name}`}
+                          ><TrashIcon size={14}/></button>
                         </div>
                       </td>
                     </tr>
