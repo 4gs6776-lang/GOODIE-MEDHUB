@@ -5,6 +5,7 @@ import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import { writeAudit } from '../../lib/audit'
 
 const MODALITIES = ['X-Ray', 'CT Scan', 'MRI', 'Ultrasound', 'Mammography', 'Fluoroscopy']
 
@@ -24,6 +25,19 @@ export default function Radiology(){
   function showToast(msg){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  function auditScan(action, scan, summary){
+    writeAudit({
+      hospitalId: hospital?.id,
+      actor: profile,
+      action,
+      entityType: 'radiology_scan',
+      entityId: scan.id,
+      patientId: scan.patient_id || null,
+      summary,
+      metadata: { modality: scan.modality, body_part: scan.body_part },
+    })
   }
 
   async function handleAdd(e){
@@ -75,10 +89,18 @@ export default function Radiology(){
     showToast(isOnline ? 'Marked requested' : 'Marked requested — will sync when back online')
   }
 
-  async function handleDelete(scan){
-    if (!confirm(`Delete this scan request for ${scan.patient_name}?`)) return
+  // Renamed from "handleDelete" to make clear this is an archive, not a
+  // destructive delete. useOfflineTable.js already routes radiology_scans
+  // through its soft-delete path (SOFT_DELETE_TABLES), so this has ALWAYS
+  // safely stamped deleted_at and hidden the record rather than erasing
+  // it — only the button/dialog wording was misleading before. Also adds
+  // an audit trail entry, which this action previously did not have at
+  // all (Laboratory's equivalent action already logged one).
+  async function handleArchive(scan){
+    if (!confirm(`Archive this scan request for ${scan.patient_name} (${scan.modality} — ${scan.body_part})?\n\nIt will be hidden from this list, but the record is kept for the clinical history — nothing is permanently erased.`)) return
     await deleteRecord(scan.id)
-    showToast('Scan deleted')
+    auditScan('radiology_scan.archived', scan, `Radiology scan archived — ${scan.modality} (${scan.body_part}) for ${scan.patient_name}`)
+    showToast('Scan archived')
   }
 
   function statusMeta(status){
@@ -195,9 +217,9 @@ export default function Radiology(){
                       </td>
                       <td style={{ padding: 12 }}>
                         <button
-                          onClick={() => handleDelete(scan)}
+                          onClick={() => handleArchive(scan)}
                           className="icon-btn-delete"
-                          title="Delete"
+                          title="Archive"
                         ><TrashIcon size={14}/></button>
                       </td>
                     </tr>
