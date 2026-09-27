@@ -146,6 +146,34 @@
   z-index:60; max-width:85vw; text-align:center;
 }
 
+/* ---------- Top-level tab bar (Hospitals / Subscriptions) ---------- */
+.owner-tabbar{
+  display:flex; gap:6px; background:var(--bg-card); border:1px solid var(--line);
+  border-radius:11px; padding:4px; margin-bottom:20px; width:fit-content;
+}
+.owner-tab{
+  border:none; cursor:pointer; padding:9px 18px; border-radius:8px;
+  font-size:12.5px; font-weight:700; background:transparent; color:var(--muted);
+  transition:.15s;
+}
+.owner-tab.active{ background:var(--gold); color:#2A1F00; }
+.owner-tab:not(.active):hover{ color:var(--ivory); }
+
+/* ---------- Generic list rows (payments, bank accounts) ---------- */
+.owner-list-row{
+  display:flex; justify-content:space-between; align-items:center;
+  gap:14px; flex-wrap:wrap;
+  padding:14px 16px;
+  border:1px solid var(--line); border-radius:11px;
+  background:rgba(255,255,255,0.012);
+  margin-bottom:10px;
+}
+.owner-list-row:last-child{ margin-bottom:0; }
+.owner-list-row-main{ min-width:0; flex:1; }
+.owner-list-row-title{ font-size:13.5px; font-weight:700; }
+.owner-list-row-sub{ font-size:11.5px; color:var(--muted); margin-top:3px; }
+.owner-list-row-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
 /* ---------- Mobile ---------- */
 @media (max-width:900px){
   .owner-content{ padding:20px 16px 50px; }
@@ -158,4 +186,8 @@
   .owner-stats{ gap:10px; }
   .owner-hospital-row{ flex-direction:column; align-items:stretch; }
   .owner-hospital-actions{ justify-content:space-between; }
+  .owner-list-row{ flex-direction:column; align-items:stretch; }
+  .owner-list-row-actions{ justify-content:flex-end; }
+  .owner-tabbar{ width:100%; }
+  .owner-tab{ flex:1; text-align:center; }
 }
