@@ -38,6 +38,7 @@ import Inventory from './Inventory'
 import Reports from './Reports'
 import Notifications from './Notifications'
 import Settings from './Settings'
+import Subscription from './Subscription'
 import DoctorWorkbench from './DoctorWorkbench'
 import Nursing from './Nursing'
 import DutyRoster from './DutyRoster'
@@ -122,6 +123,7 @@ const NAV_ITEMS = [
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
+  { key: 'subscription', label: 'Subscription', section: 'Operations', icon: 'subscription' },
   { key: 'settings', label: 'Settings', section: 'Operations', icon: 'settings' },
 ]
 
@@ -132,7 +134,7 @@ const PAGE_TITLES = {
   insurance: 'Insurance / HMO Claims', inventory: 'Inventory & Supplies', reports: 'Reports & Analytics',
   notifications: 'Reminders & Alerts', settings: 'Settings', ipd: 'IPD Management',
   reception: 'Reception', admissions: 'Admissions', roster: 'Duty Roster', messages: 'Messages',
-  handover: 'Shift Handover',
+  handover: 'Shift Handover', subscription: 'Subscription',
 }
 
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
@@ -1428,6 +1430,7 @@ export default function Dashboard(){
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'messages' && <Messages />}
+          {tab === 'subscription' && <Subscription />}
           {tab === 'settings' && <Settings />}
 
         </div>
