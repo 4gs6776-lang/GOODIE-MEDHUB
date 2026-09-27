@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
+import OwnerSubscriptions from './OwnerSubscriptions'
 
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-hospital`
 
@@ -25,6 +26,7 @@ const statusBg = { active: 'var(--teal-soft)', pending: 'rgba(201,169,97,0.14)',
 
 export default function OwnerDashboard(){
   const { signOut, session } = useAuth()
+  const [ownerTab, setOwnerTab] = useState('hospitals')
   const [hospitals, setHospitals] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -140,93 +142,108 @@ export default function OwnerDashboard(){
       </header>
 
       <main className="owner-content">
-        {/* Summary stats */}
-        <section className="owner-stats">
-          <div className="owner-stat-card">
-            <div className="owner-stat-value">{hospitals.length}</div>
-            <div className="owner-stat-label">Total Hospitals</div>
-          </div>
-          <div className="owner-stat-card">
-            <div className="owner-stat-value" style={{ color: 'var(--teal)' }}>{activeCount}</div>
-            <div className="owner-stat-label">Active</div>
-          </div>
-          <div className="owner-stat-card">
-            <div className="owner-stat-value" style={{ color: 'var(--gold)' }}>{pendingCount}</div>
-            <div className="owner-stat-label">Pending</div>
-          </div>
-          <div className="owner-stat-card">
-            <div className="owner-stat-value" style={{ color: 'var(--danger)' }}>{suspendedCount}</div>
-            <div className="owner-stat-label">Suspended</div>
-          </div>
-        </section>
+        <div className="owner-tabbar">
+          <button className={`owner-tab ${ownerTab === 'hospitals' ? 'active' : ''}`} onClick={() => setOwnerTab('hospitals')}>
+            Hospitals
+          </button>
+          <button className={`owner-tab ${ownerTab === 'subscriptions' ? 'active' : ''}`} onClick={() => setOwnerTab('subscriptions')}>
+            Subscriptions
+          </button>
+        </div>
 
-        {/* Hospital list */}
-        <section className="owner-panel">
-          <div className="owner-panel-head">
-            <div className="owner-panel-title">
-              {hospitals.length} Hospital{hospitals.length !== 1 ? 's' : ''}
-            </div>
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
-              <Icon name="plus" size={15} /> Add Hospital
-            </button>
-          </div>
+        {ownerTab === 'subscriptions' ? (
+          <OwnerSubscriptions />
+        ) : (
+          <>
+            {/* Summary stats */}
+            <section className="owner-stats">
+              <div className="owner-stat-card">
+                <div className="owner-stat-value">{hospitals.length}</div>
+                <div className="owner-stat-label">Total Hospitals</div>
+              </div>
+              <div className="owner-stat-card">
+                <div className="owner-stat-value" style={{ color: 'var(--teal)' }}>{activeCount}</div>
+                <div className="owner-stat-label">Active</div>
+              </div>
+              <div className="owner-stat-card">
+                <div className="owner-stat-value" style={{ color: 'var(--gold)' }}>{pendingCount}</div>
+                <div className="owner-stat-label">Pending</div>
+              </div>
+              <div className="owner-stat-card">
+                <div className="owner-stat-value" style={{ color: 'var(--danger)' }}>{suspendedCount}</div>
+                <div className="owner-stat-label">Suspended</div>
+              </div>
+            </section>
 
-          {loading ? (
-            <div className="owner-empty">Loading…</div>
-          ) : hospitals.length === 0 ? (
-            <div className="owner-empty">No hospitals yet. Add the first one above.</div>
-          ) : (
-            <div className="owner-hospital-list">
-              {hospitals.map(h => (
-                <div key={h.id} className="owner-hospital-row">
-                  <Link to={`/owner/hospitals/${h.id}`} className="owner-hospital-identity">
-                    <div className="owner-hospital-avatar"><Icon name="building" size={18} /></div>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="owner-hospital-name">{h.name}</div>
-                      <div className="owner-hospital-sub">{h.subdomain}</div>
-                    </div>
-                  </Link>
-
-                  <div className="owner-hospital-actions">
-                    <span className="owner-status-pill" style={{ background: statusBg[h.status], color: statusColor[h.status] }}>
-                      {h.status}
-                    </span>
-
-                    <select
-                      className="owner-tier-select"
-                      value={h.subscription_tier}
-                      onChange={e => updateTier(h.id, e.target.value)}
-                    >
-                      {Object.entries(TIER_LABEL).map(([val, label]) => (
-                        <option key={val} value={val}>{label}</option>
-                      ))}
-                    </select>
-
-                    <Link to={`/owner/hospitals/${h.id}`} className="owner-icon-btn" title="View details">
-                      <Icon name="eye" size={16} />
-                    </Link>
-
-                    <button
-                      className="owner-icon-btn"
-                      onClick={() => toggleStatus(h)}
-                      title={h.status === 'active' ? 'Suspend' : 'Activate'}
-                    >
-                      <Icon name={h.status === 'active' ? 'pause' : 'play'} size={15} />
-                    </button>
-
-                    <button
-                      className="owner-icon-btn owner-icon-btn-danger"
-                      onClick={() => deleteHospital(h)}
-                      title="Delete"
-                    >
-                      <Icon name="trash" size={15} />
-                    </button>
-                  </div>
+            {/* Hospital list */}
+            <section className="owner-panel">
+              <div className="owner-panel-head">
+                <div className="owner-panel-title">
+                  {hospitals.length} Hospital{hospitals.length !== 1 ? 's' : ''}
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
+                  <Icon name="plus" size={15} /> Add Hospital
+                </button>
+              </div>
+
+              {loading ? (
+                <div className="owner-empty">Loading…</div>
+              ) : hospitals.length === 0 ? (
+                <div className="owner-empty">No hospitals yet. Add the first one above.</div>
+              ) : (
+                <div className="owner-hospital-list">
+                  {hospitals.map(h => (
+                    <div key={h.id} className="owner-hospital-row">
+                      <Link to={`/owner/hospitals/${h.id}`} className="owner-hospital-identity">
+                        <div className="owner-hospital-avatar"><Icon name="building" size={18} /></div>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="owner-hospital-name">{h.name}</div>
+                          <div className="owner-hospital-sub">{h.subdomain}</div>
+                        </div>
+                      </Link>
+
+                      <div className="owner-hospital-actions">
+                        <span className="owner-status-pill" style={{ background: statusBg[h.status], color: statusColor[h.status] }}>
+                          {h.status}
+                        </span>
+
+                        <select
+                          className="owner-tier-select"
+                          value={h.subscription_tier}
+                          onChange={e => updateTier(h.id, e.target.value)}
+                        >
+                          {Object.entries(TIER_LABEL).map(([val, label]) => (
+                            <option key={val} value={val}>{label}</option>
+                          ))}
+                        </select>
+
+                        <Link to={`/owner/hospitals/${h.id}`} className="owner-icon-btn" title="View details">
+                          <Icon name="eye" size={16} />
+                        </Link>
+
+                        <button
+                          className="owner-icon-btn"
+                          onClick={() => toggleStatus(h)}
+                          title={h.status === 'active' ? 'Suspend' : 'Activate'}
+                        >
+                          <Icon name={h.status === 'active' ? 'pause' : 'play'} size={15} />
+                        </button>
+
+                        <button
+                          className="owner-icon-btn owner-icon-btn-danger"
+                          onClick={() => deleteHospital(h)}
+                          title="Delete"
+                        >
+                          <Icon name="trash" size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </main>
 
       {showModal && (
