@@ -393,3 +393,50 @@ export async function reactivateSubscription(sub, actor) {
     { title: 'Your subscription was reactivated', body: stillPaid ? 'Your plan is active again.' : 'Renew on the Subscription page to restore full access.' },
   )
 }
+
+// =====================================================================
+// Notifications — hospital side (read / mark read)
+// RLS lets a hospital member read their own hospital's notifications and
+// update them, but a database trigger (migration 009) means the ONLY
+// column they can actually change is read_at.
+// =====================================================================
+
+export async function getMyUnreadNotifications(hospitalId) {
+  if (!hospitalId) return []
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('hospital_id', hospitalId)
+    .eq('category', 'subscription')
+    .is('read_at', null)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (error) throw error
+  return data || []
+}
+
+export async function markNotificationRead(id) {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function markAllNotificationsRead(hospitalId) {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('hospital_id', hospitalId)
+    .eq('category', 'subscription')
+    .is('read_at', null)
+  if (error) throw error
+}
+
+// 'YYYY-MM-DD' -> '27 Oct 2026' with no timezone conversion (date-only columns).
+export function formatPlainDate(dateStr) {
+  if (!dateStr) return '—'
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${d} ${months[m - 1]} ${y}`
+}
