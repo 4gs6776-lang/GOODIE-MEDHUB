@@ -49,6 +49,7 @@ import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
 import { usePagination } from '../../lib/usePagination'
+import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import Pagination from '../../components/common/Pagination'
 
 // Same option lists used in Reception's registration form, kept in sync
@@ -187,6 +188,11 @@ export default function Dashboard(){
     return getAccessibleModules(profile?.role)
   }, [profile?.role])
   const visibleNavItems = allowedKeys ? NAV_ITEMS.filter(item => allowedKeys.includes(item.key)) : NAV_ITEMS
+
+  // Subscription alerts (banner + bell entries) — hospital ADMIN only,
+  // since they are the one who can act on billing. Live-updating.
+  const isHospitalAdmin = profile?.role === 'admin'
+  const subAlerts = useSubscriptionAlerts(hospital?.id, isHospitalAdmin)
 
   const [tab, setTab] = useState('overview')
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -634,8 +640,22 @@ export default function Dashboard(){
     if (todayApptCount > 0) {
       items.push({ icon: <AppIcon name="calendar" size={13} style={{ color: 'var(--blue)' }} />, text: <><strong>{todayApptCount}</strong> appointment{todayApptCount === 1 ? '' : 's'} scheduled for today.</> })
     }
-    return items
-  }, [lowStockItems, readyLabTests, todayApptCount])
+
+    // Unread subscription notifications go FIRST (admin only — the hook
+    // returns an empty list for everyone else). Clicking one marks it
+    // read and opens the Subscription page.
+    const subItems = (subAlerts.notifications || []).map(n => ({
+      icon: <AppIcon name="subscription" size={13} style={{ color: n.severity === 'critical' ? 'var(--danger)' : n.severity === 'warning' ? 'var(--warning)' : 'var(--teal)' }} />,
+      text: <><strong>{n.title}</strong>{n.body ? ` — ${n.body}` : ''}</>,
+      onClick: () => { subAlerts.markRead(n.id); setTab('subscription'); setActiveMenu(null) },
+    }))
+    return [...subItems, ...items]
+  }, [lowStockItems, readyLabTests, todayApptCount, subAlerts.notifications, subAlerts.markRead])
+
+  // Top-of-page subscription banner (admin only). Describes the status
+  // stored in the database; never decides it. "Days left" uses the
+  // hospital's own timezone.
+  const subBanner = isHospitalAdmin ? getSubscriptionBanner(subAlerts.subscription, todayKeyInZone(hospitalTz)) : null
 
   const recentMessageCount = useMemo(() => {
     if (!profile?.id) return 0
@@ -1041,9 +1061,19 @@ export default function Dashboard(){
               {activeMenu === 'notifs' && (
                 <div className="dash-popover-menu">
                   <div className="dash-popover-header">Notifications ({notificationItems.length})</div>
+                  {(subAlerts.notifications || []).length > 0 && (
+                    <button className="dash-view-all" style={{ margin: '4px 14px 0' }} onClick={subAlerts.markAllRead}>
+                      Mark subscription alerts as read
+                    </button>
+                  )}
                   <div className="dash-popover-body">
                     {notificationItems.length > 0 ? notificationItems.map((n, i) => (
-                      <div className="dash-popover-item" key={i}>{n.icon} {n.text}</div>
+                      <div
+                        className="dash-popover-item"
+                        key={i}
+                        onClick={n.onClick}
+                        style={n.onClick ? { cursor: 'pointer' } : undefined}
+                      >{n.icon} {n.text}</div>
                     )) : (
                       <div className="dash-popover-item" style={{ color: 'var(--muted)' }}>You're all caught up — nothing needs attention right now.</div>
                     )}
@@ -1071,6 +1101,26 @@ export default function Dashboard(){
         </header>
 
         <div className="dash-content">
+          {subBanner && tab !== 'subscription' && (
+            <div
+              className="dash-sync-alert"
+              style={subBanner.tone === 'critical' ? undefined : { borderColor: 'rgba(201,169,97,0.35)', background: 'rgba(201,169,97,0.12)' }}
+            >
+              <div>
+                <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: subBanner.tone === 'critical' ? 'var(--danger)' : 'var(--gold)' }}>
+                  <AppIcon name="alert" size={14} /> {subBanner.title}
+                </strong>
+                <span>{subBanner.text}{!isOnline ? ' (offline — showing last verified status)' : ''}</span>
+              </div>
+              <button
+                onClick={() => setTab('subscription')}
+                style={subBanner.tone === 'critical' ? undefined : { borderColor: 'rgba(201,169,97,0.4)', color: 'var(--gold)' }}
+              >
+                View
+              </button>
+            </div>
+          )}
+
           {stuckTables.length > 0 && (
             <div className="dash-sync-alert">
               <div>
