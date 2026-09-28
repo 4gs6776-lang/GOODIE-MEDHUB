@@ -9,6 +9,8 @@ import {
   deleteBankAccount,
   formatMoney,
 } from '../../lib/subscriptions'
+import OwnerPlans from './OwnerPlans'
+import OwnerSubscribers from './OwnerSubscribers'
 
 // =====================================================================
 // GOODIE-MEDHUB — Owner Portal: Subscriptions (Phase 6)
@@ -30,6 +32,7 @@ const EMPTY_BANK_FORM = {
 
 export default function OwnerSubscriptions() {
   const { profile } = useAuth()
+  const [view, setView] = useState('payments')
   const [payments, setPayments] = useState([])
   const [banks, setBanks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -167,6 +170,23 @@ export default function OwnerSubscriptions() {
 
   return (
     <>
+      <div className="owner-tabbar" style={{ flexWrap: 'wrap' }}>
+        {[
+          ['payments', payments.length > 0 ? `Payments (${payments.length})` : 'Payments'],
+          ['subscribers', 'Subscribers'],
+          ['plans', 'Plans'],
+          ['banks', 'Bank Accounts'],
+        ].map(([key, label]) => (
+          <button key={key} className={`owner-tab ${view === key ? 'active' : ''}`} onClick={() => setView(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'subscribers' && <OwnerSubscribers />}
+      {view === 'plans' && <OwnerPlans />}
+
+      {view === 'payments' && (
       <section className="owner-panel">
         <div className="owner-panel-head">
           <div className="owner-panel-title">
@@ -199,7 +219,9 @@ export default function OwnerSubscriptions() {
           ))
         )}
       </section>
+      )}
 
+      {view === 'banks' && (
       <section className="owner-panel">
         <div className="owner-panel-head">
           <div className="owner-panel-title">Bank Accounts</div>
@@ -227,6 +249,7 @@ export default function OwnerSubscriptions() {
           ))
         )}
       </section>
+      )}
 
       {showBankModal && (
         <div className="dash-modal-backdrop" onClick={() => !bankSaving && setShowBankModal(false)}>
