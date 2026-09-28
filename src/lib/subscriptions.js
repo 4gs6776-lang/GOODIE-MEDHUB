@@ -186,6 +186,11 @@ export async function approvePayment(payment, actor) {
     summary: `Payment verified — subscription renewed to ${newPeriodEnd}`,
     metadata: { plan_id: payment.plan_id, billing_cycle: payment.billing_cycle, new_period_end: newPeriodEnd },
   })
+
+  await notifyHospital(payment.hospital_id, {
+    title: 'Payment approved',
+    body: `Your payment was verified. Your subscription now runs until ${newPeriodEnd}.`,
+  })
 }
 
 export async function rejectPayment(payment, reason, actor) {
@@ -208,6 +213,12 @@ export async function rejectPayment(payment, reason, actor) {
     entityId: payment.id,
     summary: `Payment rejected${reason ? ': ' + reason : ''}`,
     metadata: { reason: reason || null },
+  })
+
+  await notifyHospital(payment.hospital_id, {
+    title: 'Payment rejected',
+    body: reason ? `Your payment could not be verified: ${reason}` : 'Your payment could not be verified. Please contact support.',
+    severity: 'warning',
   })
 }
 
@@ -240,4 +251,145 @@ export async function saveBankAccount(id, fields) {
 export async function deleteBankAccount(id) {
   const { error } = await supabase.from('platform_bank_accounts').delete().eq('id', id)
   if (error) throw error
+}
+
+// =====================================================================
+// Phase 7 — Owner: plan configuration + per-hospital subscription control
+// =====================================================================
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// Writes an in-app notification for a hospital. Deliberately NOT fatal:
+// if the notification insert fails, the action the owner just took
+// (approve, suspend, etc.) has still succeeded and must not look failed.
+export async function notifyHospital(hospitalId, { title, body, severity = 'info' }) {
+  const { error } = await supabase.from('notifications').insert({
+    hospital_id: hospitalId,
+    category: 'subscription',
+    title,
+    body: body || null,
+    severity,
+    email_status: 'skipped', // no email provider configured yet
+  })
+  if (error) console.warn('Could not write notification:', error.message)
+}
+
+// ---- Plans ----
+
+export async function getAllPlans() {
+  const { data, error } = await supabase
+    .from('subscription_plans')
+    .select('*')
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+// Plans are edited, never created/deleted here: existing subscriptions
+// point at these rows, and slug is what the rest of the system keys on.
+export async function savePlan(id, fields) {
+  const { error } = await supabase.from('subscription_plans').update(fields).eq('id', id)
+  if (error) throw error
+}
+
+// ---- Subscribers (every hospital's subscription) ----
+
+export async function getAllSubscriptions() {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('*, hospital:hospitals(name, status), plan:subscription_plans(name)')
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+async function ownerUpdateSubscription(sub, changes, actor, action, summary, notice) {
+  const { error } = await supabase.from('subscriptions').update(changes).eq('id', sub.id)
+  if (error) throw error
+
+  await writeAudit({
+    hospitalId: sub.hospital_id,
+    actor,
+    action,
+    entityType: 'subscription',
+    entityId: sub.id,
+    summary,
+    metadata: { before_status: sub.status, changes },
+  })
+
+  if (notice) await notifyHospital(sub.hospital_id, notice)
+}
+
+// Adds days. A trial gets a longer TRIAL; anything else gets a longer
+// paid period (counted from whichever is later: today or the current
+// end, so extending never shortens time already granted).
+export async function extendSubscription(sub, days, actor) {
+  const n = Math.floor(Number(days))
+  if (!n || n < 1 || n > 3650) throw new Error('Enter a number of days between 1 and 3650.')
+  const today = todayStr()
+
+  if (sub.status === 'trialing') {
+    const base = sub.trial_end && sub.trial_end > today ? sub.trial_end : today
+    const newEnd = addDays(base, n)
+    return ownerUpdateSubscription(
+      sub, { trial_end: newEnd }, actor, 'subscription.extended',
+      `Trial extended by ${n} day(s) to ${newEnd}`,
+      { title: 'Your free trial was extended', body: `Your trial now ends on ${newEnd}.` },
+    )
+  }
+
+  const base = sub.current_period_end && sub.current_period_end > today ? sub.current_period_end : today
+  const newEnd = addDays(base, n)
+  return ownerUpdateSubscription(
+    sub,
+    { current_period_end: newEnd, status: 'active', grace_period_end: null },
+    actor, 'subscription.extended',
+    `Subscription extended by ${n} day(s) to ${newEnd}`,
+    { title: 'Your subscription was extended', body: `Your subscription now runs until ${newEnd}.` },
+  )
+}
+
+export async function changeSubscriptionPlan(sub, planId, billingCycle, planName, actor) {
+  return ownerUpdateSubscription(
+    sub, { plan_id: planId, billing_cycle: billingCycle }, actor, 'subscription.plan_changed',
+    `Plan changed to ${planName} (${billingCycle})`,
+    { title: 'Your plan was changed', body: `Your plan is now ${planName}, billed ${billingCycle}.` },
+  )
+}
+
+export async function suspendSubscription(sub, actor) {
+  return ownerUpdateSubscription(
+    sub, { status: 'suspended' }, actor, 'subscription.suspended',
+    'Subscription suspended by owner',
+    { title: 'Your subscription was suspended', body: 'Please contact GOODIE-MEDHUB support.', severity: 'critical' },
+  )
+}
+
+export async function cancelSubscription(sub, actor) {
+  return ownerUpdateSubscription(
+    sub, { status: 'cancelled', auto_renew: false }, actor, 'subscription.cancelled',
+    'Subscription cancelled by owner',
+    { title: 'Your subscription was cancelled', body: 'Choose a plan on the Subscription page to reactivate.', severity: 'warning' },
+  )
+}
+
+// Reactivating never hands out free time: if the paid period is still
+// in the future the hospital goes back to active; otherwise it becomes
+// expired and they must pay (or the owner uses Extend).
+export async function reactivateSubscription(sub, actor) {
+  const stillPaid = sub.current_period_end && sub.current_period_end >= todayStr()
+  const status = stillPaid ? 'active' : 'expired'
+  return ownerUpdateSubscription(
+    sub, { status, grace_period_end: null }, actor, 'subscription.reactivated',
+    `Subscription reactivated as ${status}`,
+    { title: 'Your subscription was reactivated', body: stillPaid ? 'Your plan is active again.' : 'Renew on the Subscription page to restore full access.' },
+  )
 }
