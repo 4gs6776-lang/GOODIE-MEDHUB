@@ -10,6 +10,7 @@ import {
   formatMoney,
   submitManualPayment,
 } from '../../lib/subscriptions'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 
 // =====================================================================
 // GOODIE-MEDHUB — Hospital Subscription page (Phase 6)
@@ -109,6 +110,13 @@ export default function Subscription() {
   }
 
   useEffect(() => { loadAll() }, [hospital?.id])
+
+  // Live updates: when the owner approves/rejects a payment, changes the
+  // plan, or the daily check moves the status, this page refreshes by
+  // itself — no browser refresh needed. RLS means only THIS hospital's
+  // changes ever arrive here.
+  useRealtimeAlert('subscriptions', hospital?.id, loadAll, { event: 'UPDATE' })
+  useRealtimeAlert('subscription_payments', hospital?.id, loadAll, { event: 'UPDATE' })
 
   function openPayModal(plan) {
     setPayModalPlan(plan)
