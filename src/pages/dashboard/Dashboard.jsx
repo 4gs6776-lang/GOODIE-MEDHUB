@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { HospitalProvider } from '../../context/HospitalContext'
 import { supabase } from '../../lib/supabaseClient'
@@ -50,6 +50,7 @@ import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
+import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
 import Pagination from '../../components/common/Pagination'
 
 // Same option lists used in Reception's registration form, kept in sync
@@ -187,7 +188,11 @@ export default function Dashboard(){
     if (FULL_ACCESS_ROLES.includes(profile?.role)) return null
     return getAccessibleModules(profile?.role)
   }, [profile?.role])
-  const visibleNavItems = allowedKeys ? NAV_ITEMS.filter(item => allowedKeys.includes(item.key)) : NAV_ITEMS
+  // What the hospital's PLAN includes (menu items for modules the plan
+  // doesn't include are hidden; existing data is never touched).
+  const planEntitlements = useSyncExternalStore(subscribeEntitlements, getEntitlements, getEntitlements)
+  const roleNavItems = allowedKeys ? NAV_ITEMS.filter(item => allowedKeys.includes(item.key)) : NAV_ITEMS
+  const visibleNavItems = roleNavItems.filter(item => isModuleAllowedByPlan(item.key, planEntitlements))
 
   // Subscription alerts (banner + bell entries) — hospital ADMIN only,
   // since they are the one who can act on billing. Live-updating.
@@ -261,7 +266,9 @@ export default function Dashboard(){
   useEffect(() => subscribeSyncErrors(setSyncErrors), [])
   useEffect(() => {
     if (allowedKeys && !allowedKeys.includes(tab)) setTab('overview')
-  }, [allowedKeys, tab])
+    // Also covers deep links (e.g. a reminder pointing at a module the plan lacks).
+    else if (!isModuleAllowedByPlan(tab, planEntitlements)) setTab('overview')
+  }, [allowedKeys, tab, planEntitlements])
 
   useEffect(() => {
     function handleClickOutside(e) {
