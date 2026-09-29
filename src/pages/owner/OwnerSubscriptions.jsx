@@ -11,9 +11,13 @@ import {
 } from '../../lib/subscriptions'
 import OwnerPlans from './OwnerPlans'
 import OwnerSubscribers from './OwnerSubscribers'
+import OwnerUsage from './OwnerUsage'
 
 // =====================================================================
 // GOODIE-MEDHUB — Owner Portal: Subscriptions (Phase 6)
+//
+// (Tabs: Payments, Subscribers, Usage, Plans, Bank Accounts. The Usage
+// tab shows which hospitals are near or over their plan limits.)
 //
 // Two jobs on this screen:
 //   1. Review manual bank-transfer payments hospitals have submitted
@@ -174,6 +178,7 @@ export default function OwnerSubscriptions() {
         {[
           ['payments', payments.length > 0 ? `Payments (${payments.length})` : 'Payments'],
           ['subscribers', 'Subscribers'],
+          ['usage', 'Usage'],
           ['plans', 'Plans'],
           ['banks', 'Bank Accounts'],
         ].map(([key, label]) => (
@@ -184,6 +189,7 @@ export default function OwnerSubscriptions() {
       </div>
 
       {view === 'subscribers' && <OwnerSubscribers />}
+      {view === 'usage' && <OwnerUsage onManage={() => setView('subscribers')} />}
       {view === 'plans' && <OwnerPlans />}
 
       {view === 'payments' && (
