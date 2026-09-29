@@ -6,6 +6,8 @@ import AppIcon from '../../components/icons'
 import Timestamp from '../../components/common/Timestamp'
 import { buildPermissions, ROLE_LABELS } from '../../lib/permissions'
 import { writeAudit } from '../../lib/audit'
+import { assertWriteAllowed } from '../../lib/subscriptionLock'
+import { assertWithinPlanLimit } from '../../lib/planEntitlements'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 
@@ -68,6 +70,10 @@ export default function Staff(){
     }
     setCreating(true)
     try {
+      // Expired/suspended hospital, or plan staff limit reached? Stop here,
+      // before anything is sent to the server.
+      assertWriteAllowed('profiles', 'add')
+      assertWithinPlanLimit('staff', staff.filter(m => m.active !== false).length)
       const res = await fetch(FN_CREATE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
@@ -127,6 +133,17 @@ export default function Staff(){
   async function handleToggleActive(member){
     const goingActive = member.active === false
     if (!goingActive && !confirm(`Deactivate ${member.full_name}? They'll immediately lose access to log in, but their name stays on any records they've created.`)) return
+    // Reactivating uses up a staff slot, so it is checked like adding.
+    // Deactivating is a security action and is ALWAYS allowed.
+    if (goingActive) {
+      try {
+        assertWriteAllowed('profiles', 'update')
+        assertWithinPlanLimit('staff', staff.filter(m => m.active !== false).length)
+      } catch (err) {
+        showToast(err.message)
+        return
+      }
+    }
     const { error } = await supabase.from('profiles').update({ active: goingActive }).eq('id', member.id)
     if (!error) {
       // Sensitive security action → audit trail (Stage 1 req. #16).
