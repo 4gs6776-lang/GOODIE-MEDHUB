@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useHospital } from '../../context/HospitalContext'
 import {
@@ -11,6 +11,7 @@ import {
   submitManualPayment,
 } from '../../lib/subscriptions'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
+import { getEntitlements, subscribeEntitlements } from '../../lib/planEntitlements'
 
 // =====================================================================
 // GOODIE-MEDHUB — Hospital Subscription page (Phase 6)
@@ -21,9 +22,10 @@ import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 // always calculated by the database once the payment is submitted
 // (see lib/subscriptions.js and migration 009 for why that's safe).
 //
-// This page does NOT yet block any other part of the app when a
-// subscription is expired/suspended — that enforcement is a separate,
-// later step. For now it's the visibility + payment layer.
+// It also shows how much of the plan's patient and staff limits are
+// used. Enforcement of an expired/suspended subscription and of those
+// limits happens elsewhere (lib/subscriptionLock.js and
+// lib/planEntitlements.js); this page only displays the numbers.
 // =====================================================================
 
 const STATUS_LABEL = {
@@ -65,6 +67,8 @@ export default function Subscription() {
   const { facilities } = useHospital()
   const isAdmin = profile?.role === 'admin'
   const facilityCount = Math.max(facilities.filter(f => f.active).length, 1)
+  // Live patient/staff counts, kept fresh by useSubscriptionLock (mounted in App.jsx).
+  const { usage } = useSyncExternalStore(subscribeEntitlements, getEntitlements, getEntitlements)
 
   const [subscription, setSubscription] = useState(null)
   const [plans, setPlans] = useState([])
@@ -184,6 +188,19 @@ export default function Subscription() {
     'Renews on'
   const daysLeft = daysUntil(keyDate)
 
+  // Plan limit usage. A missing/invalid limit means "Unlimited".
+  const usageRows = [
+    { kind: 'patients', label: 'Patients', field: 'max_patients' },
+    { kind: 'staff', label: 'Active staff', field: 'max_staff' },
+  ].map(({ kind, label, field }) => {
+    const raw = plan?.limits?.[field]
+    const limit = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null
+    const used = Number.isFinite(usage?.[kind]) ? usage[kind] : null
+    const pct = limit ? Math.min(100, Math.round(((used ?? 0) / limit) * 100)) : 0
+    const color = pct >= 100 ? 'var(--danger)' : pct >= 90 ? 'var(--gold)' : 'var(--teal)'
+    return { kind, label, limit, used, pct, color }
+  })
+
   return (
     <>
       {/* ---- Current plan summary ---- */}
@@ -233,6 +250,19 @@ export default function Subscription() {
               )}
             </div>
           </div>
+          {usageRows.map(row => (
+            <div key={row.kind}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{row.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>
+                {row.limit === null ? 'Unlimited' : `${row.used ?? '—'} / ${row.limit}`}
+              </div>
+              {row.limit !== null && (
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--line)', marginTop: 6, overflow: 'hidden' }}>
+                  <div style={{ width: `${row.pct}%`, height: '100%', background: row.color }} />
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 14 }}>
