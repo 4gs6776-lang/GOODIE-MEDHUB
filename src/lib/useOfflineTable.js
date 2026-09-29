@@ -6,6 +6,7 @@ import {
 } from 'react'
 
 import { supabase } from './supabaseClient'
+import { assertWriteAllowed } from './subscriptionLock'
 
 const DB_NAME = 'HospitalOfflineDB'
 const DB_VERSION = 3
@@ -495,6 +496,8 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
   }, [realtime, tableName, hospitalId, loadLocalRecords])
 
   const addRecord = async (data) => {
+    // Expired/suspended hospital? Refuse BEFORE anything is saved.
+    assertWriteAllowed(tableName, 'add')
     if (!hospitalId) throw new Error('Hospital ID is required.')
 
     const timestamp = nowISO()
@@ -561,6 +564,7 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
   }
 
   const updateRecord = async (id, updates) => {
+    assertWriteAllowed(tableName, 'update', updates)
     const db = await openDB()
     const existing = await getLocalRecord(db, id)
 
@@ -636,6 +640,7 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
   // instead: deleted_at is stamped, history is preserved, and the
   // record disappears from every list.
   const deleteRecord = async (id) => {
+    assertWriteAllowed(tableName, 'delete')
     if (SOFT_DELETE_TABLES.has(tableName)) {
       return updateRecord(id, { deleted_at: nowISO() })
     }
