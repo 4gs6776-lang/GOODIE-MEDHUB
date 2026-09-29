@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import SearchInput from '../../components/common/SearchInput'
+import { assertWriteAllowed, isWriteAllowed } from '../../lib/subscriptionLock'
 
 const SHIFT_TYPES = [
   {
@@ -162,6 +163,16 @@ export default function DutyRoster() {
       }
 
       let currentRoster = rosterData
+
+      // Expired/suspended hospital: VIEWING must still work, but opening a
+      // month that has no roster would silently CREATE one (a write).
+      // Show that month as empty instead. (`return` still runs `finally`.)
+      if (!currentRoster && !isWriteAllowed('rosters', 'add')) {
+        setRoster(null)
+        setStatus('draft')
+        setEntries({})
+        return
+      }
 
       if (!currentRoster) {
         const {
@@ -422,6 +433,14 @@ export default function DutyRoster() {
       return
     }
 
+    // Expired/suspended hospital: refuse before the screen changes.
+    try {
+      assertWriteAllowed('roster_entries', 'update')
+    } catch (err) {
+      showToast('Could not save shift: ' + err.message)
+      return
+    }
+
     if (!roster) return
 
     /*
@@ -559,6 +578,7 @@ export default function DutyRoster() {
     setSaving(true)
 
     try {
+      assertWriteAllowed('rosters', 'update')
       const { error } =
         await supabase
           .from('rosters')
@@ -600,6 +620,7 @@ export default function DutyRoster() {
     setSaving(true)
 
     try {
+      assertWriteAllowed('rosters', 'update')
       const { error } =
         await supabase
           .from('rosters')
