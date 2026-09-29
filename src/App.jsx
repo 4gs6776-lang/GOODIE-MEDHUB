@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import OwnerRoute from './components/OwnerRoute'
 import ErrorBoundary from './components/ErrorBoundary'
+import SubscriptionLockNotice from './components/SubscriptionLockNotice'
 import Login from './pages/auth/Login'
 import Dashboard from './pages/dashboard/Dashboard'
 import OwnerDashboard from './pages/owner/OwnerDashboard'
@@ -42,6 +43,8 @@ export default function App(){
               </OwnerRoute>
             } />
           </Routes>
+          {/* Read-only bar + write lock for expired/suspended hospitals */}
+          <SubscriptionLockNotice />
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
