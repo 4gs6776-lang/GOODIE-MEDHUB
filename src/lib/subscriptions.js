@@ -132,16 +132,28 @@ export async function getPendingPayments() {
 // Adds one month/year to a date string, from whichever is later:
 // today, or the subscription's current period end (so approving a
 // payment early never throws away days the hospital already paid
-// for). Known limitation: month-end dates (e.g. 31 Jan) roll over
-// using JavaScript's normal date math, which can land a monthly
-// renewal on the 2nd or 3rd of the following month in short months —
-// acceptable for now, worth revisiting if it matters to you later.
-function addInterval(dateStr, billingCycle) {
+// for).
+//
+// Month-end dates are CLAMPED to the last day of the target month:
+// 31 Jan + 1 month = 28 Feb (29 in a leap year), 31 Mar + 1 month =
+// 30 Apr, 29 Feb + 1 year = 28 Feb. Plain JavaScript date math would
+// instead roll over into the NEXT month (31 Jan + 1 month = 3 Mar),
+// which quietly gave hospitals extra days.
+// Exported so it can be tested on its own.
+export function addInterval(dateStr, billingCycle) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00Z`) : new Date()
-  const d = new Date(base)
-  if (billingCycle === 'yearly') d.setUTCFullYear(d.getUTCFullYear() + 1)
-  else d.setUTCMonth(d.getUTCMonth() + 1)
-  return d.toISOString().slice(0, 10)
+  const day = base.getUTCDate()
+  const monthsToAdd = billingCycle === 'yearly' ? 12 : 1
+
+  // Jump to the 1st of the target month first (the 1st always exists),
+  // then set the day, but never past that month's last day.
+  const target = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + monthsToAdd, 1))
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)
+  ).getUTCDate()
+  target.setUTCDate(Math.min(day, lastDayOfTargetMonth))
+
+  return target.toISOString().slice(0, 10)
 }
 
 export async function approvePayment(payment, actor) {
