@@ -7,6 +7,7 @@ import {
 
 import { supabase } from './supabaseClient'
 import { assertWriteAllowed } from './subscriptionLock'
+import { assertWithinPlanLimit, getEntitlements } from './planEntitlements'
 
 const DB_NAME = 'HospitalOfflineDB'
 const DB_VERSION = 3
@@ -499,6 +500,18 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
     // Expired/suspended hospital? Refuse BEFORE anything is saved.
     assertWriteAllowed(tableName, 'add')
     if (!hospitalId) throw new Error('Hospital ID is required.')
+
+    // Plan limit: refuse a NEW patient once the plan's max is reached.
+    // Count = the larger of this device's records and the server's last
+    // known count (the device only holds what has synced to it).
+    if (tableName === 'patients') {
+      const countDb = await openDB()
+      const localCount = (await getAllLocalRecords(countDb)).filter(
+        (r) => r.table_name === 'patients' && r.hospital_id === hospitalId && !r._deleted && !r.deleted_at
+      ).length
+      const serverCount = getEntitlements().usage?.patients ?? 0
+      assertWithinPlanLimit('patients', Math.max(localCount, serverCount))
+    }
 
     const timestamp = nowISO()
     const id = data.id || generateUUID()
