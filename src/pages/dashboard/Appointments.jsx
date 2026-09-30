@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
-import TrashIcon from '../../components/icons/TrashIcon'
+import PatientAutocomplete from '../../components/common/PatientAutocomplete'
+import Autocomplete from '../../components/common/Autocomplete'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
 import Timestamp from '../../components/common/Timestamp'
@@ -19,34 +20,104 @@ import {
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 
-const STATUS_CYCLE = { scheduled: 'completed', completed: 'cancelled', cancelled: 'scheduled' }
+// Tapping a status badge now only moves between sensible states:
+//   scheduled -> completed, completed -> scheduled (correction),
+//   cancelled -> scheduled (reinstate).
+// CANCELLING is a separate, deliberate action (Cancel button) that asks
+// for an optional reason, so a stray tap can never cancel a visit.
+const STATUS_CYCLE = { scheduled: 'completed', completed: 'scheduled', cancelled: 'scheduled' }
 const STATUS_LABEL = { scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' }
 const STATUS_COLOR = { scheduled: 'var(--violet)', completed: 'var(--teal)', cancelled: 'var(--danger)' }
 const STATUS_BG = { scheduled: 'rgba(139,124,246,0.14)', completed: 'var(--teal-soft)', cancelled: 'var(--danger-soft)' }
 const DURATIONS = [15, 30, 45, 60, 90]
 
+// ---------------------------------------------------------------------
+// Keeping the user's place (preserve-user-work rule)
+//
+// Dashboard removes this screen when you switch to another module, which
+// used to wipe your search, view, day and any half-typed appointment.
+// These two variables live OUTSIDE the component, so they survive
+// leaving and coming back. They are kept in MEMORY ONLY (never written
+// to localStorage/sessionStorage) because the half-typed form can hold a
+// patient's name. A browser reload or sign-out clears them, and they are
+// tagged with the hospital + user so another account never sees them.
+// ---------------------------------------------------------------------
+let screenState = null // { owner, searchTerm, viewMode, dayFilter, pageSize }
+let formDraft = null   // { owner, open, patientOpt, doctorOpt, when, duration, notes }
+
+function ownerKey(hospital, profile) {
+  return `${hospital?.id || ''}:${profile?.id || ''}`
+}
+
 export default function Appointments({ initialSearch = '' }){
   const { profile, hospital } = useAuth()
   // Central timezone handling (Stage 1 req. #11)
   const hospitalTz = getTimezone(hospital)
-  const { records: appointments, loading, isOnline, pendingCount, addRecord, deleteRecord, updateRecord } = useOfflineTable('appointments', hospital?.id)
+  const { records: appointments, loading, isOnline, pendingCount, addRecord, updateRecord } = useOfflineTable('appointments', hospital?.id)
+  // Registered patients and staff, from the same offline store the rest of
+  // the app uses, so the pickers also work with no internet.
+  const { records: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id)
+  const { records: staff, loading: loadingStaff } = useOfflineTable('profiles', hospital?.id)
+  const owner = ownerKey(hospital, profile)
+  const savedScreen = screenState && screenState.owner === owner ? screenState : null
+  const savedDraft = formDraft && formDraft.owner === owner ? formDraft : null
   // Stage 2 QA (pair 1): phones re-flow the list into record cards instead
   // of squeezing a 5-column table (or force-scrolling it) into 320-430px.
   const isPhone = useMediaQuery('(max-width: 767px)')
-  const [showModal, setShowModal] = useState(false)
+  const [showModal, setShowModal] = useState(Boolean(savedDraft?.open))
   const [toast, setToast] = useState(null)
-  const [searchTerm, setSearchTerm] = useState(initialSearch)
+  const [searchTerm, setSearchTerm] = useState(initialSearch || savedScreen?.searchTerm || '')
   useEffect(() => { if (initialSearch) setSearchTerm(initialSearch) }, [initialSearch])
-  const [viewMode, setViewMode] = useState('all') // 'all' | 'day'
-  const [dayFilter, setDayFilter] = useState(() => todayKeyInZone(getTimezone(hospital)))
+  const [viewMode, setViewMode] = useState(savedScreen?.viewMode || 'all') // 'all' | 'day'
+  const [dayFilter, setDayFilter] = useState(() => savedScreen?.dayFilter || todayKeyInZone(getTimezone(hospital)))
 
-  const [patientName, setPatientName] = useState('')
-  const [doctorName, setDoctorName] = useState('')
-  const [when, setWhen] = useState('')
-  const [duration, setDuration] = useState('30')
-  const [notes, setNotes] = useState('')
+  // The picked patient/doctor are the option objects the pickers hand back.
+  const [patientOpt, setPatientOpt] = useState(savedDraft?.patientOpt || null)
+  const [doctorOpt, setDoctorOpt] = useState(savedDraft?.doctorOpt || null)
+  const [when, setWhen] = useState(savedDraft?.when || '')
+  const [duration, setDuration] = useState(savedDraft?.duration || '30')
+  const [notes, setNotes] = useState(savedDraft?.notes || '')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+
+  // Cancel dialog (replaces the old permanent Delete).
+  const [cancelTarget, setCancelTarget] = useState(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+
+  const doctorName = doctorOpt?.label || ''
+  const formDirty = Boolean(patientOpt || doctorOpt || when || notes.trim() || duration !== '30')
+
+  // Doctors for the picker: active staff whose role is doctor.
+  const doctorOptions = useMemo(() => staff
+    .filter(m => m.role === 'doctor' && m.active !== false)
+    .map(m => ({ id: m.id, label: m.full_name || 'Unnamed doctor', sublabel: 'Doctor' })), [staff])
+
+  // Remember the unfinished form while this screen is away (memory only).
+  useEffect(() => {
+    formDraft = (showModal || formDirty)
+      ? { owner, open: showModal, patientOpt, doctorOpt, when, duration, notes }
+      : null
+  }, [owner, showModal, formDirty, patientOpt, doctorOpt, when, duration, notes])
+
+  // Warn before a browser refresh/close would throw away typed work.
+  useEffect(() => {
+    if (!(showModal && formDirty)) return undefined
+    const warn = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [showModal, formDirty])
+
+  function resetForm(){
+    setPatientOpt(null); setDoctorOpt(null); setWhen(''); setDuration('30'); setNotes('')
+    setFormError('')
+  }
+
+  function closeModal(){
+    if (formDirty && !confirm('Discard this unfinished appointment?')) return
+    resetForm()
+    setShowModal(false)
+  }
 
   function showToast(msg){
     setToast(msg)
@@ -69,8 +140,12 @@ export default function Appointments({ initialSearch = '' }){
   async function handleAdd(e){
     e.preventDefault()
     setFormError('')
-    if (!patientName || !when) {
-      setFormError('Patient name and date/time are required.')
+    if (!patientOpt?.patient) {
+      setFormError('Choose a registered patient from the list.')
+      return
+    }
+    if (!when) {
+      setFormError('Date and time are required.')
       return
     }
     if (!hospital || !profile) {
@@ -78,19 +153,21 @@ export default function Appointments({ initialSearch = '' }){
       return
     }
 
+    const patientRow = patientOpt.patient
     const durationMins = parseInt(duration, 10)
     const startISO = new Date(when).toISOString()
     const conflict = findConflict(doctorName, startISO, durationMins)
     if (conflict) {
       const conflictTime = formatTime(conflict.appointment_time, hospitalTz)
-      setFormError(`Dr. ${doctorName} is already booked with ${conflict.patient_name} at ${conflictTime}. Choose another time.`)
+      const who = /^dr\.?\s/i.test(doctorName) ? doctorName : `Dr. ${doctorName}`
+      setFormError(`${who} is already booked with ${conflict.patient_name} at ${conflictTime}. Choose another time.`)
       return
     }
 
     setSaving(true)
     try {
-      await addRecord({
-        patient_name: patientName,
+      const created = await addRecord({
+        patient_name: patientRow.full_name,
         doctor_name: doctorName || null,
         appointment_time: startISO,
         duration_minutes: durationMins,
@@ -98,8 +175,18 @@ export default function Appointments({ initialSearch = '' }){
         notes: notes || null,
         created_by: profile.id,
       })
+      writeAudit({
+        hospitalId: hospital?.id,
+        actor: profile,
+        action: 'appointment.create',
+        entityType: 'appointment',
+        entityId: created?.id || null,
+        patientId: patientRow.id,
+        summary: `Appointment booked for ${patientRow.full_name} on ${formatWhen(startISO)}${doctorName ? ` with ${doctorName}` : ''}`,
+        metadata: { duration_minutes: durationMins },
+      })
+      resetForm()
       setShowModal(false)
-      setPatientName(''); setDoctorName(''); setWhen(''); setDuration('30'); setNotes('')
       showToast(isOnline ? 'Appointment scheduled' : 'Appointment scheduled — will sync when back online')
     } catch (err) {
       setFormError(err.message || 'Could not save appointment')
@@ -110,8 +197,14 @@ export default function Appointments({ initialSearch = '' }){
 
   async function cycleStatus(appt){
     const newStatus = STATUS_CYCLE[appt.status]
-    await updateRecord(appt.id, { status: newStatus })
-    // Status changes are auditable clinical events (same policy as deletion).
+    if (!newStatus) return
+    try {
+      await updateRecord(appt.id, { status: newStatus })
+    } catch (err) {
+      showToast(err.message || 'Could not change status')
+      return
+    }
+    // Status changes are auditable clinical events.
     writeAudit({
       hospitalId: hospital?.id,
       actor: profile,
@@ -124,19 +217,36 @@ export default function Appointments({ initialSearch = '' }){
     showToast(isOnline ? `Marked ${STATUS_LABEL[newStatus]}` : `Marked ${STATUS_LABEL[newStatus]} — will sync when back online`)
   }
 
-  async function handleDelete(appt){
-    if (!confirm(`Delete this appointment for ${appt.patient_name}?`)) return
-    await deleteRecord(appt.id)
-    // Cancellations/deletions are auditable events (Stage 1 req. #16).
-    writeAudit({
-      hospitalId: hospital?.id,
-      actor: profile,
-      action: 'appointment.delete',
-      entityType: 'appointment',
-      entityId: appt.id,
-      summary: `Deleted appointment for ${appt.patient_name} scheduled ${formatWhen(appt.appointment_time)}`,
-    })
-    showToast('Appointment deleted')
+  // Appointments are never permanently deleted any more: cancelling keeps
+  // the record (status "cancelled") and writes an audit event with the
+  // reason, so there is always a history of what happened.
+  function requestCancel(appt){
+    setCancelReason('')
+    setCancelTarget(appt)
+  }
+
+  async function confirmCancel(){
+    const appt = cancelTarget
+    if (!appt) return
+    setCancelling(true)
+    try {
+      await updateRecord(appt.id, { status: 'cancelled' })
+      writeAudit({
+        hospitalId: hospital?.id,
+        actor: profile,
+        action: 'appointment.cancel',
+        entityType: 'appointment',
+        entityId: appt.id,
+        summary: `Cancelled appointment for ${appt.patient_name} scheduled ${formatWhen(appt.appointment_time)}`,
+        metadata: { from: appt.status, reason: cancelReason.trim() || null },
+      })
+      setCancelTarget(null)
+      showToast(isOnline ? 'Appointment cancelled' : 'Appointment cancelled — will sync when back online')
+    } catch (err) {
+      showToast(err.message || 'Could not cancel appointment')
+    } finally {
+      setCancelling(false)
+    }
   }
 
   const sorted = [...appointments].sort((a, b) => new Date(a.appointment_time) - new Date(b.appointment_time))
@@ -160,7 +270,12 @@ export default function Appointments({ initialSearch = '' }){
     pageSize: allPageSize, setPageSize: setAllPageSize,
     totalPages: allTotalPages, totalItems: allTotalItems,
     startIndex: allStart, endIndex: allEnd,
-  } = usePagination(searchedSorted, { pageSize: 10, resetKey: appointmentSearch })
+  } = usePagination(searchedSorted, { pageSize: savedScreen?.pageSize || 10, resetKey: appointmentSearch })
+
+  // Remember search / view / day / page size while this screen is away.
+  useEffect(() => {
+    screenState = { owner, searchTerm, viewMode, dayFilter, pageSize: allPageSize }
+  }, [owner, searchTerm, viewMode, dayFilter, allPageSize])
 
   const todayKey = todayKeyInZone(hospitalTz)
   const todayCount = sorted.filter(a => dayKeyInZone(a.appointment_time, hospitalTz) === todayKey).length
@@ -222,12 +337,14 @@ export default function Appointments({ initialSearch = '' }){
             aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
           >{STATUS_LABEL[appt.status]}</button>
           <span className="appt-card-id">{appt.appointment_id || appt.patient_id || ''}</span>
-          <button
-            onClick={() => handleDelete(appt)}
-            className="icon-btn-delete"
-            title="Delete"
-            aria-label={`Delete appointment for ${appt.patient_name}`}
-          ><TrashIcon size={14}/></button>
+          {appt.status === 'scheduled' && (
+            <button
+              onClick={() => requestCancel(appt)}
+              className="icon-btn-delete"
+              title="Cancel appointment"
+              aria-label={`Cancel appointment for ${appt.patient_name}`}
+            ><AppIcon name="close" size={14} /></button>
+          )}
         </div>
       </div>
     )
@@ -327,12 +444,14 @@ export default function Appointments({ initialSearch = '' }){
                             title="Tap to change status"
                             aria-label={`Status ${STATUS_LABEL[appt.status]}. Tap to change it.`}
                           >{STATUS_LABEL[appt.status]}</button>
-                          <button
-                            onClick={() => handleDelete(appt)}
-                            className="icon-btn-delete"
-                            title="Delete"
-                            aria-label={`Delete appointment for ${appt.patient_name}`}
-                          ><TrashIcon size={14}/></button>
+                          {appt.status === 'scheduled' && (
+                            <button
+                              onClick={() => requestCancel(appt)}
+                              className="icon-btn-delete"
+                              title="Cancel appointment"
+                              aria-label={`Cancel appointment for ${appt.patient_name}`}
+                            ><AppIcon name="close" size={14} /></button>
+                          )}
                         </div>
                       )
                   ))}
@@ -348,7 +467,7 @@ export default function Appointments({ initialSearch = '' }){
               <div className="dash-panel-title">Appointments</div>
               <div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <ConnectionState isOnline={isOnline} pendingCount={pendingCount} />
-                <span>Tap a status badge to cycle it</span>
+                <span>Tap a status badge to change it</span>
               </div>
             </div>
             <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
@@ -397,12 +516,14 @@ export default function Appointments({ initialSearch = '' }){
                             >{STATUS_LABEL[appt.status]}</button>
                           </td>
                           <td style={{ padding: 12 }}>
-                            <button
-                              onClick={() => handleDelete(appt)}
-                              className="icon-btn-delete"
-                              title="Delete"
-                              aria-label={`Delete appointment for ${appt.patient_name}`}
-                            ><TrashIcon size={14}/></button>
+                            {appt.status === 'scheduled' && (
+                              <button
+                                onClick={() => requestCancel(appt)}
+                                className="icon-btn-delete"
+                                title="Cancel appointment"
+                                aria-label={`Cancel appointment for ${appt.patient_name}`}
+                              ><AppIcon name="close" size={14} /></button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -437,13 +558,27 @@ export default function Appointments({ initialSearch = '' }){
               <div className="dash-modal-body">
                 {formError && <div className="error-box">{formError}</div>}
                 <div className="field">
-                  <label htmlFor="appt-patient">Patient Name</label>
-                  <input id="appt-patient" value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Chinedu Okafor" />
+                  <label htmlFor="appt-patient">Patient</label>
+                  <PatientAutocomplete
+                    patients={patients}
+                    value={patientOpt}
+                    onChange={setPatientOpt}
+                    loading={loadingPatients && patients.length === 0}
+                    ariaLabel="Patient"
+                  />
                 </div>
                 <div className="field">
-                  <label htmlFor="appt-doctor">Doctor</label>
-                  <input id="appt-doctor" value={doctorName} onChange={e => setDoctorName(e.target.value)} placeholder="e.g. Dr. Adaeze" />
-                  <div className="field-hint">Adding a doctor here lets us check for double-booking.</div>
+                  <label htmlFor="appt-doctor">Doctor (optional)</label>
+                  <Autocomplete
+                    options={doctorOptions}
+                    value={doctorOpt}
+                    onChange={setDoctorOpt}
+                    loading={loadingStaff && staff.length === 0}
+                    placeholder="Search doctor by name…"
+                    emptyText="No matching doctor — doctors are added under Staff"
+                    ariaLabel="Doctor"
+                  />
+                  <div className="field-hint">Choosing a doctor lets us check for double-booking.</div>
                 </div>
                 <div className="field">
                   <label htmlFor="appt-when">Date &amp; Time</label>
@@ -461,10 +596,44 @@ export default function Appointments({ initialSearch = '' }){
                 </div>
               </div>
               <div className="dash-modal-actions">
-                <button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="button" className="btn btn-ghost" onClick={closeModal}>Close</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Appointment'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {cancelTarget && (
+        <div className="dash-modal-backdrop">
+          <div className="card dash-modal" role="dialog" aria-modal="true" aria-labelledby="appt-cancel-title">
+            <div className="dash-modal-title" id="appt-cancel-title">Cancel this appointment?</div>
+            <div className="dash-modal-form">
+              <div className="dash-modal-body">
+                <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>
+                  <strong>{cancelTarget.patient_name}</strong>
+                  <div style={{ color: 'var(--muted)' }}>
+                    {formatWhen(cancelTarget.appointment_time)}{cancelTarget.doctor_name ? ` · ${cancelTarget.doctor_name}` : ''}
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="appt-cancel-reason">Reason (optional)</label>
+                  <input
+                    id="appt-cancel-reason"
+                    value={cancelReason}
+                    onChange={e => setCancelReason(e.target.value)}
+                    placeholder="e.g. Patient asked to reschedule"
+                  />
+                  <div className="field-hint">The appointment is kept in the list as Cancelled and the reason is saved in the audit trail.</div>
+                </div>
+              </div>
+              <div className="dash-modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setCancelTarget(null)} disabled={cancelling}>Keep appointment</button>
+                <button type="button" className="btn btn-primary" style={{ background: 'var(--danger)' }} onClick={confirmCancel} disabled={cancelling}>
+                  {cancelling ? 'Cancelling…' : 'Cancel appointment'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
