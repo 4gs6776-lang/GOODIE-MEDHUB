@@ -310,16 +310,49 @@ async function deleteLocalRecord(db, id) {
 // PULL RECORDS DOWN FROM SUPABASE
 // ============================================================
 
+// Supabase (PostgREST) returns AT MOST 1000 rows per request by default.
+// Before this fix the pull made ONE request, so any table with more than
+// 1000 rows for a hospital (patients, invoices, lab orders...) was
+// silently cut off: the rest never reached the device, lists showed only
+// the first 1000 and counts were wrong. We now read the table in pages
+// of 1000 until the last page.
+//   - If you ever change "Max rows" in Supabase (Settings -> API), set
+//     PULL_PAGE_SIZE to the same number.
+//   - Rows are ordered by id so pages never overlap or skip rows.
+//   - PULL_MAX_PAGES is only a safety stop against an endless loop
+//     (500 pages = 500,000 rows).
+const PULL_PAGE_SIZE = 1000
+const PULL_MAX_PAGES = 500
+
+// Returns every row for the hospital, or null if ANY page failed (we then
+// keep the local data exactly as it was instead of applying a half-read
+// table).
+async function fetchAllRemoteRows(tableName, hospitalId) {
+  const rows = []
+  for (let page = 0; page < PULL_MAX_PAGES; page += 1) {
+    const from = page * PULL_PAGE_SIZE
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('*')
+      .eq('hospital_id', hospitalId)
+      .order('id', { ascending: true })
+      .range(from, from + PULL_PAGE_SIZE - 1)
+
+    if (error || !data) return null
+    rows.push(...data)
+    if (data.length < PULL_PAGE_SIZE) return rows
+  }
+  console.warn(`Pull of ${tableName} stopped at ${PULL_MAX_PAGES * PULL_PAGE_SIZE} rows (safety limit).`)
+  return rows
+}
+
 async function pullFromSupabase(db, tableName, hospitalId) {
   if (!navigator.onLine || !supabase?.from || !hospitalId) return
 
   try {
-    const { data: remoteRows, error } = await supabase
-      .from(tableName)
-      .select('*')
-      .eq('hospital_id', hospitalId)
+    const remoteRows = await fetchAllRemoteRows(tableName, hospitalId)
 
-    if (error || !remoteRows) return
+    if (!remoteRows) return
 
     const localRows = await getAllLocalRecords(db)
     const localById = new Map(localRows.map((r) => [r.id, r]))
