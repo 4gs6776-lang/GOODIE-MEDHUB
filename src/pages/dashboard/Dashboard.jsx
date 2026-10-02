@@ -926,7 +926,7 @@ export default function Dashboard(){
             <AppIcon name="phone" size={15}/>
           </div>
           <strong>{hospital?.phone || '+2348148364233'}</strong>
-          <span className="dash-emergency-name">{hospital?.emergency_contact_name || 'Mr Goodnews'}</span>
+          <span className="dash-emergency-name">{hospital?.emergency_contact_name || 'G-MedHub'}</span>
           <small>24/7 Available</small>
         </div>
         
