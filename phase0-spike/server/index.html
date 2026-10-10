@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GOODIE-MEDHUB local spike</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:560px;margin:20px auto;padding:0 14px}
+input,button{padding:10px;font-size:15px;margin:4px 0;width:100%;box-sizing:border-box}
+.bar{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;margin-bottom:10px}
+.pill{padding:3px 10px;border-radius:99px;background:#ddd}.ok{background:#bdf0d0}.bad{background:#f6c4c4}
+li{padding:6px 0;border-bottom:1px solid #eee}#log{font-size:12px;color:#555;white-space:pre-wrap}
+</style></head><body>
+<h2>GOODIE-MEDHUB — Local Server Test</h2>
+<div class="bar"><span id="local" class="pill">Local server: ?</span><span id="cloud" class="pill">Cloud: ?</span><span id="sync" class="pill">Pending sync: ?</span></div>
+<div id="login"><input id="email" value="admin@demo.local"><input id="pw" type="password" placeholder="password"><button onclick="login()">Log in</button></div>
+<div id="app" hidden><input id="name" placeholder="New patient full name"><button onclick="add()">Register patient</button>
+<ul id="list"></ul><div id="log"></div></div><p id="err" style="color:#b00"></p>
+<script>
+let token="",ws;const $=i=>document.getElementById(i);
+const log=t=>$("log").textContent=new Date().toLocaleTimeString()+" "+t+"\n"+$("log").textContent;
+async function api(p,o={}){const r=await fetch(p,{...o,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})}});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j}
+async function health(){try{const h=await api("/api/health");
+ $("local").textContent="Local server: connected";$("local").className="pill ok";
+ $("cloud").textContent="Cloud: "+({ok:"connected",unreachable:"internet offline","not-configured":"not configured"}[h.cloud]);
+ $("cloud").className="pill "+(h.cloud=="ok"?"ok":"bad");
+ $("sync").textContent="Pending sync: "+h.pendingSync}
+ catch{$("local").textContent="Local server: NOT reachable";$("local").className="pill bad"}}
+setInterval(health,5000);health();
+async function login(){try{const r=await api("/api/auth/login",{method:"POST",body:JSON.stringify({email:$("email").value,password:$("pw").value})});
+ token=r.token;$("login").hidden=true;$("app").hidden=false;$("err").textContent="";load();connect()}catch(e){$("err").textContent=e.message}}
+async function load(){const rows=await api("/api/patients");$("list").innerHTML=rows.map(p=>`<li><b>${p.mrn}</b> ${p.full_name.replace(/</g,"&lt;")}</li>`).join("")}
+async function add(){try{await api("/api/patients",{method:"POST",body:JSON.stringify({full_name:$("name").value})});$("name").value=""}catch(e){$("err").textContent=e.message}}
+function connect(){ws=new WebSocket((location.protocol=="https:"?"wss://":"ws://")+location.host+"/ws?token="+token);
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type=="patient.created"){log("LIVE: "+m.patient.mrn+" registered by "+m.by);load()}};
+ ws.onclose=()=>{log("live link lost, retrying...");setTimeout(connect,2000)}}
+</script></body></html>
