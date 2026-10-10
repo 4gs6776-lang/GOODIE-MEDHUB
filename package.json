@@ -1,24 +1,17 @@
 {
-  "name": "g-medhub",
+  "name": "goodie-medhub-local-spike",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "start": "node --env-file=.env index.js",
+    "seed": "node --env-file=.env seed.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4",
-    "lucide-react": "^1.41.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.6",
-    "vite-plugin-pwa": "^0.20.5"
+    "@fastify/static": "^8.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "argon2": "^0.41.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.12.0"
   }
 }
