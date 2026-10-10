@@ -1,9 +1,0 @@
-# Never upload these (they hold passwords, keys or real data)
-node_modules/
-.env
-tls/*
-!tls/.gitkeep
-backups/
-*.dump
-*.key
-*.pem
