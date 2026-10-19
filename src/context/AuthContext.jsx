@@ -44,30 +44,39 @@ export function AuthProvider({ children }){
 
     setHospital(hospitalData || null)
   }
-
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session)
+useEffect(() => {
+  supabase.auth.getSession().then(async ({ data: { session } }) => {
+    setSession(session)
+    try {
       if (session?.user) {
         await loadProfileAndHospital(session.user.id)
       }
+    } finally {
       setLoading(false)
-    })
+    }
+  })
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session)
-      if (session?.user) {
-        setLoading(true)
-        await loadProfileAndHospital(session.user.id)
-        setLoading(false)
-      } else {
-        setProfile(null)
-        setHospital(null)
-      }
-    })
+  const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    setSession(session)
+    if (session?.user) {
+      setLoading(true)
+      setTimeout(async () => {
+        try {
+          await loadProfileAndHospital(session.user.id)
+        } finally {
+          setLoading(false)
+        }
+      }, 0)
+    } else {
+      setProfile(null)
+      setHospital(null)
+      setLoading(false)
+    }
+  })
 
-    return () => listener.subscription.unsubscribe()
-  }, [])
+  return () => listener.subscription.unsubscribe()
+}, [])
+
 
   async function signOut(){
     await supabase.auth.signOut()
