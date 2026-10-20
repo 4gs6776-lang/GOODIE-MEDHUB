@@ -36,6 +36,7 @@ import Radiology from './Radiology'
 import Insurance from './Insurance'
 import Inventory from './Inventory'
 import Reports from './Reports'
+import Facilities from './Facilities'
 import AuditLog from './AuditLog'
 import Notifications from './Notifications'
 import Settings from './Settings'
@@ -123,6 +124,7 @@ const NAV_ITEMS = [
   { key: 'admissions', label: 'Admissions', section: 'Operations', icon: 'bed' },
   { key: 'insurance', label: 'Insurance / HMO', section: 'Operations', icon: 'insurance' },
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
+  { key: 'facilities', label: 'Facilities', section: 'Operations', icon: 'building' },
   { key: 'audit-log', label: 'Audit Log', section: 'Operations', icon: 'shield' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
@@ -1486,6 +1488,7 @@ export default function Dashboard(){
           {tab === 'handover' && <ShiftHandover />}
           {tab === 'insurance' && <Insurance />}
           {tab === 'reports' && <Reports />}
+          {tab === 'facilities' && <Facilities />}
           {tab === 'audit-log' && <AuditLog />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
