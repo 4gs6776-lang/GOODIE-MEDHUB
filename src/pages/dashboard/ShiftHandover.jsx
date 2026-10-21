@@ -6,6 +6,7 @@ import AppIcon from '../../components/icons'
 import { formatDateTime, formatDateOnly, todayKeyInZone, getTimezone } from '../../lib/datetime'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
+import { writeAudit } from '../../lib/audit'
 
 // ============================================================
 // Shift Handover module
@@ -340,7 +341,17 @@ export default function ShiftHandover() {
 
   async function handleSaveDraft() {
     setSavingDraft(true)
-    try { await saveMeta(); showToast('Draft saved') }
+    try {
+      const id = await saveMeta()
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'handover.draft_saved',
+        entityType: 'shift_handover', entityId: id,
+        summary: `Saved draft ${SHIFT_LABELS[shiftType] || shiftType} handover for ${wardLabel(ward)} (${handoverDate})`,
+        metadata: { handover_id: id, ward, shift_type: shiftType, handover_date: handoverDate, template_key: templateKey },
+      })
+      showToast('Draft saved')
+    }
     catch (err) { showToast(err.message || 'Could not save draft') }
     finally { setSavingDraft(false) }
   }
@@ -349,7 +360,17 @@ export default function ShiftHandover() {
     if (currentWardPatients.length === 0 && !confirm('No current patients are loaded for this ward. Submit the handover anyway?')) return
     setSubmitting(true)
     try {
-      await saveMeta({ status: 'submitted', submitted_at: new Date().toISOString() })
+      const id = await saveMeta({ status: 'submitted', submitted_at: new Date().toISOString() })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'handover.submitted',
+        entityType: 'shift_handover', entityId: id,
+        summary: `Submitted ${SHIFT_LABELS[shiftType] || shiftType} handover for ${wardLabel(ward)} (${handoverDate}) — ${currentWardPatients.length} patient(s)`,
+        metadata: {
+          handover_id: id, ward, shift_type: shiftType, handover_date: handoverDate,
+          template_key: templateKey, patient_count: currentWardPatients.length,
+        },
+      })
       showToast('Handover submitted')
       setDraftId(null); setPatientData({}); setGeneralNotes(''); setMedicationNotes(''); setInvestigationNotes(''); setIncidents([])
       setSubTab('dashboard')
@@ -381,6 +402,18 @@ export default function ShiftHandover() {
       description: draft.description.trim(), priority: draft.priority || 'medium',
       due_at: draft.dueAt || null, assigned_role: draft.assignedRole || null, status: 'pending',
     })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'handover.task_added',
+      entityType: 'shift_handover', entityId: id,
+      patientId: patientId || null,
+      summary: `Added task for ${patientName || 'patient'}: "${draft.description.trim()}" (${draft.priority || 'medium'})`,
+      metadata: {
+        handover_id: id, patient_id: patientId, patient_name: patientName,
+        description: draft.description.trim(), priority: draft.priority || 'medium',
+        due_at: draft.dueAt || null, assigned_role: draft.assignedRole || null,
+      },
+    })
     setNewTaskByPatient(prev => ({ ...prev, [patientId]: { description: '', priority: 'medium', dueAt: '', assignedRole: '' } }))
   }
 
@@ -392,6 +425,20 @@ export default function ShiftHandover() {
     if (next === 'completed') { patch.completed_by = profile.id; patch.completed_by_name = profile.full_name; patch.completed_at = new Date().toISOString() }
     else { patch.completed_by = null; patch.completed_by_name = null; patch.completed_at = null }
     await updateHoTask(task.id, patch)
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'handover.task_status_changed',
+      entityType: 'handover_task', entityId: task.id,
+      patientId: task.patient_id || null,
+      summary: `Task "${task.description}" status: ${task.status || 'pending'} → ${next}${next === 'completed' ? ` (completed by ${profile.full_name || profile.id})` : ''}`,
+      metadata: {
+        task_id: task.id, handover_id: task.handover_id || null,
+        patient_id: task.patient_id || null, patient_name: task.patient_name || null,
+        description: task.description, from_status: task.status || 'pending', to_status: next,
+        completed_by: next === 'completed' ? profile.id : null,
+        completed_by_name: next === 'completed' ? profile.full_name : null,
+      },
+    })
   }
 
   async function handleAcknowledge(handover) {
@@ -399,11 +446,32 @@ export default function ShiftHandover() {
       status: 'acknowledged', acknowledged_by: profile.id, acknowledged_by_name: profile.full_name,
       acknowledged_at: new Date().toISOString(), receiving_shift: handover.shift_type === 'M' ? 'N' : 'M',
     })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'handover.acknowledged',
+      entityType: 'shift_handover', entityId: handover.id,
+      summary: `Acknowledged ${SHIFT_LABELS[handover.shift_type] || handover.shift_type} handover for ${wardLabel(handover.ward)} (${handover.handover_date})`,
+      metadata: {
+        handover_id: handover.id, ward: handover.ward, shift_type: handover.shift_type,
+        handover_date: handover.handover_date, receiving_shift: handover.shift_type === 'M' ? 'N' : 'M',
+        acknowledged_by: profile.id, acknowledged_by_name: profile.full_name,
+      },
+    })
     showToast('Handover acknowledged')
   }
 
   async function handleArchive(handover) {
     await updateHandover(handover.id, { status: 'archived', archived_by: profile.id, archived_at: new Date().toISOString() })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'handover.archived',
+      entityType: 'shift_handover', entityId: handover.id,
+      summary: `Archived ${SHIFT_LABELS[handover.shift_type] || handover.shift_type} handover for ${wardLabel(handover.ward)} (${handover.handover_date})`,
+      metadata: {
+        handover_id: handover.id, ward: handover.ward, shift_type: handover.shift_type,
+        handover_date: handover.handover_date, archived_by: profile.id,
+      },
+    })
     showToast('Handover archived')
   }
 

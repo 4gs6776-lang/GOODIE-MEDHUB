@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
+import { writeAudit } from '../../lib/audit'
 
 const SECTIONS = [
   { key: 'private', label: 'Private Suites' },
@@ -49,7 +50,14 @@ export default function IPD({ onGoToAdmissions }){
   async function handleAddBed(e){
     e.preventDefault()
     if (!newBedNumber) return
-    await addRecord({ section: newSection, bed_number: newBedNumber, status: 'available', created_by: profile.id })
+    const saved = await addRecord({ section: newSection, bed_number: newBedNumber, status: 'available', created_by: profile.id })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'ipd.bed_added',
+      entityType: 'bed', entityId: saved?.id || null,
+      summary: `Added bed ${newBedNumber} to ${SECTIONS.find(s => s.key === newSection)?.label || newSection}`,
+      metadata: { section: newSection, bed_number: newBedNumber, status: 'available' },
+    })
     setShowAddBed(false)
     setNewBedNumber('')
     showToast('Bed added')
@@ -64,6 +72,20 @@ export default function IPD({ onGoToAdmissions }){
 
   async function saveChecklist(){
     await updateRecord(selectedBed.id, { billing_cleared: billingCleared, pharmacy_cleared: pharmacyCleared, doctor_signed: doctorSigned })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'ipd.discharge_checklist_updated',
+      entityType: 'bed', entityId: selectedBed.id,
+      patientId: selectedBed.patient_id || null,
+      summary: `Discharge checklist updated for bed ${selectedBed.bed_number} (${selectedBed.patient_name || 'no patient'})`,
+      metadata: {
+        bed_number: selectedBed.bed_number,
+        patient_name: selectedBed.patient_name || null,
+        billing_cleared: billingCleared,
+        pharmacy_cleared: pharmacyCleared,
+        doctor_signed: doctorSigned,
+      },
+    })
   }
 
   async function confirmDischarge(){
@@ -72,6 +94,21 @@ export default function IPD({ onGoToAdmissions }){
       patient_name: null, doctor_name: null, diagnosis: null, admission_date: null,
       billing_cleared: false, pharmacy_cleared: false, doctor_signed: false,
     })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'ipd.patient_discharged',
+      entityType: 'bed', entityId: selectedBed.id,
+      patientId: selectedBed.patient_id || null,
+      summary: `Discharged ${selectedBed.patient_name || 'patient'} from bed ${selectedBed.bed_number} — bed marked for cleaning`,
+      metadata: {
+        bed_number: selectedBed.bed_number,
+        patient_name: selectedBed.patient_name || null,
+        doctor_name: selectedBed.doctor_name || null,
+        diagnosis: selectedBed.diagnosis || null,
+        admission_date: selectedBed.admission_date || null,
+        bed_status_change: 'occupied → cleaning',
+      },
+    })
     setShowDischarge(false)
     setSelectedBed(null)
     showToast('Discharged — bed marked for cleaning')
@@ -79,6 +116,13 @@ export default function IPD({ onGoToAdmissions }){
 
   async function markCleaned(bed){
     await updateRecord(bed.id, { status: 'available' })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'ipd.bed_cleaned',
+      entityType: 'bed', entityId: bed.id,
+      summary: `Bed ${bed.bed_number} marked cleaned & available`,
+      metadata: { bed_number: bed.bed_number, section: bed.section, bed_status_change: 'cleaning → available' },
+    })
     setSelectedBed(null)
     showToast('Bed marked available')
   }
@@ -86,6 +130,13 @@ export default function IPD({ onGoToAdmissions }){
   async function handleDeleteBed(bed){
     if (!confirm(`Remove bed ${bed.bed_number}?`)) return
     await deleteRecord(bed.id)
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'ipd.bed_removed',
+      entityType: 'bed', entityId: bed.id,
+      summary: `Removed bed ${bed.bed_number} from ${SECTIONS.find(s => s.key === bed.section)?.label || bed.section}`,
+      metadata: { bed_number: bed.bed_number, section: bed.section, last_status: bed.status },
+    })
     setSelectedBed(null)
     showToast('Bed removed')
   }
