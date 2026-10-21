@@ -9,6 +9,7 @@ import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import AppIcon from '../../components/icons'
+import { writeAudit } from '../../lib/audit'
 
 const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
 
@@ -58,7 +59,29 @@ export default function Inventory() {
     setSaving(true)
     try {
       const payload = { name: name.trim(), category, quantity: parsedQty, unit: unit.trim() || 'units', supplier: supplier.trim(), reorder_level: parseInt(reorderLevel, 10) || 10, cost_price: parseFloat(costPrice) || 0, selling_price: parseFloat(sellingPrice) || 0, batch_number: batchNumber.trim(), expiry_date: expiryDate || null, generic_name: genericName.trim(), strength: strength.trim(), dosage_form: dosageForm.trim(), updated_at: new Date().toISOString() }
-      if (editingId) { await updateRecord(editingId, payload); showToast('Item updated') } else { payload.hospital_id = hospital.id; payload.created_by = profile.id; await addRecord(payload); showToast('Item added') }
+      if (editingId) {
+        await updateRecord(editingId, payload)
+        writeAudit({
+          hospitalId: hospital?.id, actor: profile,
+          action: 'inventory.update',
+          entityType: 'inventory_item', entityId: editingId,
+          summary: `Updated item — ${name.trim()} (${category})`,
+          metadata: { name: name.trim(), category, quantity: parsedQty, unit: payload.unit, supplier: payload.supplier, batch_number: payload.batch_number || null, expiry_date: payload.expiry_date, selling_price: payload.selling_price, cost_price: payload.cost_price },
+        })
+        showToast('Item updated')
+      } else {
+        payload.hospital_id = hospital.id
+        payload.created_by = profile.id
+        const saved = await addRecord(payload)
+        writeAudit({
+          hospitalId: hospital?.id, actor: profile,
+          action: 'inventory.create',
+          entityType: 'inventory_item', entityId: saved?.id || null,
+          summary: `Added new item — ${name.trim()} (${category})`,
+          metadata: { name: name.trim(), category, quantity: parsedQty, unit: payload.unit, supplier: payload.supplier, batch_number: payload.batch_number || null, expiry_date: payload.expiry_date },
+        })
+        showToast('Item added')
+      }
       setShowModal(false); resetForm()
     } catch (e) { setFormError(e.message || 'Save failed') } finally { setSaving(false) }
   }
@@ -68,10 +91,37 @@ export default function Inventory() {
     if (input === null) return
     const newQ = parseInt(input, 10)
     if (Number.isNaN(newQ) || newQ < 0) return showToast('Invalid quantity')
-    try { await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() }); showToast('Stock updated') } catch (e) { showToast(e.message) }
+    try {
+      await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'inventory.restock',
+        entityType: 'inventory_item', entityId: item.id,
+        summary: `Inventory restock — ${item.name}: ${item.quantity} → ${newQ} ${item.unit || 'units'}`,
+        metadata: { item_name: item.name, category: item.category || null, batch_number: item.batch_number || null, from: item.quantity, to: newQ, unit: item.unit || 'units' },
+      })
+      showToast('Stock updated')
+    } catch (e) {
+      showToast(e.message)
+    }
   }
 
-  const handleDelete = async (item) => { if (!window.confirm(`Remove ${item.name}?`)) return; try { await deleteRecord(item.id); showToast('Removed') } catch (e) { showToast(e.message) } }
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Remove ${item.name}?`)) return
+    try {
+      await deleteRecord(item.id)
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'inventory.delete',
+        entityType: 'inventory_item', entityId: item.id,
+        summary: `Deleted item — ${item.name} (${item.category || 'uncategorized'})`,
+        metadata: { item_name: item.name, category: item.category || null, last_quantity: item.quantity, last_batch_number: item.batch_number || null, last_expiry_date: item.expiry_date || null },
+      })
+      showToast('Removed')
+    } catch (e) {
+      showToast(e.message)
+    }
+  }
   const openDispense = (item) => { setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setShowDispenseModal(true) }
   const closeDispense = () => { if (dispensing) return; setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null) }
 
@@ -98,6 +148,25 @@ export default function Inventory() {
         source_module: 'Inventory', source_transaction_id: `INV-${Date.now()}`,
         item_name: dispensingItem.name, category: dispensingItem.category, quantity: qty, unit_price: unitPrice, total: totalPrice,
         status: 'pending', created_by: profile?.id
+      })
+
+      // Audit trail — inventory dispense / use event.
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'inventory.dispense',
+        entityType: 'inventory_item', entityId: dispensingItem.id,
+        patientId: selectedPatient.id,
+        summary: `Dispensed ${qty} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} to ${selectedPatient.full_name}`,
+        metadata: {
+          item_name: dispensingItem.name,
+          category: dispensingItem.category || null,
+          quantity: qty,
+          unit: dispensingItem.unit || 'units',
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          stock_before: currQty,
+          stock_after: newQty,
+        },
       })
 
       showToast(`${qty} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} sent to Billing Queue.`)
@@ -269,11 +338,29 @@ export default function Inventory() {
         quantity:
           (Number(existingItem.quantity) || 0) + quantityToAdd,
       })
+
+      // Audit trail — Excel import matched an existing item (stock increment).
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'inventory.import_match',
+        entityType: 'inventory_item', entityId: matchedItemId,
+        summary: `Excel import — added ${quantityToAdd} ${payload.unit} to "${payload.name}"`,
+        metadata: { item_name: payload.name, category: payload.category, added_quantity: quantityToAdd, previous_quantity: Number(existingItem.quantity) || 0, new_quantity: (Number(existingItem.quantity) || 0) + quantityToAdd, batch_number: payload.batch_number || null, expiry_date: payload.expiry_date },
+      })
     } else {
-      await addRecord({
+      const saved = await addRecord({
         ...payload,
         hospital_id: hospital.id,
         created_by: profile?.id,
+      })
+
+      // Audit trail — Excel import created a new item.
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'inventory.import_create',
+        entityType: 'inventory_item', entityId: saved?.id || null,
+        summary: `Excel import — added new item "${payload.name}" (${payload.category})`,
+        metadata: { item_name: payload.name, category: payload.category, quantity: quantityToAdd, unit: payload.unit, supplier: payload.supplier, batch_number: payload.batch_number || null, expiry_date: payload.expiry_date },
       })
     }
 

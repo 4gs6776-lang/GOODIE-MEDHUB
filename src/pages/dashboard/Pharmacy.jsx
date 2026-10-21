@@ -10,6 +10,7 @@ import ConnectionState from '../../components/common/ConnectionState'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import useMediaQuery from '../../lib/useMediaQuery'
 import { getTimezone, formatDate as formatDateTz } from '../../lib/datetime'
+import { writeAudit } from '../../lib/audit'
 
 export default function Pharmacy() {
   const { profile, hospital } = useAuth()
@@ -67,7 +68,19 @@ export default function Pharmacy() {
     if (input === null) return
     const newQ = parseInt(input, 10)
     if (isNaN(newQ) || newQ < 0) return showToast('Invalid quantity')
-    try { await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() }); showToast('Stock updated') } catch (e) { showToast(e.message) }
+    try {
+      await updateRecord(item.id, { quantity: newQ, updated_at: new Date().toISOString() })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'pharmacy.restock',
+        entityType: 'inventory_item', entityId: item.id,
+        summary: `Pharmacy restock — ${item.name}: ${item.quantity} → ${newQ} ${item.unit || 'units'}`,
+        metadata: { item_name: item.name, batch_number: item.batch_number || null, from: item.quantity, to: newQ, unit: item.unit || 'units' },
+      })
+      showToast('Stock updated')
+    } catch (e) {
+      showToast(e.message)
+    }
   }
 
   /* ---- Phone card layouts (Batch-2 QA) ------------------------------
@@ -141,6 +154,17 @@ export default function Pharmacy() {
     if (!confirm(`Cancel prescription for ${rx.drug_name}?`)) return
     try {
       await updatePrescription(rx.id, { status: 'cancelled' })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'prescription.cancelled',
+        entityType: 'prescription', entityId: rx.id, patientId: rx.patient_id || null,
+        summary: `Cancelled prescription — ${rx.drug_name} for ${rx.patient_name || 'patient'}`,
+        metadata: {
+          drug_name: rx.drug_name, dosage: rx.dosage || null, frequency: rx.frequency || null,
+          patient_name: rx.patient_name || null, doctor_name: rx.doctor_name || null,
+          prescribed_at: rx.prescribed_at || null,
+        },
+      })
       showToast('Prescription cancelled')
     } catch (err) {
       showToast(err.message || 'Failed to cancel')
@@ -238,6 +262,32 @@ export default function Pharmacy() {
       if (activeRx) {
         await updatePrescription(activeRx.id, { status: 'dispensed' })
       }
+
+      // 5. Audit trail — dispense event.
+      //    One audit row regardless of whether this was an OTC dispense or
+      //    a doctor's-order dispense; the `from_prescription` flag and the
+      //    optional `prescription_id` in metadata distinguish the two.
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: activeRx ? 'prescription.dispensed' : 'pharmacy.dispense_otc',
+        entityType: activeRx ? 'prescription' : 'inventory_item',
+        entityId: activeRx?.id || dispensingItem.id || null,
+        patientId: selectedPatient.id,
+        summary: `Dispensed ${qty} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} to ${selectedPatient.full_name}`,
+        metadata: {
+          item_name: dispensingItem.name,
+          item_id: dispensingItem.id || null,
+          quantity: qty,
+          unit: dispensingItem.unit || 'units',
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          from_prescription: Boolean(activeRx),
+          prescription_id: activeRx?.id || null,
+          doctor_name: activeRx?.doctor_name || null,
+          stock_before: dispensingItem.id ? currQty : null,
+          stock_after: dispensingItem.id ? newQty : null,
+        },
+      })
 
       showToast(`${qty} ${dispensingItem.unit || 'units'} of ${dispensingItem.name} sent to Billing Queue.`)
       closeDispense()
