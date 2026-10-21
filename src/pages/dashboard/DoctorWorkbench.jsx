@@ -12,6 +12,7 @@ import { writeAudit } from '../../lib/audit'
 import { labStage, normalizeLabRow, LAB_STAGE_LABEL } from '../../lib/lab'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
 import AdmissionRequestModal from '../../components/AdmissionRequestModal'
+import AiDiagnostics from './AiDiagnostics'
 
 // NEW: Global Medication Reference List (allows searching even if hospital has 0 stock)
 const GLOBAL_MEDICATIONS = [
@@ -56,6 +57,7 @@ export default function DoctorWorkbench() {
   const { addRecord: addPharmacyOrder } = useOfflineTable('pharmacy_orders', hospital?.id)
   
   const [showAdmissionModal, setShowAdmissionModal] = useState(false)
+  const [showAiDiagnostics, setShowAiDiagnostics] = useState(false)
   const loading = loadingPatients || loadingVitals || loadingLabOrders || loadingPrescriptions
   const [activeVitalsId, setActiveVitalsId] = useState(null)
   const [toast, setToast] = useState(null)
@@ -587,6 +589,9 @@ export default function DoctorWorkbench() {
                     <button type="button" className="btn btn-primary" style={{ width: 'auto' }} onClick={() => handleSavePrescriptions('active')} disabled={savingPrescriptions}>Finalize</button>
                     <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handlePrint}>Print</button>
                     <button type="button" className="btn btn-ghost" style={{ width: 'auto' }} onClick={handleSaveAsTemplate}>Save as Template</button>
+                    <button type="button" className="btn btn-primary" style={{ width: 'auto', background: 'var(--violet)', color: '#fff' }} onClick={() => setShowAiDiagnostics(true)} disabled={!activePatient} title="Get AI-assisted differential diagnosis and recommendations">
+                      AI Assist
+                    </button>
                   </div>
                   {showPreview && <div style={{ marginTop: 16, padding: 16, borderRadius: 10, background: 'var(--bg-elevated)' }}><ol style={{ paddingLeft: 20 }}>{medications.map(m => <li key={m.localId} style={{ fontSize: 13.5, marginBottom: 8 }}><strong>{m.drugName}</strong> - {m.dose} {m.route} {m.frequency}</li>)}</ol></div>}
                 </div>
@@ -699,6 +704,15 @@ export default function DoctorWorkbench() {
         />
       )}
       {showAdmissionModal && activePatient && <AdmissionRequestModal patient={activePatient} consultationId={activeVitals?.id} prefillDiagnosis={diagnoses.map(d => d.label).join(', ')} onSubmit={handleSubmitAdmissionRequest} onClose={() => setShowAdmissionModal(false)} />}
+
+      {showAiDiagnostics && (
+        <AiDiagnostics
+          patientId={activePatient?.id || null}
+          encounterId={activeVitals?.id || null}
+          assessmentType="consultation"
+          onClose={() => setShowAiDiagnostics(false)}
+        />
+      )}
     </>
   )
 }

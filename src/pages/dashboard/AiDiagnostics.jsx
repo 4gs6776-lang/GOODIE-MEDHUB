@@ -7,6 +7,9 @@ import { writeAudit } from '../../lib/audit'
 import { requestAssessment, getAssessmentHistory } from '../../lib/aiAssist'
 import ClinicalContextSummary from '../../components/ai/ClinicalContextSummary'
 import UrgencyBanner from '../../components/ai/UrgencyBanner'
+import AssessmentReport from '../../components/ai/AssessmentReport'
+import DocumentationDraft from '../../components/ai/DocumentationDraft'
+import ClinicianReviewPanel from '../../components/ai/ClinicianReviewPanel'
 
 // =====================================================================
 // GOODIE-MEDHUB — AI Diagnostics page
@@ -58,6 +61,12 @@ export default function AiDiagnostics({
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [error, setError] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [toast, setToast] = useState(null)
+
+  function showToast(msg) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   // ---- Resolved patient + encounter objects ---------------------------
   const patient = useMemo(
@@ -435,38 +444,61 @@ export default function AiDiagnostics({
                 </div>
               )}
 
-              {/* Phase-1 placeholder for the assessment body.
-                  Batch 5 will replace this JSON preview with the proper
-                  AssessmentReport component (differential dx, recommendations,
-                  documentation draft, etc.). */}
-              <div style={{
-                padding: 14, borderRadius: 10,
-                background: 'var(--bg-elevated)', border: '1px solid var(--line)',
-              }}>
-                <div style={{
-                  fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                  color: 'var(--teal)', textTransform: 'uppercase', marginBottom: 8,
-                }}>
-                  Assessment Output (Phase 1 preview — Batch 5 will render this properly)
-                </div>
-                {assessment.structured_output?.clinical_summary && (
-                  <div style={{
-                    padding: '10px 12px', borderRadius: 8, marginBottom: 10,
-                    background: 'var(--bg-card)', border: '1px solid var(--line-soft)',
-                    fontSize: 13, color: 'var(--ivory)', lineHeight: 1.5,
-                  }}>
-                    <strong>Clinical summary:</strong> {assessment.structured_output.clinical_summary}
-                  </div>
-                )}
-                <pre style={{
-                  margin: 0, padding: 12, borderRadius: 8,
-                  background: 'var(--bg-card)', border: '1px solid var(--line-soft)',
-                  fontSize: 11.5, color: 'var(--ivory)', fontFamily: 'monospace',
-                  maxHeight: 400, overflow: 'auto', whiteSpace: 'pre-wrap',
-                }}>
-                  {JSON.stringify(assessment.structured_output, null, 2)}
-                </pre>
-              </div>
+              {/* Full assessment report (differential dx, recommendations,
+                  investigation interpretation, medication safety, missing
+                  info, uncertainty, evidence) */}
+              <AssessmentReport
+                assessment={assessment}
+                onCopyToConsultation={(type, item) => {
+                  // Audit the copy action
+                  writeAudit({
+                    hospitalId: hospital.id, actor: profile,
+                    action: 'ai.copied_to_consultation',
+                    entityType: 'ai_assessment', entityId: assessment.id,
+                    patientId: selectedPatientId,
+                    summary: `AI ${type} suggestion copied to consultation — ${item.diagnosis || item.step || 'item'}`,
+                    metadata: {
+                      assessment_id: assessment.id,
+                      suggestion_type: type,
+                      suggestion_preview: (item.diagnosis || item.step || '').slice(0, 100),
+                    },
+                  })
+                  // Copy to clipboard as the actual mechanism
+                  try {
+                    const text = item.diagnosis || item.step || JSON.stringify(item)
+                    navigator.clipboard?.writeText(text)
+                  } catch {}
+                }}
+              />
+
+              {/* Editable documentation draft */}
+              {assessment.structured_output?.documentation_draft && (
+                <DocumentationDraft
+                  key={assessment.id}
+                  draft={assessment.structured_output.documentation_draft}
+                  assessmentId={assessment.id}
+                  hospitalId={hospital.id}
+                  profile={profile}
+                  onCopied={(text) => {
+                    // The DocumentationDraft component handles its own
+                    // audit + clipboard. This callback is for the parent
+                    // to optionally close the overlay or pre-fill the
+                    // Doctor Workbench form. For now, just show a toast.
+                    showToast('Documentation draft copied to clipboard. Paste it into the Doctor Workbench consultation form.')
+                  }}
+                />
+              )}
+
+              {/* Clinician review panel */}
+              <ClinicianReviewPanel
+                assessment={assessment}
+                profile={profile}
+                hospitalId={hospital.id}
+                onReviewed={(updated) => {
+                  setAssessment(updated)
+                  showToast('Review submitted.')
+                }}
+              />
             </div>
           )}
 
@@ -550,6 +582,19 @@ export default function AiDiagnostics({
         </div>
 
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--bg-elevated)', border: '1px solid var(--teal)',
+          color: 'var(--teal)', padding: '12px 20px', borderRadius: 10,
+          fontSize: 13, fontWeight: 700, zIndex: 100, maxWidth: '85vw', textAlign: 'center',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        }}>
+          {toast}
+        </div>
+      )}
     </div>
   )
 }

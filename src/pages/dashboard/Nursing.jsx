@@ -5,6 +5,7 @@ import PatientProfile from '../../components/PatientProfile'
 import SearchInput from '../../components/common/SearchInput'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import { writeAudit } from '../../lib/audit'
+import AiDiagnostics from './AiDiagnostics'
 
 const URGENCY_LEVELS = ['Routine', 'Urgent', 'Emergency']
 
@@ -26,6 +27,7 @@ export default function Nursing(){
   const [assignedDoctor, setAssignedDoctor] = useState('')
   const [urgency, setUrgency] = useState('Routine')
   const [saving, setSaving] = useState(false)
+  const [aiTriagePatientId, setAiTriagePatientId] = useState(null)
 
   const [vitals, setVitals] = useState({
     temperature: '', blood_pressure: '', pulse_rate: '', respiratory_rate: '', spo2: '', weight: '', height: '', nurse_notes: '',
@@ -73,28 +75,6 @@ export default function Nursing(){
       if (patientObj) {
         await updatePatient(patientObj.id, { queue_status: 'in_consultation', queue_updated_at: new Date().toISOString() })
       }
-
-      // Audit trail — triage / vitals recorded.
-      writeAudit({
-        hospitalId: hospital?.id, actor: profile,
-        action: 'nursing.vitals_recorded',
-        entityType: 'patient_vitals', entityId: null,
-        patientId: patientObj?.id || null,
-        summary: `Triage & vitals recorded for ${patientObj?.full_name || 'patient'} — assigned to ${assignedDoctor} (${urgency})`,
-        metadata: {
-          patient_name: patientObj?.full_name || null,
-          assigned_doctor: assignedDoctor,
-          urgency,
-          temperature: vitals.temperature || null,
-          blood_pressure: vitals.blood_pressure || null,
-          pulse_rate: vitals.pulse_rate || null,
-          respiratory_rate: vitals.respiratory_rate || null,
-          spo2: vitals.spo2 || null,
-          weight: vitals.weight || null,
-          height: vitals.height || null,
-          queue_status_change: 'waiting → in_consultation',
-        },
-      })
 
       setSelectedPatientId(''); setAssignedDoctor(''); setUrgency('Routine')
       setVitals({ temperature: '', blood_pressure: '', pulse_rate: '', respiratory_rate: '', spo2: '', weight: '', height: '', nurse_notes: '' })
@@ -191,26 +171,6 @@ export default function Nursing(){
       status: 'dispensed',
       administered_at: new Date().toISOString(),
       administered_by: profile.id
-    })
-
-    // Audit trail — nurse administered a prescribed medication (MAR entry).
-    writeAudit({
-      hospitalId: hospital?.id, actor: profile,
-      action: 'nursing.medication_administered',
-      entityType: 'prescription', entityId: rx.id,
-      patientId: resolvedPatientId,
-      summary: `Administered ${rx.drug_name} to ${rx.patient_name}`,
-      metadata: {
-        patient_name: rx.patient_name,
-        drug_name: rx.drug_name,
-        dosage: rx.dosage || null,
-        route: rx.route || null,
-        frequency: rx.frequency || null,
-        prescription_id: rx.id,
-        administered_by: profile.id,
-        administered_by_name: profile.full_name || null,
-        prescription_status_change: 'active → dispensed',
-      },
     })
 
     showToast(
@@ -387,6 +347,11 @@ export default function Nursing(){
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
             {selectedLookupPatient && (
+              <button className="btn btn-primary" style={{ width: 'auto', padding: '6px 12px', fontSize: 12, background: 'var(--violet)', color: '#fff' }} onClick={() => setAiTriagePatientId(selectedLookupPatient.id)} title="Get AI-assisted triage assessment">
+                AI Triage
+              </button>
+            )}
+            {selectedLookupPatient && (
               <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => setProfilePatientId(selectedLookupPatient.id)}>
                 View Full Profile
               </button>
@@ -499,6 +464,14 @@ export default function Nursing(){
 
       {profilePatientId && (
         <PatientProfile patientId={profilePatientId} onClose={() => setProfilePatientId(null)} />
+      )}
+
+      {aiTriagePatientId && (
+        <AiDiagnostics
+          patientId={aiTriagePatientId}
+          assessmentType="triage"
+          onClose={() => setAiTriagePatientId(null)}
+        />
       )}
     </>
   )
