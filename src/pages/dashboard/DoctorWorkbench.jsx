@@ -384,7 +384,7 @@ export default function DoctorWorkbench() {
         writeAudit({
           hospitalId: hospital.id, actor: profile, action: 'prescription.finalized',
           entityType: 'prescription', entityId: activeVitals.id, patientId: activeVitals.patient_id,
-          summary: `Prescription finalized for ${payload.patient_name} (${medications.length} medication${medications.length === 1 ? '' : 's'})`,
+          summary: `Prescription finalized for ${activePatient?.full_name || 'Unknown'} (${medications.length} medication${medications.length === 1 ? '' : 's'})`,
           metadata: { drugs: medications.map(m => m.drugName) },
         })
       }
