@@ -1,0 +1,14 @@
+{
+  "imports": {
+    "supabase": "https://esm.sh/@supabase/supabase-js@2.45.4"
+  },
+  "tasks": {
+    "serve": "supabase functions serve ai-assist",
+    "deploy": "supabase functions deploy ai-assist"
+  },
+  "compilerOptions": {
+    "allowJs": true,
+    "strict": false,
+    "noImplicitAny": false
+  }
+}
