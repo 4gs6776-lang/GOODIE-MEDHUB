@@ -222,7 +222,67 @@ export default function Inventory() {
           </div>
         </div>
       )}
-      <ImportExcelModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} existingInventory={items || []} onImportSuccess={async () => { if (refreshTable) await refreshTable() }} hospitalId={hospital?.id} />
+     <ImportExcelModal
+  isOpen={isImportModalOpen}
+  onClose={() => setIsImportModalOpen(false)}
+  existingInventory={items || []}
+  onImportSuccess={async (item, matchedItemId) => {
+    if (!hospital?.id) {
+      throw new Error('Please select a hospital before importing inventory.')
+    }
+
+    const quantityToAdd = Number(item.quantity) || 0
+
+    const payload = {
+      name: item.name?.trim(),
+      category: item.category || 'Other',
+      quantity: quantityToAdd,
+      unit: item.unit || 'units',
+      supplier: item.supplier || '',
+      reorder_level: Number(item.reorderLevel) || 10,
+      selling_price: Number(item.sellingPrice) || 0,
+      cost_price: Number(item.costPrice) || 0,
+      batch_number: item.batchNumber || '',
+      expiry_date: item.expiryDate || null,
+      generic_name: item.genericName || '',
+      strength: item.strength || '',
+      dosage_form: item.dosageForm || '',
+    }
+
+    if (!payload.name) {
+      throw new Error('An inventory item is missing its name.')
+    }
+
+    if (matchedItemId) {
+      const existingItem = (items || []).find(
+        (record) => record.id === matchedItemId
+      )
+
+      if (!existingItem) {
+        throw new Error(
+          `Could not find the existing item "${payload.name}". Please refresh and try again.`
+        )
+      }
+
+      await updateRecord(matchedItemId, {
+        ...payload,
+        quantity:
+          (Number(existingItem.quantity) || 0) + quantityToAdd,
+      })
+    } else {
+      await addRecord({
+        ...payload,
+        hospital_id: hospital.id,
+        created_by: profile?.id,
+      })
+    }
+
+    if (refreshTable) {
+      await refreshTable()
+    }
+  }}
+  hospitalId={hospital?.id}
+/>
       {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 700, zIndex: 60 }}>{toast}</div>}
     </>
   )
