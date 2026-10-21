@@ -53,7 +53,7 @@ export default function Radiology(){
     }
     setSaving(true)
     try {
-      await addRecord({
+      const saved = await addRecord({
         patient_name: patientName,
         modality,
         body_part: bodyPart,
@@ -61,6 +61,14 @@ export default function Radiology(){
         report: null,
         requested_at: new Date().toISOString(),
         created_by: profile.id,
+      })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'radiology_scan.requested',
+        entityType: 'radiology_scan', entityId: saved?.id || null,
+        patientId: saved?.patient_id || null,
+        summary: `Requested ${modality} scan — ${body_part_label(bodyPart)} for ${patientName}`,
+        metadata: { patient_name: patientName, modality, body_part: bodyPart, status: 'requested' },
       })
       setShowModal(false)
       setPatientName(''); setModality(MODALITIES[0]); setBodyPart('')
@@ -74,6 +82,7 @@ export default function Radiology(){
 
   async function handleStart(scan){
     await updateRecord(scan.id, { status: 'in_progress' })
+    auditScan('radiology_scan.started', scan, `Started scan — ${scan.modality} (${scan.body_part}) for ${scan.patient_name}`)
     showToast(isOnline ? 'Marked in progress' : 'Marked in progress — will sync when back online')
   }
 
@@ -81,13 +90,42 @@ export default function Radiology(){
     const report = prompt(`Enter findings / report for ${scan.modality} — ${scan.body_part} (${scan.patient_name}):`, scan.report || '')
     if (report === null) return
     await updateRecord(scan.id, { status: 'completed', report })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'radiology_scan.completed',
+      entityType: 'radiology_scan', entityId: scan.id,
+      patientId: scan.patient_id || null,
+      summary: `Completed scan — ${scan.modality} (${scan.body_part}) for ${scan.patient_name}`,
+      metadata: {
+        modality: scan.modality, body_part: scan.body_part,
+        status_change: 'in_progress → completed',
+        report_preview: report ? (report.length > 100 ? report.slice(0, 100) + '…' : report) : null,
+        report_length: report ? report.length : 0,
+      },
+    })
     showToast(isOnline ? 'Marked completed' : 'Marked completed — will sync when back online')
   }
 
   async function handleReopen(scan){
+    const previousStatus = scan.status
     await updateRecord(scan.id, { status: 'requested' })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'radiology_scan.reopened',
+      entityType: 'radiology_scan', entityId: scan.id,
+      patientId: scan.patient_id || null,
+      summary: `Reopened scan — ${scan.modality} (${scan.body_part}) for ${scan.patient_name}`,
+      metadata: {
+        modality: scan.modality, body_part: scan.body_part,
+        status_change: `${previousStatus} → requested`,
+      },
+    })
     showToast(isOnline ? 'Marked requested' : 'Marked requested — will sync when back online')
   }
+
+  // Tiny helper so handleAdd's audit summary reads naturally — "Chest"
+  // is friendlier than lowercase "chest" in the audit log.
+  function body_part_label(s){ return (s || '').trim() }
 
   // Renamed from "handleDelete" to make clear this is an archive, not a
   // destructive delete. useOfflineTable.js already routes radiology_scans

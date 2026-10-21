@@ -5,6 +5,7 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import AppIcon from '../../components/icons'
 import SearchInput from '../../components/common/SearchInput'
 import { formatTime, formatDate, dayKeyInZone, getTimezone } from '../../lib/datetime'
+import { writeAudit } from '../../lib/audit'
 
 // Fixed department channels every staff member can see and post in.
 const DEPARTMENT_CHANNELS = [
@@ -128,6 +129,19 @@ export default function Messages() {
         channel_key: activeChannel.key,
         recipient_id: activeChannel.type === 'dm' ? activeChannel.otherId : null,
         body,
+      })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: activeChannel.type === 'dm' ? 'messages.dm_sent' : 'messages.channel_posted',
+        entityType: 'message', entityId: null,
+        summary: `${activeChannel.type === 'dm' ? 'DM sent' : `Posted to #${activeChannel.label}`} — ${body.length > 60 ? body.slice(0, 60) + '…' : body}`,
+        metadata: {
+          channel_type: activeChannel.type,
+          channel_key: activeChannel.key,
+          channel_label: activeChannel.label,
+          recipient_id: activeChannel.type === 'dm' ? activeChannel.otherId : null,
+          body_length: body.length,
+        },
       })
       setDraft('')
     } catch (err) {
