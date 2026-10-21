@@ -43,6 +43,7 @@ const TABLE_SYNC_ORDER = [
   'invoice_items',
   'payments',
   'audit_events',
+  'ai_assessments',
 ]
 
 function tableSyncRank(tableName) {

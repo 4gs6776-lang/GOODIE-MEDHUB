@@ -35,6 +35,7 @@ const EXEMPT_TABLES = new Set([
   'patient_vitals',
   'messages',
   'audit_events',
+  'ai_assessments',
 ])
 
 // UPDATE-only exceptions, limited to specific fields.
