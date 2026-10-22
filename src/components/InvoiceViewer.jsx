@@ -6,11 +6,36 @@ import { formatDateTime, formatDateTimeSec, getTimezone } from '../lib/datetime'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
+// Categories that should be grouped into a single "Medications" line on
+// the printed bill. Items whose category matches are merged into one row
+// showing only the total quantity of items and the combined total — the
+// individual drug names are NOT listed on the bill (per the user's
+// requirement: "instead of showing list of drugs given, it should just
+// say 'medications'").
+//
+// Items without one of these categories (lab tests, imaging, consultation,
+// manual charges) are still listed individually.
+const DRUG_CATEGORIES = new Set(['Drug', 'Pharmacy', 'Medication', 'Medications'])
+
+// Escape HTML special characters in user-supplied strings before
+// interpolating them into the print window's HTML. Prevents broken
+// layout when an item name or hospital name contains <, >, &, ", '.
+function escapeHtml(s) {
+  if (s == null) return ''
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   const timezone = getTimezone(hospital)
   const { updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
   const { records: allItems } = useOfflineTable('invoice_items', hospital?.id)
   const { records: allPayments, addRecord: addPayment } = useOfflineTable('payments', hospital?.id)
+  const { records: bankAccounts } = useOfflineTable('hospital_bank_accounts', hospital?.id)
 
   const [showPay, setShowPay] = useState(false)
   const [payAmount, setPayAmount] = useState('')
@@ -20,6 +45,34 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
 
   const invItems = allItems.filter(i => i.invoice_id === invoice.id)
   const invPayments = allPayments.filter(p => p.invoice_id === invoice.id)
+
+  // ---- Group drug items into a single "Medications" line ------------
+  // The user wants the printed bill to show "Medications" as one row
+  // instead of listing every individual drug. Lab tests, imaging,
+  // consultation fees, and manual charges stay listed individually.
+  //
+  // Items without a `category` field (e.g. invoices created before this
+  // patch was deployed) are listed individually — same as the old
+  // behaviour. New invoices (created by the patched CashierWorkspace)
+  // will have `category` populated.
+  const { groupedMedications, otherItems } = (() => {
+    const drugs = invItems.filter(it => DRUG_CATEGORIES.has(it.category))
+    const others = invItems.filter(it => !DRUG_CATEGORIES.has(it.category))
+    const medsTotal = drugs.reduce((sum, it) => sum + Number(it.total || 0), 0)
+    const medsQty = drugs.reduce((sum, it) => sum + Number(it.quantity || 0), 0)
+    return {
+      groupedMedications: drugs.length > 0
+        ? { item_name: 'Medications', quantity: medsQty, unit_price: null, total: medsTotal, count: drugs.length }
+        : null,
+      otherItems: others,
+    }
+  })()
+
+  // ---- Active bank accounts for this hospital ------------------------
+  // Shown on the printed bill so the patient can pay by bank transfer.
+  const activeBankAccounts = (bankAccounts || [])
+    .filter(a => a.active !== false && a.hospital_id === hospital?.id)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
 
   const grandTotal = Number(invoice.grand_total || invoice.amount || 0)
   const totalPaid = Number(invoice.amount_paid || 0)
@@ -58,7 +111,38 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   }
 
   function handlePrint() {
-    const itemsRows = invItems.map(it => `<tr><td>${it.item_name}</td><td>${it.quantity}</td><td>₦${Number(it.unit_price||0).toFixed(2)}</td><td>₦${Number(it.total||0).toFixed(2)}</td></tr>`).join('')
+    // Build the rows for the printed bill. Drug items are grouped into
+    // a single "Medications" line (per the user's requirement); other
+    // items are listed individually.
+    const rows = []
+    if (groupedMedications) {
+      rows.push(`<tr><td>Medications</td><td>${groupedMedications.quantity || '—'}</td><td>—</td><td>₦${Number(groupedMedications.total||0).toFixed(2)}</td></tr>`)
+    }
+    otherItems.forEach(it => {
+      rows.push(`<tr><td>${it.item_name}</td><td>${it.quantity}</td><td>₦${Number(it.unit_price||0).toFixed(2)}</td><td>₦${Number(it.total||0).toFixed(2)}</td></tr>`)
+    })
+    const itemsRows = rows.join('')
+
+    // Bank account details section (only if the hospital has any active
+    // accounts configured). Shows below the totals on the printed bill.
+    const bankSection = activeBankAccounts.length > 0 ? `
+      <div class="bank-section">
+        <h3>Bank Transfer Details</h3>
+        <div class="bank-accounts">
+          ${activeBankAccounts.map(a => `
+            <div class="bank-account">
+              <div><strong>Bank:</strong> ${escapeHtml(a.bank_name)}</div>
+              <div><strong>Account Name:</strong> ${escapeHtml(a.account_name)}</div>
+              <div><strong>Account Number:</strong> ${escapeHtml(a.account_number)}</div>
+              ${a.sort_code ? `<div><strong>Sort Code:</strong> ${escapeHtml(a.sort_code)}</div>` : ''}
+              ${a.notes ? `<div class="bank-notes">${escapeHtml(a.notes)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        ${balance > 0 ? `<div class="bank-instructions">Please use the patient name <strong>${escapeHtml(invoice.patient_name || '')}</strong> as the transfer narration. Outstanding balance: <strong>₦${balance.toFixed(2)}</strong></div>` : ''}
+      </div>
+    ` : ''
+
     const html = `
       <html><head><title>Receipt ${invoice.invoice_number}</title>
       <style>
@@ -75,18 +159,25 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
         .totals { margin-left: auto; width: 300px; font-size: 14px; }
         .totals div { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
         .totals .grand { font-weight: bold; font-size: 18px; border-bottom: 2px solid #000; }
+        .bank-section { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px 20px; margin-bottom: 30px; }
+        .bank-section h3 { margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; color: #0369a1; letter-spacing: 1px; }
+        .bank-accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+        .bank-account { background: #fff; padding: 10px 12px; border-radius: 6px; border: 1px solid #e0f2fe; font-size: 13px; line-height: 1.6; }
+        .bank-account div { margin-bottom: 2px; }
+        .bank-notes { font-style: italic; color: #475569; margin-top: 4px; font-size: 12px; }
+        .bank-instructions { margin-top: 12px; font-size: 12px; color: #475569; padding-top: 10px; border-top: 1px dashed #bae6fd; }
         .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #888; }
         .sign { margin-top: 60px; border-top: 1px solid #000; width: 200px; text-align: center; font-size: 12px; padding-top: 5px; }
       </style></head><body>
         <div class="header">
-          <div class="h-name">${hospital?.name || 'Hospital'}</div>
-          ${hospital?.address ? `<div class="h-meta">${hospital.address}</div>` : ''}
-          ${hospital?.phone ? `<div class="h-meta">Tel: ${hospital.phone}</div>` : ''}
+          <div class="h-name">${escapeHtml(hospital?.name || 'Hospital')}</div>
+          ${hospital?.address ? `<div class="h-meta">${escapeHtml(hospital.address)}</div>` : ''}
+          ${hospital?.phone ? `<div class="h-meta">Tel: ${escapeHtml(hospital.phone)}</div>` : ''}
         </div>
         <div class="grid">
           <div class="box">
             <h3>Patient Details</h3>
-            <div><strong>Name:</strong> ${invoice.patient_name}</div>
+            <div><strong>Name:</strong> ${escapeHtml(invoice.patient_name)}</div>
             <div><strong>ID:</strong> ${invoice.patient_id || '—'}</div>
           </div>
           <div class="box">
@@ -105,8 +196,9 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
           <div><span>Amount Paid</span> <span>₦${totalPaid.toFixed(2)}</span></div>
           <div class="grand"><span>Balance Due</span> <span>₦${balance.toFixed(2)}</span></div>
         </div>
+        ${bankSection}
         <div class="sign">Authorized Signature</div>
-        <div class="footer">Thank you for choosing ${hospital?.name || 'us'}. This is a computer generated receipt.</div>
+        <div class="footer">Thank you for choosing ${escapeHtml(hospital?.name || 'us')}. This is a computer generated receipt.</div>
       </body></html>`
     const win = window.open('', '_blank')
     win.document.write(html)
@@ -140,12 +232,41 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
             {invItems.length === 0 ? (
               <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No specific items recorded (likely a quick charge).</div>
             ) : (
-              invItems.map(it => (
-                <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
-                  <span>{it.item_name} (x{it.quantity})</span>
-                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{formatMoney(it.total)}</span>
-                </div>
-              ))
+              <>
+                {/* Grouped "Medications" line — shown if any drug items exist */}
+                {groupedMedications && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, padding: '8px 10px', borderRadius: 6, background: 'rgba(0,199,199,0.06)', border: '1px solid var(--line-soft)' }}>
+                    <span>
+                      <strong>Medications</strong>
+                      <span style={{ color: 'var(--muted)', marginLeft: 8, fontSize: 11 }}>
+                        ({groupedMedications.count} item{groupedMedications.count === 1 ? '' : 's'}, qty {groupedMedications.quantity})
+                      </span>
+                    </span>
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--teal)' }}>{formatMoney(groupedMedications.total)}</span>
+                  </div>
+                )}
+                {/* Other items (lab tests, imaging, consultation, manual charges) — listed individually */}
+                {otherItems.length === 0 && !groupedMedications ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No items to display.</div>
+                ) : otherItems.map(it => (
+                  <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
+                    <span>
+                      {it.item_name} (x{it.quantity})
+                      {it.category && (
+                        <span style={{
+                          marginLeft: 8, fontSize: 10, fontWeight: 700,
+                          padding: '1px 6px', borderRadius: 10,
+                          background: 'rgba(118,87,232,0.14)', color: 'var(--violet)',
+                          textTransform: 'uppercase', letterSpacing: 0.3,
+                        }}>
+                          {it.category}
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{formatMoney(it.total)}</span>
+                  </div>
+                ))}
+              </>
             )}
           </div>
 
@@ -166,6 +287,30 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
                   <span style={{ color: 'var(--ivory)', fontWeight: 700 }}>{formatMoney(p.amount)}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Bank accounts preview — what the patient will see when they print */}
+          {activeBankAccounts.length > 0 && (
+            <div style={{ marginTop: 20, padding: 14, borderRadius: 8, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.25)' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                Bank Transfer Details <span style={{ color: 'var(--muted)', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>(shown on printed bill)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                {activeBankAccounts.map(a => (
+                  <div key={a.id} style={{ fontSize: 12, color: 'var(--ivory)', lineHeight: 1.6 }}>
+                    <div><strong>{a.bank_name}</strong></div>
+                    <div>{a.account_name}</div>
+                    <div style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--blue)' }}>{a.account_number}</div>
+                    {a.notes && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontStyle: 'italic' }}>{a.notes}</div>}
+                  </div>
+                ))}
+              </div>
+              {balance > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed rgba(59,130,246,0.25)', fontSize: 11.5, color: 'var(--muted)' }}>
+                  Outstanding balance: <strong style={{ color: 'var(--danger)' }}>{formatMoney(balance)}</strong> — use patient name as transfer narration.
+                </div>
+              )}
             </div>
           )}
         </div>

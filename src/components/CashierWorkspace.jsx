@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useOfflineTable } from '../lib/useOfflineTable'
 import InvoiceViewer from './InvoiceViewer'
 import AppIcon from './icons'
+import { writeAudit } from '../lib/audit'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
@@ -53,6 +54,14 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
       item_name: name, category: 'Manual', quantity: 1, unit_price: price, total: price,
       status: 'pending', created_by: profile?.id
     })
+    writeAudit({
+      hospitalId: hospital?.id, actor: profile,
+      action: 'billing.custom_charge_added',
+      entityType: 'billable_charge', entityId: null,
+      patientId: patientId || null,
+      summary: `Added custom charge "${name}" (₦${price.toFixed(2)}) for ${patientName || 'patient'}`,
+      metadata: { patient_name: patientName, item_name: name, unit_price: price, quantity: 1, total: price, source_module: 'Manual' },
+    })
   }
 
   const selectedCharges = pendingCharges.filter(c => selectedIds.includes(c.id))
@@ -93,7 +102,13 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
       for (const charge of selectedCharges) {
         await addInvoiceItem({
           hospital_id: hospital.id, invoice_id: newInv.id, item_name: charge.item_name,
-          quantity: charge.quantity, unit_price: charge.unit_price, total: charge.total
+          quantity: charge.quantity, unit_price: charge.unit_price, total: charge.total,
+          // NEW: propagate the charge's source module + category so the
+          // printed bill can group drug items into a single "Medications"
+          // line (per the bill-printing patch). Items without these fields
+          // stay listed individually.
+          source_module: charge.source_module || null,
+          category: charge.category || null,
         })
         await updateCharge(charge.id, { status: 'invoiced' })
       }
@@ -113,12 +128,44 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           submitted_at: new Date().toISOString(),
           created_by: profile?.id,
         })
+        writeAudit({
+          hospitalId: hospital?.id, actor: profile,
+          action: 'insurance.claim_auto_filed',
+          entityType: 'invoice', entityId: newInv.id,
+          patientId: patientId || null,
+          summary: `Auto-filed ${hmoProvider} claim for ₦${hmoAmount.toFixed(2)} on invoice ${newInv.invoice_number} (${patientName})`,
+          metadata: {
+            invoice_id: newInv.id, invoice_number: newInv.invoice_number,
+            patient_name: patientName, provider: hmoProvider,
+            policy_number: patientRecord?.hmo_number || null,
+            coverage_percent: hmoCoveragePercent, amount: hmoAmount,
+          },
+        })
       }
 
        // Billing complete — move patient to discharged in the queue
       if (patientId) {
         await updatePatient(patientId, { queue_status: 'discharged', queue_updated_at: new Date().toISOString() })
       }
+
+      // Audit trail — invoice generated.
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'billing.invoice_generated',
+        entityType: 'invoice', entityId: newInv.id,
+        patientId: patientId || null,
+        summary: `Generated invoice ${newInv.invoice_number} for ${patientName} — ₦${grandTotal.toFixed(2)} (${status})`,
+        metadata: {
+          invoice_id: newInv.id, invoice_number: newInv.invoice_number,
+          patient_name: patientName,
+          subtotal, discount: discountAmt, tax: taxAmt, grand_total: grandTotal,
+          hmo_provider: hasHmo ? hmoProvider : null,
+          hmo_amount: hasHmo ? hmoAmount : 0,
+          patient_amount: amountOwedByPatient,
+          amount_paid: pAmt, balance: bal, payment_method: paymentMethod,
+          status, charge_count: selectedCharges.length,
+        },
+      })
 
       // Show the receipt (InvoiceViewer) instead of a browser alert —
       // the cashier can print it or record another payment immediately.
