@@ -18,6 +18,7 @@
 // Modules every hospital always has, whatever the plan.
 const ALWAYS_ALLOWED = new Set([
   'overview', 'settings', 'subscription', 'messages', 'notifications',
+  'ai_diagnostics',
 ])
 
 // Modules included in Basic. Matches what the Basic plan advertises:
