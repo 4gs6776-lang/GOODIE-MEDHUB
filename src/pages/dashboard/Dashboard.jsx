@@ -35,6 +35,8 @@ import Laboratory from './Laboratory'
 import Radiology from './Radiology'
 import Insurance from './Insurance'
 import Inventory from './Inventory'
+import HmoPatients from './HmoPatients'
+import AncPatients from './AncPatients'
 import Reports from './Reports'
 import Facilities from './Facilities'
 import AuditLog from './AuditLog'
@@ -50,7 +52,6 @@ import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
-import AiDiagnostics from './AiDiagnostics'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
@@ -117,6 +118,8 @@ const NAV_ITEMS = [
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main', icon: 'pharmacy' },
   { key: 'radiology', label: 'Radiology', section: 'Main', icon: 'radiology' },
   { key: 'inventory', label: 'Inventory', section: 'Main', icon: 'inventory' },
+  { key: 'hmo-patients', label: 'HMO Patients', section: 'Main', icon: 'insurance' },
+  { key: 'anc-patients', label: 'ANC Patients', section: 'Main', icon: 'nurse' },
   { key: 'staff', label: 'Staff', section: 'Operations', icon: 'users' },
   { key: 'doctor', label: 'Doctor Workbench', section: 'Operations', icon: 'doctor' },
   { key: 'nursing', label: 'Nursing / Triage', section: 'Operations', icon: 'nurse' },
@@ -127,7 +130,6 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'facilities', label: 'Facilities', section: 'Operations', icon: 'building' },
   { key: 'audit-log', label: 'Audit Log', section: 'Operations', icon: 'shield' },
-  { key: 'ai-diagnostics', label: 'AI Diagnostics', section: 'Operations', icon: 'activity' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
@@ -1477,6 +1479,8 @@ export default function Dashboard(){
             )
           )}
           {tab === 'reception' && <Reception />}
+          {tab === 'hmo-patients' && <HmoPatients />}
+          {tab === 'anc-patients' && <AncPatients />}
           {tab === 'billing' && <Billing initialSearch={deepLinkSearch}/>}
           {tab === 'laboratory' && <Laboratory />}
           {tab === 'pharmacy' && <Pharmacy />}
@@ -1492,7 +1496,6 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'facilities' && <Facilities />}
           {tab === 'audit-log' && <AuditLog />}
-          {tab === 'ai-diagnostics' && <AiDiagnostics onClose={() => setTab('overview')} />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'messages' && <Messages />}
