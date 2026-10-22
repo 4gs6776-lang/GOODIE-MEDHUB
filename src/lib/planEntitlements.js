@@ -16,6 +16,8 @@
 // =====================================================================
 
 // Modules every hospital always has, whatever the plan.
+// AI Diagnostics is included here so it shows regardless of plan status
+// (the hospital-level ai_assist_enabled flag is the real kill switch).
 const ALWAYS_ALLOWED = new Set([
   'overview', 'settings', 'subscription', 'messages', 'notifications',
   'ai_diagnostics',
@@ -24,10 +26,13 @@ const ALWAYS_ALLOWED = new Set([
 // Modules included in Basic. Matches what the Basic plan advertises:
 // "Patient records, Appointments, Basic billing" (+ the front desk,
 // staff and roster pages any clinic needs to run day to day).
+// AI Diagnostics is included so it shows even on Basic (the hospital-level
+// ai_assist_enabled flag controls whether the feature actually runs).
 // Professional and Enterprise (value null) include every module.
 const PLAN_MODULES = {
   basic: [
     'patients', 'reception', 'appointments', 'billing', 'staff', 'roster',
+    'ai_diagnostics',
   ],
   professional: null,
   enterprise: null,
