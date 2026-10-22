@@ -50,7 +50,6 @@ import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
-import AiDiagnostics from './AiDiagnostics'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
@@ -127,7 +126,6 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'facilities', label: 'Facilities', section: 'Operations', icon: 'building' },
   { key: 'audit-log', label: 'Audit Log', section: 'Operations', icon: 'shield' },
-  { key: 'ai-diagnostics', label: 'AI Diagnostics', section: 'Operations', icon: 'activity' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
@@ -1113,6 +1111,32 @@ export default function Dashboard(){
           </div>
         </header>
 
+        {/* Read-only mode banner for CMD role */}
+        {profile?.role === 'cmd' && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label="Read-only mode active"
+            style={{
+              padding: '8px 20px',
+              background: 'rgba(118,87,232,0.10)',
+              borderBottom: '1px solid rgba(118,87,232,0.3)',
+              color: 'var(--violet)',
+              fontSize: 12,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <AppIcon name="lock" size={14} />
+            <span>READ-ONLY MODE — You are signed in as CMD (Chief Medical Director).</span>
+            <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
+              You can view every record in this hospital but cannot create, edit, delete, or sign off on anything.
+            </span>
+          </div>
+        )}
+
         <div className="dash-content">
           {subBanner && tab !== 'subscription' && (
             <div
@@ -1492,7 +1516,6 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'facilities' && <Facilities />}
           {tab === 'audit-log' && <AuditLog />}
-          {tab === 'ai-diagnostics' && <AiDiagnostics onClose={() => setTab('overview')} />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'messages' && <Messages />}

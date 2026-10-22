@@ -289,6 +289,7 @@ export default function Staff(){
                 <div className="field">
                   <label htmlFor="staff-role">Role</label>
                   <select id="staff-role" value={role} onChange={e => setRole(e.target.value)}>
+                    <option value="cmd">CMD (Chief Medical Director — read-only)</option>
                     <option value="doctor">Doctor</option>
                     <option value="nurse">Nurse</option>
                     <option value="front_desk">Front Desk / Reception</option>
