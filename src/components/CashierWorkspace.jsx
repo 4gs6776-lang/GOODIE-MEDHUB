@@ -12,6 +12,11 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const { addRecord: addInvoiceItem } = useOfflineTable('invoice_items', hospital?.id)
 const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addInsuranceClaim } = useOfflineTable('insurance_claims', hospital?.id)
+  // ---- Wallet hooks (patient wallet feature) ----
+  // Used to auto-deduct from the patient's wallet balance at invoice
+  // generation time. HMO patients don't use the wallet (per Q6 = a).
+  const { records: wallets, addRecord: addWallet } = useOfflineTable('patient_wallets', hospital?.id)
+  const { addRecord: addWalletTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
 
   const [selectedIds, setSelectedIds] = useState([])
   const [discount, setDiscount] = useState('')
@@ -29,6 +34,17 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
   const hmoProvider = patientRecord?.hmo_provider || null
   const hmoCoveragePercent = Math.min(100, Math.max(0, Number(patientRecord?.hmo_coverage_percent) || 0))
   const hasHmo = !!hmoProvider && hmoCoveragePercent > 0
+
+  // ---- Patient's wallet (if any) -------------------------------------
+  // HMO patients don't use the wallet — their bills go straight to the
+  // HMO claim flow. Self-pay patients with a wallet get auto-deducted.
+  const patientWallet = useMemo(() => {
+    if (hasHmo) return null  // HMO patients bypass the wallet
+    return wallets.find(w => w.patient_id === patientId) || null
+  }, [wallets, patientId, hasHmo])
+
+  const walletBalance = Number(patientWallet?.balance || 0)
+  const canUseWallet = !!patientWallet && walletBalance > 0.001
 
   const pendingCharges = useMemo(() => {
     return charges.filter(c => c.patient_id === patientId && c.status === 'pending')
@@ -83,8 +99,21 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
     setSaving(true)
     try {
       const pAmt = Number(amountPaid) || 0
-      const bal = amountOwedByPatient - pAmt
-      const status = pAmt >= amountOwedByPatient ? 'paid' : (pAmt > 0 ? 'partial' : 'unpaid')
+
+      // ---- Wallet auto-deduction (per Q3 = a, Q5 = a, Q6 = a) ----------
+      // If the patient has a wallet balance, deduct from it FIRST.
+      // The remainder is the cashier-collected amount (pAmt).
+      // Total paid = wallet deduction + cashier payment.
+      // Balance due = amountOwedByPatient - totalPaid.
+      // Wallet can never go negative — we cap the deduction at the
+      // available balance.
+      let walletDeduction = 0
+      if (canUseWallet) {
+        walletDeduction = Math.min(walletBalance, amountOwedByPatient)
+      }
+      const totalPaid = walletDeduction + pAmt
+      const bal = Math.max(0, amountOwedByPatient - totalPaid)
+      const status = totalPaid >= amountOwedByPatient - 0.001 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid')
 
       const newInv = await addInvoice({
   hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
@@ -95,7 +124,12 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
   hmo_coverage_percent: hasHmo ? hmoCoveragePercent : null,
   hmo_amount: hasHmo ? hmoAmount : 0,
   patient_amount: amountOwedByPatient,
-  amount_paid: pAmt, balance: bal, payment_method: paymentMethod, status, created_by: profile?.id
+  amount_paid: totalPaid,
+  wallet_deduction: walletDeduction,         // NEW: how much came from the wallet
+  wallet_id: walletDeduction > 0 ? patientWallet.id : null,  // NEW: link to the wallet
+  balance: bal,
+  payment_method: walletDeduction > 0 ? (pAmt > 0 ? `${paymentMethod} + Wallet` : 'Wallet') : paymentMethod,
+  status, created_by: profile?.id
 })
 
 
@@ -111,6 +145,40 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           category: charge.category || null,
         })
         await updateCharge(charge.id, { status: 'invoiced' })
+      }
+
+      // ---- Record the wallet charge transaction (if any) -------------
+      // Append-only ledger entry. The trigger on patient_wallet_transactions
+      // will update the wallets.balance column automatically.
+      if (walletDeduction > 0 && patientWallet) {
+        const newWalletBalance = walletBalance - walletDeduction
+        await addWalletTxn({
+          hospital_id: hospital.id,
+          patient_id: patientId,
+          wallet_id: patientWallet.id,
+          type: 'charge',
+          amount: -walletDeduction,            // negative = money leaving the wallet
+          balance_after: newWalletBalance,
+          method: 'Wallet',
+          invoice_id: newInv.id,
+          performed_by: profile?.id,
+          performed_by_name: profile?.full_name || null,
+          notes: `Auto-deducted for invoice ${newInv.invoice_number}`,
+        })
+        writeAudit({
+          hospitalId: hospital?.id, actor: profile,
+          action: 'wallet.charge',
+          entityType: 'invoice', entityId: newInv.id,
+          patientId: patientId,
+          summary: `Auto-charged ${formatMoney(walletDeduction)} from ${patientName}'s wallet for invoice ${newInv.invoice_number}`,
+          metadata: {
+            invoice_id: newInv.id, invoice_number: newInv.invoice_number,
+            wallet_id: patientWallet.id,
+            wallet_deduction: walletDeduction,
+            wallet_balance_before: walletBalance,
+            wallet_balance_after: newWalletBalance,
+          },
+        })
       }
 
       // Auto-file the HMO's portion as a claim, so it shows up in
@@ -189,6 +257,32 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           </div>
           <button className="dash-icon-btn" onClick={onClose} aria-label="Close billing workspace"><AppIcon name="close" size={18} /></button>
         </div>
+
+        {/* ---- Wallet balance banner (if patient has a wallet) -------- */}
+        {canUseWallet && (
+          <div style={{
+            marginBottom: 12, padding: '10px 14px', borderRadius: 8,
+            background: 'rgba(0,199,199,0.08)', border: '1px solid var(--teal-border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
+          }}>
+            <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>
+              <strong style={{ color: 'var(--teal)' }}>Wallet balance: {formatMoney(walletBalance)}</strong>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                Will auto-deduct up to {formatMoney(Math.min(walletBalance, amountOwedByPatient))} from this invoice.
+                {walletBalance >= amountOwedByPatient ? ' Invoice will be fully covered.' : ` Remaining ${formatMoney(amountOwedByPatient - walletBalance)} will be the balance due.`}
+              </div>
+            </div>
+          </div>
+        )}
+        {hasHmo && (
+          <div style={{
+            marginBottom: 12, padding: '8px 12px', borderRadius: 8,
+            background: 'rgba(118,87,232,0.06)', border: '1px solid rgba(118,87,232,0.25)',
+            fontSize: 11.5, color: 'var(--muted)',
+          }}>
+            <strong style={{ color: 'var(--violet)' }}>HMO patient:</strong> Wallet is bypassed. The HMO covers {hmoCoveragePercent}% ({formatMoney(hmoAmount)}); patient pays {formatMoney(amountOwedByPatient)} directly.
+          </div>
+        )}
 
         <div className="dash-modal-body">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

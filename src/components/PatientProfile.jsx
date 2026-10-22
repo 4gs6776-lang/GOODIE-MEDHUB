@@ -3,8 +3,10 @@ import { useAuth } from '../context/AuthContext'
 import { useOfflineTable } from '../lib/useOfflineTable'
 import MedicationChart from './MedicationChart'
 import AppIcon from './icons'
+import PatientWallet from './PatientWallet'
+import { writeAudit } from '../lib/audit'
 
-const TABS = ['Overview', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
+const TABS = ['Overview', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
 // the app. Reuses the same offline-first tables every other module reads —
 // nothing new is stored here except through those existing hooks.
@@ -163,6 +165,7 @@ export default function PatientProfile({ patientId, onClose }){
           {tab === 'Overview' && (
             <OverviewTab patient={patient} latestConsultation={history[0]} activePrescriptions={activePrescriptions} outstandingBalance={outstandingBalance} admissionRequest={activeAdmissionRequest} />
           )}
+          {tab === 'Wallet' && <PatientWallet patient={patient} />}
           {tab === 'History' && <HistoryTab history={history} />}
           {tab === 'Items Given' && <ItemsGivenTab records={patientStockRecords} />}
           {tab === 'Prescriptions' && <PrescriptionsTab prescriptions={patientPrescriptions} />}

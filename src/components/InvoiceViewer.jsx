@@ -77,6 +77,11 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   const grandTotal = Number(invoice.grand_total || invoice.amount || 0)
   const totalPaid = Number(invoice.amount_paid || 0)
   const balance = Number(invoice.balance || (grandTotal - totalPaid))
+  // Wallet deduction — how much of totalPaid came from the patient's wallet
+  // (vs. collected by the cashier in cash/card/etc.). New field added in
+  // migration 025. Defaults to 0 for old invoices.
+  const walletDeduction = Number(invoice.wallet_deduction || 0)
+  const cashierCollected = Math.max(0, totalPaid - walletDeduction)
 
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -193,7 +198,8 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
         </table>
         <div class="totals">
           <div><span>Subtotal</span> <span>₦${Number(invoice.subtotal||grandTotal).toFixed(2)}</span></div>
-          <div><span>Amount Paid</span> <span>₦${totalPaid.toFixed(2)}</span></div>
+          ${walletDeduction > 0 ? `<div><span>Paid from Wallet</span> <span>₦${walletDeduction.toFixed(2)}</span></div>` : ''}
+          ${cashierCollected > 0 ? `<div><span>Amount Paid (${escapeHtml(invoice.payment_method || 'Cash')})</span> <span>₦${cashierCollected.toFixed(2)}</span></div>` : (walletDeduction === 0 ? `<div><span>Amount Paid</span> <span>₦${totalPaid.toFixed(2)}</span></div>` : '')}
           <div class="grand"><span>Balance Due</span> <span>₦${balance.toFixed(2)}</span></div>
         </div>
         ${bankSection}
@@ -272,7 +278,24 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
 
           <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--line-soft)' }}>
             <div className="billing-summary-row"><span>Grand Total</span><span style={{ fontWeight: 700, color: 'var(--ivory)' }}>{formatMoney(grandTotal)}</span></div>
-            <div className="billing-summary-row" style={{ color: 'var(--teal)' }}><span>Amount Paid</span><span>{formatMoney(totalPaid)}</span></div>
+            {walletDeduction > 0 && (
+              <div className="billing-summary-row" style={{ color: 'var(--teal)' }}>
+                <span>Paid from Wallet</span>
+                <span>{formatMoney(walletDeduction)}</span>
+              </div>
+            )}
+            {cashierCollected > 0 && (
+              <div className="billing-summary-row" style={{ color: 'var(--teal)' }}>
+                <span>Amount Paid ({invoice.payment_method || 'Cash'})</span>
+                <span>{formatMoney(cashierCollected)}</span>
+              </div>
+            )}
+            {walletDeduction === 0 && cashierCollected === 0 && (
+              <div className="billing-summary-row" style={{ color: 'var(--teal)' }}>
+                <span>Amount Paid</span>
+                <span>{formatMoney(totalPaid)}</span>
+              </div>
+            )}
             <div className="billing-summary-row grand" style={{ color: balance > 0 ? 'var(--danger)' : 'var(--teal)' }}>
               <span>Balance Due</span><span>{formatMoney(balance)}</span>
             </div>
