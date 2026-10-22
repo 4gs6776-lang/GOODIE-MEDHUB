@@ -1,3 +1,37 @@
+// Roles that are read-only at the application layer. When the acting
+// user's role is in this set, EVERY write through useOfflineTable is
+// refused with a friendly error. audit_events stays writable (defensive —
+// if a future feature writes audit rows on behalf of a CMD user, the
+// audit must still land).
+//
+// This is set at runtime by AuthContext via setUserRole() — keeps the
+// lock stateless of React imports (it must stay dependency-free to avoid
+// a circular import with useOfflineTable).
+const READ_ONLY_ROLES = new Set(['cmd'])
+let currentUserRole = null
+
+export function setUserRole(role) {
+  currentUserRole = role || null
+}
+
+export function clearUserRole() {
+  currentUserRole = null
+}
+
+export function isCurrentUserReadOnly() {
+  return READ_ONLY_ROLES.has(currentUserRole)
+}
+
+export class ReadOnlyRoleError extends Error {
+  constructor(role) {
+    super(
+      `Your role (${role}) is read-only and cannot make changes. You can view all records, but creating, editing, deleting, or any other write action is not permitted. Contact your hospital administrator if you need write access.`
+    )
+    this.name = 'ReadOnlyRoleError'
+    this.role = role
+  }
+}
+
 // =====================================================================
 // GOODIE-MEDHUB — Expired-subscription write lock (the "brain")
 //
@@ -35,7 +69,6 @@ const EXEMPT_TABLES = new Set([
   'patient_vitals',
   'messages',
   'audit_events',
-  'ai_assessments',
 ])
 
 // UPDATE-only exceptions, limited to specific fields.
@@ -95,6 +128,19 @@ export class SubscriptionLockedError extends Error {
 
 // Pure question: is this write allowed? (no throwing, easy to test)
 export function isWriteAllowed(tableName, operation = 'write', updates = null) {
+  // ---- Read-only role gate (CMD) ----
+  // Runs FIRST, before the subscription-lock check, because a read-only
+  // role must be refused even if the subscription is in good standing.
+  // audit_events stays writable so audit rows can still land (defensive —
+  // CMD doesn't write directly, but if a future feature does, audit
+  // shouldn't break).
+  if (
+    READ_ONLY_ROLES.has(currentUserRole) &&
+    !EXEMPT_TABLES.has(tableName)
+  ) {
+    return false
+  }
+
   if (!state.locked) return true
   if (EXEMPT_TABLES.has(tableName)) return true
 
@@ -108,6 +154,24 @@ export function isWriteAllowed(tableName, operation = 'write', updates = null) {
 
 // The guard useOfflineTable.js calls before every write.
 export function assertWriteAllowed(tableName, operation = 'write', updates = null) {
+  // ---- Read-only role gate (CMD) ----
+  // Refuses BEFORE the subscription-lock check, so CMD users get the
+  // read-only error message even if the subscription is fine. The
+  // EXEMPT_TABLES list (audit_events, medication_administrations,
+  // patient_vitals, messages, ai_assessments) stays writable — see the
+  // comment block above for why audit_events must always land.
+  if (
+    READ_ONLY_ROLES.has(currentUserRole) &&
+    !EXEMPT_TABLES.has(tableName)
+  ) {
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent(WRITE_BLOCKED_EVENT, { detail: { tableName, reason: 'read_only_role', role: currentUserRole } }))
+      } catch {}
+    }
+    throw new ReadOnlyRoleError(currentUserRole)
+  }
+
   if (isWriteAllowed(tableName, operation, updates)) return
   if (typeof window !== 'undefined') {
     try {

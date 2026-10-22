@@ -42,9 +42,21 @@ export const ACTIONS = {
 
 export const ALL_ACTIONS = Object.values(ACTIONS)
 
-export const FULL_ACCESS_ROLES = ['admin', 'owner']
+export const FULL_ACCESS_ROLES = ['admin', 'owner', 'cmd']
+
+// Roles that can VIEW every module but CANNOT perform any write action
+// (create/edit/delete/archive/cancel/approve/publish/import/export/print/
+// manage_settings). CMD is the only such role in Phase 1.
+//
+// Why a separate list rather than just removing CMD from FULL_ACCESS_ROLES:
+// FULL_ACCESS_ROLES controls module VISIBILITY (the sidebar + route access).
+// CMD must still SEE every module — they just can't write. So CMD stays in
+// FULL_ACCESS_ROLES for visibility, and VIEW_ONLY_ROLES strips every
+// action except VIEW from their effective action set.
+export const VIEW_ONLY_ROLES = ['cmd']
 
 export const ROLE_LABELS = {
+  cmd: 'CMD',
   admin: 'Admin',
   owner: 'Owner',
   doctor: 'Doctor',
@@ -61,7 +73,7 @@ export const MODULES = [
   'overview', 'patients', 'reception', 'appointments', 'doctor', 'nursing',
   'ipd', 'admissions', 'handover', 'billing', 'pharmacy', 'laboratory',
   'radiology', 'inventory', 'staff', 'insurance', 'reports',
-  'notifications', 'roster', 'messages', 'settings', 'ai_diagnostics',
+  'notifications', 'roster', 'messages', 'settings',
 ]
 
 // What every role sees today (moved verbatim from Dashboard.jsx so nav
@@ -69,8 +81,8 @@ export const MODULES = [
 const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'settings']
 
 const ROLE_MODULES = {
-  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions', 'handover', 'ai_diagnostics'],
-  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions', 'handover', 'ai_diagnostics'],
+  doctor: [...COMMON_ACCESS, 'patients', 'appointments', 'doctor', 'ipd', 'admissions', 'handover'],
+  nurse: [...COMMON_ACCESS, 'patients', 'appointments', 'nursing', 'ipd', 'admissions', 'handover'],
   front_desk: [...COMMON_ACCESS, 'patients', 'reception', 'appointments', 'insurance', 'admissions'],
   pharmacist: [...COMMON_ACCESS, 'patients', 'pharmacy', 'inventory', 'handover'],
   lab: [...COMMON_ACCESS, 'patients', 'laboratory', 'radiology', 'handover'],
@@ -114,7 +126,11 @@ function actionsForModule(role, moduleKey) {
   if (cached) return cached
 
   let actions
-  if (FULL_ACCESS_ROLES.includes(role)) {
+  if (VIEW_ONLY_ROLES.includes(role)) {
+    // CMD sees every module but can ONLY view — never create/edit/delete.
+    // This is the read-only Chief Medical Director role.
+    actions = [ACTIONS.VIEW]
+  } else if (FULL_ACCESS_ROLES.includes(role)) {
     actions = ALL_ACTIONS
   } else if (ROLE_MODULES[role]?.includes(moduleKey)) {
     actions = new Set(BASELINE_MODULE_ACTIONS)
@@ -156,6 +172,8 @@ export function buildPermissions(role) {
     role,
     isAdmin: role === 'admin',
     isOwner: role === 'owner',
+    isCmd: role === 'cmd',
+    isReadOnly: VIEW_ONLY_ROLES.includes(role),
     isFullAccess: FULL_ACCESS_ROLES.includes(role),
     can: (action, moduleKey) => can(role, action, moduleKey),
     canAccess: moduleKey => canAccessModule(role, moduleKey),
