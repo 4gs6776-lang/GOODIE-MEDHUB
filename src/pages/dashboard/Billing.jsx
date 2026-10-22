@@ -5,6 +5,9 @@ import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import CashierWorkspace from '../../components/CashierWorkspace'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
+import SearchInput from '../../components/common/SearchInput'
+import AppIcon from '../../components/icons'
+import { formatDateTimeSec, getTimezone } from '../../lib/datetime'
 
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -24,13 +27,21 @@ const SPARK = "M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"
 
 export default function Billing({ initialSearch = '' }) {
   const { profile, hospital } = useAuth()
+  const timezone = getTimezone(hospital)
   const { records: invoices, loading, isOnline, pendingCount } = useOfflineTable('invoices', hospital?.id)
   const { records: billableCharges, syncFromServer: syncCharges } = useOfflineTable('billable_charges', hospital?.id)
+  // Wallet transactions — for the Transactions tab
+  const { records: walletTxns, loading: txnsLoading } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+  // Patients — needed to resolve patient names for wallet txns
+  const { records: patients } = useOfflineTable('patients', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [search, setSearch] = useState(initialSearch)
   useEffect(() => { if (initialSearch) setSearch(initialSearch) }, [initialSearch])
   const [selectedPatient, setSelectedPatient] = useState(null)
+  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions'
+  const [txnTypeFilter, setTxnTypeFilter] = useState('all')  // 'all' | 'deposit' | 'charge' | 'refund' | 'adjustment'
+  const [txnSearch, setTxnSearch] = useState('')
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -86,6 +97,42 @@ export default function Billing({ initialSearch = '' }) {
 
   const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 
+  // ---- Wallet transactions filter + pagination ----------------------
+  const filteredTxns = useMemo(() => {
+    let arr = [...walletTxns].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    if (txnTypeFilter !== 'all') {
+      arr = arr.filter(t => t.type === txnTypeFilter)
+    }
+    if (txnSearch.trim()) {
+      const q = txnSearch.trim().toLowerCase()
+      arr = arr.filter(t => {
+        const pName = patients.find(p => p.id === t.patient_id)?.full_name || t.performed_by_name || ''
+        return (
+          String(t.patient_id || '').toLowerCase().includes(q) ||
+          pName.toLowerCase().includes(q) ||
+          String(t.reference || '').toLowerCase().includes(q) ||
+          String(t.notes || '').toLowerCase().includes(q) ||
+          String(t.method || '').toLowerCase().includes(q)
+        )
+      })
+    }
+    return arr
+  }, [walletTxns, txnTypeFilter, txnSearch, patients])
+
+  const txnStats = useMemo(() => {
+    const todayStr = new Date().toDateString()
+    const today = walletTxns.filter(t => new Date(t.created_at).toDateString() === todayStr)
+    const depositsToday = today.filter(t => t.type === 'deposit').reduce((s, t) => s + Number(t.amount || 0), 0)
+    const chargesToday = today.filter(t => t.type === 'charge').reduce((s, t) => s + Math.abs(Number(t.amount || 0)), 0)
+    const refundsToday = today.filter(t => t.type === 'refund').reduce((s, t) => s + Math.abs(Number(t.amount || 0)), 0)
+    return { depositsToday, chargesToday, refundsToday, totalToday: walletTxns.length }
+  }, [walletTxns])
+
+  const {
+    pageItems: pagedTxns, currentPage: txnPage, setCurrentPage: setTxnPage, pageSize: txnPageSize, setPageSize: setTxnPageSize,
+    totalPages: txnTotalPages, totalItems: txnTotalItems, startIndex: txnStart, endIndex: txnEnd,
+  } = usePagination(filteredTxns, { pageSize: 20, resetKey: `${txnTypeFilter}|${txnSearch}` })
+
   return (
     <>
       {/* Header */}
@@ -98,6 +145,24 @@ export default function Billing({ initialSearch = '' }) {
             {isOnline ? 'System Online' : 'Offline Mode'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}
           </div>
         </div>
+      </div>
+
+      {/* ---- Tab switcher: Queue / Transactions ---- */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[
+          { key: 'queue', label: 'Patient Queue', icon: 'users' },
+          { key: 'transactions', label: 'Wallet Transactions', icon: 'billing' },
+        ].map(t => (
+          <button
+            key={t.key}
+            type="button"
+            className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5 }}
+            onClick={() => setActiveTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {/* KPI stats — same premium system as the main dashboard */}
@@ -143,7 +208,8 @@ export default function Billing({ initialSearch = '' }) {
         </div>
       </section>
 
-      {/* Queue */}
+      {/* Queue (only shown when activeTab === 'queue') */}
+      {activeTab === 'queue' && (
       <div className="dash-panel">
         <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
           <div>
@@ -220,6 +286,135 @@ export default function Billing({ initialSearch = '' }) {
           </>
         )}
       </div>
+      )}
+
+      {/* ---- Transactions tab ---- */}
+      {activeTab === 'transactions' && (
+        <>
+          {/* Mini-stats */}
+          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="arrowUp" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Deposits Today</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(txnStats.depositsToday)}</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="arrowDown" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Charges Today</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(txnStats.chargesToday)}</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}><AppIcon name="arrowDown" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Refunds Today</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(txnStats.refundsToday)}</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(118,87,232,0.14)', color: 'var(--violet)' }}><AppIcon name="billing" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Total Transactions</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{walletTxns.length}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dash-panel">
+            <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div className="dash-panel-title">Wallet Transactions</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Every deposit, charge, refund, and adjustment — append-only ledger.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select value={txnTypeFilter} onChange={e => setTxnTypeFilter(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border, var(--line))', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }}>
+                  <option value="all">All types</option>
+                  <option value="deposit">Deposits</option>
+                  <option value="charge">Charges</option>
+                  <option value="refund">Refunds</option>
+                  <option value="adjustment">Adjustments</option>
+                </select>
+                <SearchInput value={txnSearch} onChange={setTxnSearch} placeholder="Search patient, ref, notes…" style={{ minWidth: 200, maxWidth: 320 }} />
+              </div>
+            </div>
+
+            {txnsLoading ? (
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>Loading transactions…</div>
+            ) : filteredTxns.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>
+                {txnSearch || txnTypeFilter !== 'all' ? 'No transactions match these filters.' : 'No wallet transactions yet. Deposits made on the patient profile will appear here.'}
+              </div>
+            ) : (
+              <>
+                <div className="dash-table-wrap">
+                  <table className="dash-full-table">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Patient</th>
+                        <th>Type</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Amount</th>
+                        <th>Balance After</th>
+                        <th>By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedTxns.map(t => {
+                        const amount = Number(t.amount || 0)
+                        const isCredit = amount > 0
+                        const patientName = patients.find(p => p.id === t.patient_id)?.full_name || '—'
+                        const typeColor = t.type === 'deposit' ? 'var(--teal)' :
+                                          t.type === 'refund' ? 'var(--gold)' :
+                                          t.type === 'charge' ? 'var(--danger)' :
+                                          'var(--violet)'
+                        return (
+                          <tr key={t.id}>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTimeSec(t.created_at, timezone)}</td>
+                            <td style={{ fontWeight: 700 }}>{patientName}</td>
+                            <td>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                                background: `${typeColor}22`, color: typeColor,
+                                textTransform: 'uppercase', letterSpacing: 0.5,
+                              }}>
+                                {t.type}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{t.method || '—'}</td>
+                            <td style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>{t.reference || '—'}</td>
+                            <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: isCredit ? 'var(--teal)' : 'var(--danger)' }}>
+                              {isCredit ? '+' : ''}{formatMoney(amount)}
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12, color: 'var(--muted)' }}>{formatMoney(t.balance_after)}</td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{t.performed_by_name || '—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <Pagination
+                  currentPage={txnPage}
+                  totalPages={txnTotalPages}
+                  totalItems={txnTotalItems}
+                  startIndex={txnStart}
+                  endIndex={txnEnd}
+                  pageSize={txnPageSize}
+                  onPageChange={setTxnPage}
+                  onPageSizeChange={setTxnPageSize}
+                  itemLabel="transactions"
+                />
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {selectedPatient && (
         <CashierWorkspace

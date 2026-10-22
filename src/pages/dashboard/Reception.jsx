@@ -4,7 +4,6 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
-import HmoProviderSelect from '../../components/common/HmoProviderSelect'
 import { writeAudit } from '../../lib/audit'
 import {
   getTimezone,
@@ -24,7 +23,6 @@ const CATEGORIES = [
   { value: 'family', label: 'Family Folder' },
   { value: 'emergency', label: 'Emergency Folder' },
   { value: 'anc', label: 'ANC Folder' },
-  { value: 'hmo', label: 'HMO Folder' },
 ]
 
 const NIGERIAN_STATES = [
@@ -76,10 +74,6 @@ const QUEUE_STAGES = [
 
 const HMO_PROVIDERS = ['Self-Pay (No HMO)', 'NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
-// HMO_FIELDS_ACTIVE: the form shows HMO fields when category is 'hmo'
-// (insurance provider, plan, ID code, coverage %). Same pattern as ANC
-// fields appearing when category is 'anc'.
-
 const EMPTY_FORM = {
   surname: '',
   otherNames: '',
@@ -114,7 +108,6 @@ const EMPTY_FORM = {
   genotype: '',
 
   hmoProvider: 'Self-Pay (No HMO)',
-  hmoIdCode: '',
   hmoPlan: '',
   hmoNumber: '',
   hmoCoveragePercent: '',
@@ -240,6 +233,75 @@ export default function Reception() {
       ancLmp: value,
       ancEdd: calculateEdd(value),
     }))
+  }
+
+  // ---- Wallet hooks (patient wallet feature) ------------------------
+  // Used by the inline "+ Deposit" button on the queue. Lets reception
+  // record a deposit without leaving the Reception page.
+  const { records: walletRecords, addRecord: addWalletRow } = useOfflineTable('patient_wallets', hospital?.id)
+  const { addRecord: addWalletTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+  const [depositTargetPatient, setDepositTargetPatient] = useState(null)
+  const [depositAmount, setDepositAmount] = useState('')
+  const [depositMethod, setDepositMethod] = useState('Cash')
+  const [depositRef, setDepositRef] = useState('')
+  const [depositNotes, setDepositNotes] = useState('')
+  const [depositSaving, setDepositSaving] = useState(false)
+  const [depositError, setDepositError] = useState('')
+
+  function openDepositModal(patient) {
+    setDepositTargetPatient(patient)
+    setDepositAmount(''); setDepositMethod('Cash'); setDepositRef(''); setDepositNotes('')
+    setDepositError('')
+  }
+
+  async function handleDepositSubmit(e) {
+    e.preventDefault()
+    setDepositError('')
+    const amount = parseFloat(depositAmount)
+    if (isNaN(amount) || amount <= 0) { setDepositError('Enter a valid amount.'); return }
+    if (!depositTargetPatient) { setDepositError('No patient selected.'); return }
+
+    setDepositSaving(true)
+    try {
+      // Find or create the wallet row for this patient
+      let wallet = walletRecords.find(w => w.patient_id === depositTargetPatient.id)
+      if (!wallet) {
+        wallet = await addWalletRow({
+          hospital_id: hospital.id,
+          patient_id: depositTargetPatient.id,
+          balance: 0,
+          currency: 'NGN',
+        })
+      }
+      const balanceAfter = Number(wallet.balance || 0) + amount
+      await addWalletTxn({
+        hospital_id: hospital.id,
+        patient_id: depositTargetPatient.id,
+        wallet_id: wallet.id,
+        type: 'deposit',
+        amount,
+        balance_after: balanceAfter,
+        method: depositMethod,
+        reference: depositRef.trim() || null,
+        performed_by: profile?.id,
+        performed_by_name: profile?.full_name || null,
+        notes: depositNotes.trim() || null,
+      })
+      writeAudit({
+        hospitalId: hospital.id, actor: profile,
+        action: 'wallet.deposit',
+        entityType: 'patient_wallet', entityId: wallet.id,
+        patientId: depositTargetPatient.id,
+        summary: `Deposit of ₦${amount.toFixed(2)} (${depositMethod}) for ${depositTargetPatient.full_name}`,
+        metadata: { amount, method: depositMethod, reference: depositRef || null, balance_after: balanceAfter, source: 'reception' },
+      })
+      showToast(`Deposit of ₦${amount.toFixed(2)} recorded for ${depositTargetPatient.full_name}`)
+      setDepositTargetPatient(null)
+    } catch (err) {
+      setDepositError(err.message || 'Could not record the deposit.')
+    } finally {
+      setDepositSaving(false)
+    }
   }
 
   function showToast(message) {
@@ -442,11 +504,6 @@ export default function Reception() {
 
         hmo_provider:
           form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? form.hmoProvider : null,
-
-        hmo_id_code:
-          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)'
-            ? (form.hmoIdCode?.trim() || null)
-            : null,
 
         hmo_plan:
           form.hmoPlan?.trim() || null,
@@ -868,6 +925,23 @@ export default function Reception() {
                           aria-label={`Remove ${patient.full_name} from queue`}
                         >
                           <AppIcon name="close" size={15} />
+                        </button>
+
+                        {/* Record Deposit — opens the patient wallet modal inline */}
+                        <button
+                          type="button"
+                          className="rx-queue-deposit"
+                          onClick={() => openDepositModal(patient)}
+                          title="Record a deposit for this patient"
+                          aria-label={`Record deposit for ${patient.full_name}`}
+                          style={{
+                            marginLeft: 6, padding: '6px 10px', borderRadius: 8,
+                            border: '1px solid var(--teal-border)',
+                            background: 'var(--teal-soft)', color: 'var(--teal)',
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          + Deposit
                         </button>
 
                       </div>
@@ -1660,72 +1734,62 @@ export default function Reception() {
                 HMO / Insurance
               </div>
 
-              {/* HMO FIELDS — only shown when category is 'hmo'.
-                  Same conditional pattern as the ANC fields above. */}
-              {form.category === 'hmo' && (
-                <div className="dash-field-grid">
+              <div className="dash-field-grid">
 
-                  <div
-                    className="field"
-                    style={
-                      // Solo field in the grid (Self-Pay) should not leave a
-                      // half-empty row next to nothing.
-                      form.hmoProvider === 'Self-Pay (No HMO)'
-                        ? { gridColumn: '1 / -1' }
-                        : undefined
-                    }
+                <div
+                  className="field"
+                  style={
+                    // Solo field in the grid (Self-Pay) should not leave a
+                    // half-empty row next to nothing.
+                    form.hmoProvider === 'Self-Pay (No HMO)'
+                      ? { gridColumn: '1 / -1' }
+                      : undefined
+                  }
+                >
+                  <label>HMO Provider</label>
+                  <select
+                    value={form.hmoProvider}
+                    onChange={event => set('hmoProvider', event.target.value)}
                   >
-                    <label>HMO Provider</label>
-                    <HmoProviderSelect
-                      value={form.hmoProvider}
-                      onChange={name => set('hmoProvider', name || 'Self-Pay (No HMO)')}
-                      placeholder="Search HMO provider…"
-                      ariaLabel="HMO provider"
-                    />
-                  </div>
-
-                  {form.hmoProvider !== 'Self-Pay (No HMO)' && (
-                    <>
-                      <div className="field">
-                        <label>HMO ID Code</label>
-                        <input
-                          value={form.hmoIdCode}
-                          onChange={event => set('hmoIdCode', event.target.value)}
-                          placeholder="Patient's HMO membership ID (on the card)"
-                        />
-                      </div>
-                      <div className="field">
-                        <label>Plan / Tier</label>
-                        <input
-                          value={form.hmoPlan}
-                          onChange={event => set('hmoPlan', event.target.value)}
-                          placeholder="e.g. Silver Plan"
-                        />
-                      </div>
-                      <div className="field">
-                        <label>Enrollee / Policy No.</label>
-                        <input
-                          value={form.hmoNumber}
-                          onChange={event => set('hmoNumber', event.target.value)}
-                          placeholder="e.g. NHIS-2024-00123"
-                        />
-                      </div>
-                      <div className="field">
-                        <label>HMO Covers (%)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={form.hmoCoveragePercent}
-                          onChange={event => set('hmoCoveragePercent', event.target.value)}
-                          placeholder="e.g. 80"
-                        />
-                      </div>
-                    </>
-                  )}
-
+                    {HMO_PROVIDERS.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+
+                {form.hmoProvider !== 'Self-Pay (No HMO)' && (
+                  <>
+                    <div className="field">
+                      <label>Plan / Tier</label>
+                      <input
+                        value={form.hmoPlan}
+                        onChange={event => set('hmoPlan', event.target.value)}
+                        placeholder="e.g. Silver Plan"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Enrollee / Policy No.</label>
+                      <input
+                        value={form.hmoNumber}
+                        onChange={event => set('hmoNumber', event.target.value)}
+                        placeholder="e.g. NHIS-2024-00123"
+                      />
+                    </div>
+                    <div className="field">
+                      <label>HMO Covers (%)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={form.hmoCoveragePercent}
+                        onChange={event => set('hmoCoveragePercent', event.target.value)}
+                        placeholder="e.g. 80"
+                      />
+                    </div>
+                  </>
+                )}
+
+              </div>
 
               {/* NEXT OF KIN */}
 
@@ -1868,6 +1932,49 @@ export default function Reception() {
 
       {toast && (
         <div className="dash-toast dash-toast-success">{toast}</div>
+      )}
+
+      {/* ---- Inline deposit modal (patient wallet feature) ---- */}
+      {depositTargetPatient && (
+        <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setDepositTargetPatient(null) }}>
+          <div className="card dash-modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <div className="dash-modal-title">Record Deposit</div>
+            <div className="dash-modal-body">
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, padding: '8px 10px', borderRadius: 6, background: 'var(--bg-elevated)' }}>
+                For <strong style={{ color: 'var(--teal)' }}>{depositTargetPatient.full_name}</strong>
+              </div>
+              {depositError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{depositError}</div>}
+              <form id="deposit-form" onSubmit={handleDepositSubmit}>
+                <div className="field">
+                  <label>Amount (₦) *</label>
+                  <input type="number" min="0.01" step="0.01" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} placeholder="e.g. 20000" autoFocus required />
+                </div>
+                <div className="field">
+                  <label>Payment Method *</label>
+                  <select value={depositMethod} onChange={e => setDepositMethod(e.target.value)}>
+                    <option value="Cash">Cash</option>
+                    <option value="POS">POS</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Card">Card</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Reference (optional)</label>
+                  <input value={depositRef} onChange={e => setDepositRef(e.target.value)} placeholder="transfer ref, POS receipt no." />
+                </div>
+                <div className="field">
+                  <label>Notes (optional)</label>
+                  <input value={depositNotes} onChange={e => setDepositNotes(e.target.value)} placeholder="e.g. initial deposit" />
+                </div>
+              </form>
+            </div>
+            <div className="dash-modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setDepositTargetPatient(null)} disabled={depositSaving}>Cancel</button>
+              <button type="submit" form="deposit-form" className="btn btn-primary" disabled={depositSaving}>{depositSaving ? 'Saving…' : 'Record Deposit'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )
