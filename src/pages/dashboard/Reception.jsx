@@ -4,6 +4,7 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
+import HmoProviderSelect from '../../components/common/HmoProviderSelect'
 import { writeAudit } from '../../lib/audit'
 import {
   getTimezone,
@@ -23,6 +24,7 @@ const CATEGORIES = [
   { value: 'family', label: 'Family Folder' },
   { value: 'emergency', label: 'Emergency Folder' },
   { value: 'anc', label: 'ANC Folder' },
+  { value: 'hmo', label: 'HMO Folder' },
 ]
 
 const NIGERIAN_STATES = [
@@ -74,6 +76,10 @@ const QUEUE_STAGES = [
 
 const HMO_PROVIDERS = ['Self-Pay (No HMO)', 'NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
+// HMO_FIELDS_ACTIVE: the form shows HMO fields when category is 'hmo'
+// (insurance provider, plan, ID code, coverage %). Same pattern as ANC
+// fields appearing when category is 'anc'.
+
 const EMPTY_FORM = {
   surname: '',
   otherNames: '',
@@ -108,6 +114,7 @@ const EMPTY_FORM = {
   genotype: '',
 
   hmoProvider: 'Self-Pay (No HMO)',
+  hmoIdCode: '',
   hmoPlan: '',
   hmoNumber: '',
   hmoCoveragePercent: '',
@@ -435,6 +442,11 @@ export default function Reception() {
 
         hmo_provider:
           form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? form.hmoProvider : null,
+
+        hmo_id_code:
+          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)'
+            ? (form.hmoIdCode?.trim() || null)
+            : null,
 
         hmo_plan:
           form.hmoPlan?.trim() || null,
@@ -1648,62 +1660,72 @@ export default function Reception() {
                 HMO / Insurance
               </div>
 
-              <div className="dash-field-grid">
+              {/* HMO FIELDS — only shown when category is 'hmo'.
+                  Same conditional pattern as the ANC fields above. */}
+              {form.category === 'hmo' && (
+                <div className="dash-field-grid">
 
-                <div
-                  className="field"
-                  style={
-                    // Solo field in the grid (Self-Pay) should not leave a
-                    // half-empty row next to nothing.
-                    form.hmoProvider === 'Self-Pay (No HMO)'
-                      ? { gridColumn: '1 / -1' }
-                      : undefined
-                  }
-                >
-                  <label>HMO Provider</label>
-                  <select
-                    value={form.hmoProvider}
-                    onChange={event => set('hmoProvider', event.target.value)}
+                  <div
+                    className="field"
+                    style={
+                      // Solo field in the grid (Self-Pay) should not leave a
+                      // half-empty row next to nothing.
+                      form.hmoProvider === 'Self-Pay (No HMO)'
+                        ? { gridColumn: '1 / -1' }
+                        : undefined
+                    }
                   >
-                    {HMO_PROVIDERS.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
+                    <label>HMO Provider</label>
+                    <HmoProviderSelect
+                      value={form.hmoProvider}
+                      onChange={name => set('hmoProvider', name || 'Self-Pay (No HMO)')}
+                      placeholder="Search HMO provider…"
+                      ariaLabel="HMO provider"
+                    />
+                  </div>
+
+                  {form.hmoProvider !== 'Self-Pay (No HMO)' && (
+                    <>
+                      <div className="field">
+                        <label>HMO ID Code</label>
+                        <input
+                          value={form.hmoIdCode}
+                          onChange={event => set('hmoIdCode', event.target.value)}
+                          placeholder="Patient's HMO membership ID (on the card)"
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Plan / Tier</label>
+                        <input
+                          value={form.hmoPlan}
+                          onChange={event => set('hmoPlan', event.target.value)}
+                          placeholder="e.g. Silver Plan"
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Enrollee / Policy No.</label>
+                        <input
+                          value={form.hmoNumber}
+                          onChange={event => set('hmoNumber', event.target.value)}
+                          placeholder="e.g. NHIS-2024-00123"
+                        />
+                      </div>
+                      <div className="field">
+                        <label>HMO Covers (%)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={form.hmoCoveragePercent}
+                          onChange={event => set('hmoCoveragePercent', event.target.value)}
+                          placeholder="e.g. 80"
+                        />
+                      </div>
+                    </>
+                  )}
+
                 </div>
-
-                {form.hmoProvider !== 'Self-Pay (No HMO)' && (
-                  <>
-                    <div className="field">
-                      <label>Plan / Tier</label>
-                      <input
-                        value={form.hmoPlan}
-                        onChange={event => set('hmoPlan', event.target.value)}
-                        placeholder="e.g. Silver Plan"
-                      />
-                    </div>
-                    <div className="field">
-                      <label>Enrollee / Policy No.</label>
-                      <input
-                        value={form.hmoNumber}
-                        onChange={event => set('hmoNumber', event.target.value)}
-                        placeholder="e.g. NHIS-2024-00123"
-                      />
-                    </div>
-                    <div className="field">
-                      <label>HMO Covers (%)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={form.hmoCoveragePercent}
-                        onChange={event => set('hmoCoveragePercent', event.target.value)}
-                        placeholder="e.g. 80"
-                      />
-                    </div>
-                  </>
-                )}
-
-              </div>
+              )}
 
               {/* NEXT OF KIN */}
 

@@ -35,6 +35,8 @@ import Laboratory from './Laboratory'
 import Radiology from './Radiology'
 import Insurance from './Insurance'
 import Inventory from './Inventory'
+import HmoPatients from './HmoPatients'
+import AncPatients from './AncPatients'
 import Reports from './Reports'
 import Facilities from './Facilities'
 import AuditLog from './AuditLog'
@@ -116,6 +118,8 @@ const NAV_ITEMS = [
   { key: 'pharmacy', label: 'Pharmacy', section: 'Main', icon: 'pharmacy' },
   { key: 'radiology', label: 'Radiology', section: 'Main', icon: 'radiology' },
   { key: 'inventory', label: 'Inventory', section: 'Main', icon: 'inventory' },
+  { key: 'hmo-patients', label: 'HMO Patients', section: 'Main', icon: 'insurance' },
+  { key: 'anc-patients', label: 'ANC Patients', section: 'Main', icon: 'nurse' },
   { key: 'staff', label: 'Staff', section: 'Operations', icon: 'users' },
   { key: 'doctor', label: 'Doctor Workbench', section: 'Operations', icon: 'doctor' },
   { key: 'nursing', label: 'Nursing / Triage', section: 'Operations', icon: 'nurse' },
@@ -1111,32 +1115,6 @@ export default function Dashboard(){
           </div>
         </header>
 
-        {/* Read-only mode banner for CMD role */}
-        {profile?.role === 'cmd' && (
-          <div
-            role="status"
-            aria-live="polite"
-            aria-label="Read-only mode active"
-            style={{
-              padding: '8px 20px',
-              background: 'rgba(118,87,232,0.10)',
-              borderBottom: '1px solid rgba(118,87,232,0.3)',
-              color: 'var(--violet)',
-              fontSize: 12,
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <AppIcon name="lock" size={14} />
-            <span>READ-ONLY MODE — You are signed in as CMD (Chief Medical Director).</span>
-            <span style={{ color: 'var(--muted)', fontWeight: 500 }}>
-              You can view every record in this hospital but cannot create, edit, delete, or sign off on anything.
-            </span>
-          </div>
-        )}
-
         <div className="dash-content">
           {subBanner && tab !== 'subscription' && (
             <div
@@ -1501,6 +1479,8 @@ export default function Dashboard(){
             )
           )}
           {tab === 'reception' && <Reception />}
+          {tab === 'hmo-patients' && <HmoPatients />}
+          {tab === 'anc-patients' && <AncPatients />}
           {tab === 'billing' && <Billing initialSearch={deepLinkSearch}/>}
           {tab === 'laboratory' && <Laboratory />}
           {tab === 'pharmacy' && <Pharmacy />}

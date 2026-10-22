@@ -5,7 +5,11 @@ import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import HmoProviderSelect from '../../components/common/HmoProviderSelect'
 
+// PROVIDERS is kept for backward compat (used in the existing patientName
+// state initializer). The actual UI now uses the searchable HmoProviderSelect
+// component which pulls from the larger hmoProviders.js list (~30 HMOs).
 const PROVIDERS = ['NHIS', 'Hygeia HMO', 'Reliance HMO', 'AXA Mansard', 'AIICO', 'Avon HMO', 'Other']
 
 export default function Insurance(){
@@ -275,9 +279,13 @@ export default function Insurance(){
               </div>
               <div className="field">
                 <label>Provider / HMO</label>
-                <select value={provider} onChange={e => setProvider(e.target.value)}>
-                  {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <HmoProviderSelect
+                  value={provider}
+                  onChange={setProvider}
+                  placeholder="Search HMO provider…"
+                  ariaLabel="HMO provider"
+                  includeSelfPay={false}
+                />
               </div>
               <div className="field">
                 <label>Policy Number</label>
