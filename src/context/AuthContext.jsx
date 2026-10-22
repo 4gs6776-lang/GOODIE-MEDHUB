@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { setUserRole, clearUserRole } from '../lib/subscriptionLock'
 
 // Exported so the QA harness (qa.html) can mount a mocked provider —
 // production code always uses AuthProvider/useAuth; this changes nothing.
@@ -30,6 +31,11 @@ export function AuthProvider({ children }){
       return
     }
     setProfile(profileData)
+
+    // Tell the subscription lock layer about the user's role so it can
+    // refuse writes for read-only roles (CMD). This must happen BEFORE
+    // any component tries to write, so we do it synchronously here.
+    setUserRole(profileData.role)
 
     if (!profileData.hospital_id) {
       setHospital(null)
@@ -70,6 +76,7 @@ useEffect(() => {
     } else {
       setProfile(null)
       setHospital(null)
+      clearUserRole()
       setLoading(false)
     }
   })
@@ -79,6 +86,7 @@ useEffect(() => {
 
 
   async function signOut(){
+    clearUserRole()
     await supabase.auth.signOut()
   }
 
