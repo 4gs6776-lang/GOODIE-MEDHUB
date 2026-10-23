@@ -62,7 +62,7 @@ export const MODULES = [
   'ipd', 'admissions', 'handover', 'billing', 'pharmacy', 'laboratory',
   'radiology', 'inventory', 'staff', 'insurance', 'reports',
   'notifications', 'roster', 'messages', 'settings',
-  'hmo_patients', 'anc_patients', 'ai_diagnostics',
+  'hmo_patients', 'anc_patients',
 ]
 
 // What every role sees today (moved verbatim from Dashboard.jsx so nav
@@ -71,7 +71,7 @@ const COMMON_ACCESS = ['overview', 'roster', 'notifications', 'messages', 'setti
 
 const ROLE_MODULES = {
   doctor: [...COMMON_ACCESS, 'patients', 'hmo_patients', 'anc_patients', 'appointments', 'doctor', 'ipd', 'admissions', 'handover', 'ai_diagnostics'],
-  nurse: [...COMMON_ACCESS, 'patients', 'hmo_patients', 'anc_patients', 'appointments', 'nursing', 'ipd', 'admissions', 'handover', 'ai_diagnostics'],
+  nurse: [...COMMON_ACCESS, 'patients', 'hmo_patients', 'anc_patients', 'appointments', 'nursing', 'ipd', 'admissions', 'handover', 'reception', 'ai_diagnostics'],
   front_desk: [...COMMON_ACCESS, 'patients', 'hmo_patients', 'anc_patients', 'reception', 'appointments', 'insurance', 'admissions'],
   pharmacist: [...COMMON_ACCESS, 'patients', 'hmo_patients', 'anc_patients', 'pharmacy', 'inventory', 'handover'],
   lab: [...COMMON_ACCESS, 'patients', 'hmo_patients', 'anc_patients', 'laboratory', 'radiology', 'handover'],
