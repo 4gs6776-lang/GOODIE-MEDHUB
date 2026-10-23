@@ -15,7 +15,7 @@ export default function PatientProfile({ patientId, onClose }){
   const { profile, hospital } = useAuth()
   const { records: patients, updateRecord: updatePatient, loadError: patientsLoadError } = useOfflineTable('patients', hospital?.id)
   const { records: vitals, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
-  const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
+  const { records: prescriptions, addRecord: addPrescription, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: pharmacyItems, updateRecord: updatePharmacyItem } = useOfflineTable('pharmacy_items', hospital?.id)
   const { records: invoices, addRecord: addInvoice, updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
   const { records: admissionRequests } = useOfflineTable('admission_requests', hospital?.id)
@@ -26,6 +26,13 @@ export default function PatientProfile({ patientId, onClose }){
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
+  // Send to Pharmacy modal state
+  const [showPharmModal, setShowPharmModal] = useState(false)
+  const [pharmDrug, setPharmDrug] = useState('')
+  const [pharmQty, setPharmQty] = useState('')
+  const [pharmNotes, setPharmNotes] = useState('')
+  const [pharmSaving, setPharmSaving] = useState(false)
+  const [pharmError, setPharmError] = useState('')
 
   const patient = patients.find(p => p.id === patientId)
 
@@ -139,10 +146,20 @@ export default function PatientProfile({ patientId, onClose }){
               {patient.age ? `${patient.age} yrs` : ''}{patient.gender ? ` · ${patient.gender}` : ''}{patient.hospital_number ? ` · #${patient.hospital_number}` : ''}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', flexShrink: 0 }}
-          >✕</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn btn-primary"
+              style={{ width: 'auto', padding: '6px 12px', fontSize: 11.5, background: 'var(--violet)', color: '#fff' }}
+              onClick={() => { setPharmError(''); setShowPharmModal(true) }}
+              title="Send a medication request to Pharmacy"
+            >
+              Send to Pharmacy
+            </button>
+            <button
+              onClick={onClose}
+              style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', flexShrink: 0 }}
+            >✕</button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '12px 20px 10px' }}>
@@ -218,6 +235,77 @@ export default function PatientProfile({ patientId, onClose }){
             padding: '10px 18px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, maxWidth: '85%', textAlign: 'center',
           }}>
             {toast}
+          </div>
+        )}
+
+        {/* ---- Send to Pharmacy modal ---- */}
+        {showPharmModal && patient && (
+          <div className="dash-modal-backdrop" style={{ zIndex: 80 }} onClick={e => { if (e.target === e.currentTarget) setShowPharmModal(false) }}>
+            <div className="card dash-modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+              <div className="dash-modal-title">Send to Pharmacy</div>
+              <div className="dash-modal-body">
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+                  For <strong style={{ color: 'var(--teal)' }}>{patient.full_name}</strong>
+                </div>
+                {pharmError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{pharmError}</div>}
+                <form id="pharm-form" onSubmit={async (e) => {
+                  e.preventDefault()
+                  setPharmError('')
+                  if (!pharmDrug.trim()) { setPharmError('Drug name is required.'); return }
+                  if (!pharmQty.trim()) { setPharmError('Quantity is required.'); return }
+                  setPharmSaving(true)
+                  try {
+                    await addPrescription({
+                      patient_id: patient.id,
+                      patient_name: patient.full_name,
+                      drug_name: pharmDrug.trim(),
+                      dosage: null,
+                      route: null,
+                      frequency: null,
+                      duration: null,
+                      quantity: pharmQty.trim(),
+                      instructions: pharmNotes.trim() || null,
+                      status: 'active',
+                      prescribed_at: new Date().toISOString(),
+                      doctor_id: profile?.id || null,
+                      created_by: profile?.id || null,
+                    })
+                    writeAudit({
+                      hospitalId: hospital?.id, actor: profile,
+                      action: 'prescription.nurse_sent_to_pharmacy',
+                      entityType: 'prescription', entityId: null,
+                      patientId: patient.id,
+                      summary: `Nurse sent ${pharmDrug.trim()} (qty ${pharmQty.trim()}) to pharmacy for ${patient.full_name}`,
+                      metadata: { drug_name: pharmDrug.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
+                    })
+                    showToast(`"${pharmDrug}" sent to Pharmacy for ${patient.full_name}`)
+                    setShowPharmModal(false)
+                    setPharmDrug(''); setPharmQty(''); setPharmNotes('')
+                  } catch (err) {
+                    setPharmError(err.message || 'Could not send to pharmacy.')
+                  } finally {
+                    setPharmSaving(false)
+                  }
+                }}>
+                  <div className="field">
+                    <label>Drug Name *</label>
+                    <input value={pharmDrug} onChange={e => setPharmDrug(e.target.value)} placeholder="e.g. Paracetamol 500mg" autoFocus required />
+                  </div>
+                  <div className="field">
+                    <label>Quantity *</label>
+                    <input value={pharmQty} onChange={e => setPharmQty(e.target.value)} placeholder="e.g. 20 tablets" required />
+                  </div>
+                  <div className="field">
+                    <label>Notes (optional)</label>
+                    <input value={pharmNotes} onChange={e => setPharmNotes(e.target.value)} placeholder="e.g. For headache, give TDS" />
+                  </div>
+                </form>
+              </div>
+              <div className="dash-modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setShowPharmModal(false)} disabled={pharmSaving}>Cancel</button>
+                <button type="submit" form="pharm-form" className="btn btn-primary" disabled={pharmSaving}>{pharmSaving ? 'Sending…' : 'Send to Pharmacy'}</button>
+              </div>
+            </div>
           </div>
         )}
       </div>
