@@ -2,11 +2,13 @@ import { useState, useMemo, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
+import { supabase } from '../../lib/supabaseClient'
 import CashierWorkspace from '../../components/CashierWorkspace'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
+import { writeAudit } from '../../lib/audit'
 import { formatDateTimeSec, getTimezone } from '../../lib/datetime'
 
 function Icon({ name, size = 18 }) {
@@ -28,20 +30,29 @@ const SPARK = "M2 27 C12 22 15 10 25 18 S38 29 48 16 S61 8 70 22 S80 24 88 11"
 export default function Billing({ initialSearch = '' }) {
   const { profile, hospital } = useAuth()
   const timezone = getTimezone(hospital)
-  const { records: invoices, loading, isOnline, pendingCount } = useOfflineTable('invoices', hospital?.id)
+  const { records: invoices, updateRecord: updateInvoice, loading, isOnline, pendingCount } = useOfflineTable('invoices', hospital?.id)
   const { records: billableCharges, syncFromServer: syncCharges } = useOfflineTable('billable_charges', hospital?.id)
-  // Wallet transactions — for the Transactions tab
-  const { records: walletTxns, loading: txnsLoading } = useOfflineTable('patient_wallet_transactions', hospital?.id)
-  // Patients — needed to resolve patient names for wallet txns
+  // Wallet transactions — for the Transactions tab + wallet credit on reversal
+  const { records: walletTxns, addRecord: addWalletTxn, loading: txnsLoading } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+  // Payments — for the Payments tab
+  const { records: payments, updateRecord: updatePayment } = useOfflineTable('payments', hospital?.id)
+  // Patient wallets — needed for wallet credit on reversal
+  const { records: walletRecords } = useOfflineTable('patient_wallets', hospital?.id)
+  // Patients — needed to resolve patient names for wallet txns + payments
   const { records: patients } = useOfflineTable('patients', hospital?.id)
+  // Staff — to resolve "received_by" and "reversed_by" names
+  const { records: staff } = useOfflineTable('profiles', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [search, setSearch] = useState(initialSearch)
   useEffect(() => { if (initialSearch) setSearch(initialSearch) }, [initialSearch])
   const [selectedPatient, setSelectedPatient] = useState(null)
-  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions'
+  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions' | 'payments'
   const [txnTypeFilter, setTxnTypeFilter] = useState('all')  // 'all' | 'deposit' | 'charge' | 'refund' | 'adjustment'
   const [txnSearch, setTxnSearch] = useState('')
+  const [payMethodFilter, setPayMethodFilter] = useState('all')
+  const [paySearch, setPaySearch] = useState('')
+  const [payStatusFilter, setPayStatusFilter] = useState('active')  // 'active' | 'reversed' | 'all'
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -133,6 +144,148 @@ export default function Billing({ initialSearch = '' }) {
     totalPages: txnTotalPages, totalItems: txnTotalItems, startIndex: txnStart, endIndex: txnEnd,
   } = usePagination(filteredTxns, { pageSize: 20, resetKey: `${txnTypeFilter}|${txnSearch}` })
 
+  // ---- Payments filter + pagination -----------------------------------
+  const filteredPayments = useMemo(() => {
+    let arr = [...payments].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    // Status filter
+    if (payStatusFilter === 'active') {
+      arr = arr.filter(p => p.status !== 'reversed')
+    } else if (payStatusFilter === 'reversed') {
+      arr = arr.filter(p => p.status === 'reversed')
+    }
+    // Method filter
+    if (payMethodFilter !== 'all') {
+      arr = arr.filter(p => (p.method || 'Cash') === payMethodFilter)
+    }
+    // Search
+    if (paySearch.trim()) {
+      const q = paySearch.trim().toLowerCase()
+      arr = arr.filter(p => {
+        const pName = patients.find(pt => pt.id === p.patient_id)?.full_name || p.patient_name || ''
+        const inv = invoices.find(i => i.id === p.invoice_id)
+        return (
+          pName.toLowerCase().includes(q) ||
+          String(p.reference_number || '').toLowerCase().includes(q) ||
+          String(p.method || '').toLowerCase().includes(q) ||
+          (inv?.invoice_number || '').toLowerCase().includes(q)
+        )
+      })
+    }
+    return arr
+  }, [payments, payStatusFilter, payMethodFilter, paySearch, patients, invoices])
+
+  const payStats = useMemo(() => {
+    const active = payments.filter(p => p.status !== 'reversed')
+    const reversed = payments.filter(p => p.status === 'reversed')
+    const todayStr = new Date().toDateString()
+    const todayActive = active.filter(p => new Date(p.created_at).toDateString() === todayStr)
+    const todayTotal = todayActive.reduce((s, p) => s + Number(p.amount || 0), 0)
+    return {
+      activeCount: active.length,
+      reversedCount: reversed.length,
+      todayCount: todayActive.length,
+      todayTotal,
+    }
+  }, [payments])
+
+  const {
+    pageItems: pagedPayments, currentPage: payPage, setCurrentPage: setPayPage, pageSize: payPageSize, setPageSize: setPayPageSize,
+    totalPages: payTotalPages, totalItems: payTotalItems, startIndex: payStart, endIndex: payEnd,
+  } = usePagination(filteredPayments, { pageSize: 20, resetKey: `${payStatusFilter}|${payMethodFilter}|${paySearch}` })
+
+  // ---- Reverse a payment ----------------------------------------------
+  // Q1=a: void the payment (status = 'reversed'), keep the row for audit.
+  // Q2=b: any billing-role user (billing + admin + owner) can reverse.
+  // Q4=a: if the payment was from the wallet, credit the wallet back.
+  // Q5=a: require a reason.
+  async function handleReversePayment(payment) {
+    const canReverse = profile && ['admin', 'owner', 'billing'].includes(profile.role)
+    if (!canReverse) {
+      showToast('Your role cannot reverse payments.')
+      return
+    }
+
+    // Resolve names for the confirmation dialog
+    const patientName = patients.find(p => p.id === payment.patient_id)?.full_name || payment.patient_name || 'patient'
+    const inv = invoices.find(i => i.id === payment.invoice_id)
+
+    const reason = prompt(
+      `Reverse this payment?\n\n` +
+      `Patient: ${patientName}\n` +
+      `Amount: ${formatMoney(payment.amount)}\n` +
+      `Method: ${payment.method || 'Cash'}\n` +
+      `Reference: ${payment.reference_number || '—'}\n` +
+      (inv ? `Invoice: ${inv.invoice_number || '—'}\n` : '') +
+      `\nThis will mark the payment as reversed and adjust the invoice.\n` +
+      `The payment record is kept for audit — it is NOT deleted.\n\n` +
+      `Enter a reason (required):`
+    )
+    if (!reason || !reason.trim()) return
+
+    try {
+      // 1. Void the payment
+      await updatePayment(payment.id, {
+        status: 'reversed',
+        reversed_by: profile.id,
+        reversed_by_name: profile.full_name,
+        reversed_at: new Date().toISOString(),
+        reversal_reason: reason.trim(),
+      })
+
+      // 2. Adjust the invoice: amount_paid -= payment.amount, balance += payment.amount
+      if (inv) {
+        const newPaid = Math.max(0, Number(inv.amount_paid || 0) - Number(payment.amount || 0))
+        const newBal = Math.max(0, Number(inv.grand_total || inv.amount || 0) - newPaid)
+        const newStatus = newBal <= 0.001 ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid')
+        await updateInvoice(inv.id, {
+          amount_paid: newPaid,
+          balance: newBal,
+          status: newStatus,
+        })
+
+        // 3. If the payment was from the wallet, credit the wallet back (Q4=a)
+        if (payment.method === 'Wallet') {
+          const wallet = walletRecords.find(w => w.patient_id === payment.patient_id)
+          if (wallet) {
+            const newWalletBalance = Number(wallet.balance || 0) + Number(payment.amount || 0)
+            await addWalletTxn({
+              hospital_id: hospital.id,
+              patient_id: payment.patient_id,
+              wallet_id: wallet.id,
+              type: 'adjustment',
+              amount: Number(payment.amount || 0),
+              balance_after: newWalletBalance,
+              method: 'Wallet',
+              invoice_id: inv.id,
+              performed_by: profile.id,
+              performed_by_name: profile.full_name,
+              notes: `Reversal of wallet payment — ${reason.trim()}`,
+            })
+          }
+        }
+      }
+
+      writeAudit({
+        hospitalId: hospital.id, actor: profile,
+        action: 'payment.reversed',
+        entityType: 'payment', entityId: payment.id,
+        patientId: payment.patient_id || null,
+        summary: `Reversed payment of ${formatMoney(payment.amount)} (${payment.method || 'Cash'}) for ${patientName} — reason: ${reason.trim()}`,
+        metadata: {
+          payment_id: payment.id,
+          invoice_id: inv?.id || null,
+          amount: payment.amount,
+          method: payment.method,
+          reason: reason.trim(),
+        },
+      })
+
+      showToast(`Payment of ${formatMoney(payment.amount)} reversed for ${patientName}`)
+    } catch (err) {
+      showToast(err.message || 'Could not reverse the payment.')
+    }
+  }
+
   return (
     <>
       {/* Header */}
@@ -147,11 +300,12 @@ export default function Billing({ initialSearch = '' }) {
         </div>
       </div>
 
-      {/* ---- Tab switcher: Queue / Transactions ---- */}
+      {/* ---- Tab switcher: Queue / Wallet Transactions / Payments ---- */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
           { key: 'queue', label: 'Patient Queue', icon: 'users' },
           { key: 'transactions', label: 'Wallet Transactions', icon: 'billing' },
+          { key: 'payments', label: 'Payments', icon: 'billing' },
         ].map(t => (
           <button
             key={t.key}
@@ -409,6 +563,173 @@ export default function Billing({ initialSearch = '' }) {
                   onPageChange={setTxnPage}
                   onPageSizeChange={setTxnPageSize}
                   itemLabel="transactions"
+                />
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ---- Payments tab ---- */}
+      {activeTab === 'payments' && (
+        <>
+          {/* Mini-stats */}
+          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="billing" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Active Payments</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{payStats.activeCount}</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="arrowDown" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Reversed Payments</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{payStats.reversedCount}</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(0,199,199,0.10)', color: 'var(--teal)' }}><AppIcon name="clock" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Today's Collections</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(payStats.todayTotal)}</div>
+                <div className="dash-stat-delta">{payStats.todayCount} payment(s) today</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dash-panel">
+            <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div className="dash-panel-title">Payment Records</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Every payment recorded — cash, POS, bank transfer, wallet, and reversed entries.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select value={payStatusFilter} onChange={e => setPayStatusFilter(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }}>
+                  <option value="active">Active only</option>
+                  <option value="reversed">Reversed only</option>
+                  <option value="all">All payments</option>
+                </select>
+                <select value={payMethodFilter} onChange={e => setPayMethodFilter(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }}>
+                  <option value="all">All methods</option>
+                  <option value="Cash">Cash</option>
+                  <option value="POS">POS</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Card">Card</option>
+                  <option value="Wallet">Wallet</option>
+                  <option value="HMO">HMO</option>
+                </select>
+                <SearchInput value={paySearch} onChange={setPaySearch} placeholder="Search patient, ref, invoice…" style={{ minWidth: 200, maxWidth: 320 }} />
+              </div>
+            </div>
+
+            {filteredPayments.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>
+                {paySearch || payMethodFilter !== 'all' || payStatusFilter !== 'active' ? 'No payments match these filters.' : 'No payments recorded yet. When the cashier records a payment via an invoice, it will appear here.'}
+              </div>
+            ) : (
+              <>
+                <div className="dash-table-wrap">
+                  <table className="dash-full-table">
+                    <thead>
+                      <tr>
+                        <th>Date / Time</th>
+                        <th>Patient</th>
+                        <th>Invoice #</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Received By</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedPayments.map(p => {
+                        const patientName = patients.find(pt => pt.id === p.patient_id)?.full_name || p.patient_name || '—'
+                        const inv = invoices.find(i => i.id === p.invoice_id)
+                        const receivedBy = staff.find(s => s.id === p.received_by)?.full_name || '—'
+                        const reversedBy = staff.find(s => s.id === p.reversed_by)?.full_name
+                        const isReversed = p.status === 'reversed'
+                        return (
+                          <tr key={p.id} style={{ opacity: isReversed ? 0.5 : 1 }}>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTimeSec(p.created_at, timezone)}</td>
+                            <td style={{ fontWeight: 700 }}>{patientName}</td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>{inv?.invoice_number || '—'}</td>
+                            <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: isReversed ? 'var(--muted)' : 'var(--teal)' }}>{formatMoney(p.amount)}</td>
+                            <td>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                                background: p.method === 'Cash' ? 'rgba(0,199,199,0.14)' :
+                                            p.method === 'POS' ? 'rgba(59,130,246,0.14)' :
+                                            p.method === 'Bank Transfer' ? 'rgba(118,87,232,0.14)' :
+                                            p.method === 'Wallet' ? 'rgba(0,199,199,0.10)' :
+                                            'rgba(154,170,183,0.14)',
+                                color: p.method === 'Cash' ? 'var(--teal)' :
+                                       p.method === 'POS' ? 'var(--blue)' :
+                                       p.method === 'Bank Transfer' ? 'var(--violet)' :
+                                       p.method === 'Wallet' ? 'var(--teal)' :
+                                       'var(--muted)',
+                              }}>
+                                {p.method || 'Cash'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>{p.reference_number || '—'}</td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{receivedBy}</td>
+                            <td>
+                              {isReversed ? (
+                                <span style={{
+                                  fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                                  background: 'rgba(240,79,95,0.14)', color: 'var(--danger)',
+                                  textTransform: 'uppercase', letterSpacing: 0.5,
+                                }} title={`Reversed by ${reversedBy || '—'} on ${p.reversed_at ? new Date(p.reversed_at).toLocaleString('en-NG') : '—'}\nReason: ${p.reversal_reason || '—'}`}>
+                                  Reversed
+                                </span>
+                              ) : (
+                                <span style={{
+                                  fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                                  background: 'rgba(0,199,199,0.14)', color: 'var(--teal)',
+                                  textTransform: 'uppercase', letterSpacing: 0.5,
+                                }}>
+                                  Active
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              {!isReversed && profile && ['admin', 'owner', 'billing'].includes(profile.role) && (
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                  onClick={() => handleReversePayment(p)}
+                                  title="Reverse this payment"
+                                >
+                                  Reverse
+                                </button>
+                              )}
+                              {isReversed && (
+                                <span style={{ fontSize: 10, color: 'var(--muted-dim)', fontStyle: 'italic' }}>
+                                  {p.reversal_reason ? `"${p.reversal_reason}"` : ''}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <Pagination
+                  currentPage={payPage}
+                  totalPages={payTotalPages}
+                  totalItems={payTotalItems}
+                  startIndex={payStart}
+                  endIndex={payEnd}
+                  pageSize={payPageSize}
+                  onPageChange={setPayPage}
+                  onPageSizeChange={setPayPageSize}
+                  itemLabel="payments"
                 />
               </>
             )}
