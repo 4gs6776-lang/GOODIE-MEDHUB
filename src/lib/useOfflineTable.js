@@ -255,12 +255,33 @@ async function writeWithSchemaRetry(tableName, run, basePayload = {}) {
 // WRITE LOCAL RECORD
 // ============================================================
 
+// Every useOfflineTable() call keeps its OWN copy of the records in React
+// state. When one instance (a modal, a child component, another page's hook,
+// the sync queue) wrote to IndexedDB, the other instances never found out,
+// so a new record only appeared after a full page refresh re-read the DB.
+// Every local write now announces itself here and all mounted instances
+// re-read the local store.
+const localChangeListeners = new Set()
+
+function notifyLocalChange() {
+  localChangeListeners.forEach((listener) => {
+    try {
+      listener()
+    } catch (err) {
+      console.error('Local change listener failed:', err)
+    }
+  })
+}
+
 async function putLocalRecord(db, record) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
     store.put(record)
-    tx.oncomplete = () => resolve(record)
+    tx.oncomplete = () => {
+      notifyLocalChange()
+      resolve(record)
+    }
     tx.onerror = () => reject(tx.error)
   })
 }
@@ -302,7 +323,10 @@ async function deleteLocalRecord(db, id) {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
     store.delete(id)
-    tx.oncomplete = () => resolve()
+    tx.oncomplete = () => {
+      notifyLocalChange()
+      resolve()
+    }
     tx.onerror = () => reject(tx.error)
   })
 }
@@ -487,6 +511,29 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
       window.removeEventListener('offline', handleOffline)
     }
   }, [loadLocalRecords, tableName, hospitalId])
+
+  // Keep this instance in step with writes made by ANY other instance.
+  // Debounced so a burst (a pull writing hundreds of rows, a queue flush)
+  // causes one re-read instead of hundreds.
+  useEffect(() => {
+    if (!hospitalId) return
+
+    let timer = null
+    let active = true
+    const onLocalChange = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (active) loadLocalRecords()
+      }, 50)
+    }
+
+    localChangeListeners.add(onLocalChange)
+    return () => {
+      active = false
+      if (timer) clearTimeout(timer)
+      localChangeListeners.delete(onLocalChange)
+    }
+  }, [hospitalId, loadLocalRecords])
 
   // Opt-in live sync: when another device/tab inserts, updates or deletes
   // a row in this table for the same hospital, pull it down and merge it
