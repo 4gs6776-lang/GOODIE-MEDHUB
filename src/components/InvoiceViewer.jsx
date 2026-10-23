@@ -175,6 +175,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
         .sign { margin-top: 60px; border-top: 1px solid #000; width: 200px; text-align: center; font-size: 12px; padding-top: 5px; }
       </style></head><body>
         <div class="header">
+          ${hospital?.logo_url ? `<img src="${escapeHtml(hospital.logo_url)}" alt="logo" style="max-width: 120px; max-height: 80px; margin: 0 auto 10px; display: block; object-fit: contain;" />` : ''}
           <div class="h-name">${escapeHtml(hospital?.name || 'Hospital')}</div>
           ${hospital?.address ? `<div class="h-meta">${escapeHtml(hospital.address)}</div>` : ''}
           ${hospital?.phone ? `<div class="h-meta">Tel: ${escapeHtml(hospital.phone)}</div>` : ''}
