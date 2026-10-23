@@ -1473,7 +1473,9 @@ export default function Dashboard(){
                       <div className="dash-panel-title">All Patients</div>
                       <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
                     </div>
-                    <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                    {profile?.role !== 'doctor' && (
+                      <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                    )}
                   </div>
 
                   {loading ? (
@@ -1494,7 +1496,7 @@ export default function Dashboard(){
                                 <td>{p.age}</td>
                                 <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
                                 <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at, hospitalTz)}</td>
-                                <td><button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button></td>
+                                <td>{profile?.role !== 'doctor' ? <button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button> : null}</td>
                               </tr>
                             ))}
                           </tbody>
