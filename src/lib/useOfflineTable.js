@@ -420,6 +420,9 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
   // Mirror of pendingCount for use inside timers (state captured in a
   // setInterval closure would be frozen at mount time).
   const pendingCountRef = useRef(0)
+  // Guards against an older, slower read finishing AFTER a newer one and
+  // overwriting fresh data.
+  const loadSeqRef = useRef(0)
 
   const loadLocalRecords = useCallback(async () => {
     if (!hospitalId) {
@@ -428,9 +431,11 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
       return
     }
 
+    const seq = ++loadSeqRef.current
     try {
       const db = await openDB()
       const all = await getAllLocalRecords(db)
+      if (seq !== loadSeqRef.current) return // a newer read superseded this one
 
       const filtered = all.filter(
         (record) =>
