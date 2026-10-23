@@ -52,7 +52,6 @@ import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
-import AiDiagnostics from './AiDiagnostics'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
@@ -131,7 +130,6 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'facilities', label: 'Facilities', section: 'Operations', icon: 'building' },
   { key: 'audit-log', label: 'Audit Log', section: 'Operations', icon: 'shield' },
-  { key: 'ai-diagnostics', label: 'AI Diagnostics', section: 'Operations', icon: 'activity' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
@@ -897,12 +895,16 @@ export default function Dashboard(){
 
       <aside className={`dash-sidebar ${drawerOpen ? 'open' : ''}`}>
         <div className="dash-brand">
-          <div className="dash-brand-mark">
-            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20.8 8.6c0 5-6.2 9.4-8.3 10.8a1 1 0 0 1-1 0C9.4 18 3.2 13.6 3.2 8.6a4.9 4.9 0 0 1 8.8-3 4.9 4.9 0 0 1 8.8 3Z"/>
-              <path d="M4 12h3l1.5-3L11 15l1.8-6L14 12h6"/>
-            </svg>
-          </div>
+          {hospital?.logo_url ? (
+            <img src={hospital.logo_url} alt={hospital?.name || 'Hospital'} style={{ maxWidth: 40, maxHeight: 40, borderRadius: 8, objectFit: 'contain', flexShrink: 0 }} />
+          ) : (
+            <div className="dash-brand-mark">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20.8 8.6c0 5-6.2 9.4-8.3 10.8a1 1 0 0 1-1 0C9.4 18 3.2 13.6 3.2 8.6a4.9 4.9 0 0 1 8.8-3 4.9 4.9 0 0 1 8.8 3Z"/>
+                <path d="M4 12h3l1.5-3L11 15l1.8-6L14 12h6"/>
+              </svg>
+            </div>
+          )}
           <div>
             <div className="dash-brand-name">{hospital?.name || 'Loading…'}</div>
             <div className="dash-brand-sub">G-MedHub</div>
@@ -1498,7 +1500,6 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'facilities' && <Facilities />}
           {tab === 'audit-log' && <AuditLog />}
-          {tab === 'ai-diagnostics' && <AiDiagnostics onClose={() => setTab('overview')} />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'messages' && <Messages />}

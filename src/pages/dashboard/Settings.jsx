@@ -5,6 +5,34 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import { writeAudit } from '../../lib/audit'
 import AppIcon from '../../components/icons'
 
+// Compress the image before uploading to storage. Same pattern as the
+// patient photo compression in Reception.jsx — uses a canvas to resize
+// the image to maxLogoWidth and returns a JPEG blob.
+function compressLogo(file, maxWidth = 400) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        let w = img.width, h = img.height
+        if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth }
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, w, h)
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob)
+          else reject(new Error('Could not compress the image.'))
+        }, 'image/png', 0.92)
+      }
+      img.onerror = () => reject(new Error('Could not load the image.'))
+      img.src = e.target.result
+    }
+    reader.onerror = () => reject(new Error('Could not read the file.'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function Settings(){
   const { profile, hospital, session, signOut } = useAuth()
   const [toast, setToast] = useState(null)
@@ -21,6 +49,70 @@ export default function Settings(){
   const { records: bankAccounts, addRecord: addBankAccount, updateRecord: updateBankAccount, deleteRecord: deleteBankAccount } = useOfflineTable('hospital_bank_accounts', hospital?.id)
 
   const canManageBank = profile?.role === 'admin' || profile?.role === 'owner'
+
+  // ---- Hospital logo (admin / owner only) ---------------------------
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoError, setLogoError] = useState('')
+  const { reload: reloadProfile } = useAuth()
+
+  async function handleLogoUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = '' // reset so the same file can be selected again
+
+    if (!file.type.startsWith('image/')) {
+      setLogoError('Please select an image file (PNG, JPG, etc.).')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoError('Image is too large (max 5MB). Please use a smaller image.')
+      return
+    }
+
+    setLogoUploading(true)
+    setLogoError('')
+    try {
+      const compressed = await compressLogo(file, 400)
+      const filePath = `${hospital.id}/logo`
+
+      // Upload (upsert = replace if exists)
+      const { error: uploadErr } = await supabase.storage
+        .from('hospital-logos')
+        .upload(filePath, compressed, { upsert: true, contentType: 'image/png' })
+
+      if (uploadErr) throw uploadErr
+
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from('hospital-logos')
+        .getPublicUrl(filePath)
+
+      const logoUrl = `${urlData.publicUrl}?t=${Date.now()}` // cache-buster
+
+      // Save to hospitals table
+      const { error: updateErr } = await supabase
+        .from('hospitals')
+        .update({ logo_url: logoUrl })
+        .eq('id', hospital.id)
+
+      if (updateErr) throw updateErr
+
+      writeAudit({
+        hospitalId: hospital.id, actor: profile,
+        action: 'hospital.logo_updated',
+        entityType: 'hospital', entityId: hospital.id,
+        summary: `Updated hospital logo for ${hospital.name}`,
+        metadata: { file_name: file.name, file_size: file.size, logo_url: logoUrl },
+      })
+
+      showToast('Logo updated')
+      reloadProfile() // refresh hospital data so the sidebar picks up the new logo
+    } catch (err) {
+      setLogoError(err.message || 'Could not upload the logo.')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
 
   const [showBankModal, setShowBankModal] = useState(false)
   const [bankEditingId, setBankEditingId] = useState(null)
@@ -277,6 +369,67 @@ export default function Settings(){
                 {hospital?.status ? hospital.status.charAt(0).toUpperCase() + hospital.status.slice(1) : 'Unknown'}
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ---- Hospital Logo (admin / owner only) ---- */}
+      <div className="dash-panel" style={{ marginTop: 20, maxWidth: 460 }}>
+        <div className="dash-panel-head">
+          <div>
+            <div className="dash-panel-title">Hospital Logo</div>
+            <div className="dash-panel-sub">Shown in sidebar, printed bills, and login page</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '8px 0' }}>
+          {/* Logo preview */}
+          <div style={{
+            width: 80, height: 80, borderRadius: 12,
+            background: 'var(--bg-elevated)', border: '1px solid var(--line)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden', flexShrink: 0,
+          }}>
+            {hospital?.logo_url ? (
+              <img src={hospital.logo_url} alt="Hospital logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+            ) : (
+              <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--teal)' }}>
+                {(hospital?.name || 'H').charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+
+          <div style={{ flex: 1 }}>
+            {logoError && <div className="error-box" style={{ marginBottom: 8, fontSize: 12 }}>{logoError}</div>}
+            {canManageBank ? (
+              <>
+                <label htmlFor="logo-upload" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '8px 14px', borderRadius: 8,
+                  background: 'var(--teal)', color: '#00251F',
+                  fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                  opacity: logoUploading ? 0.6 : 1,
+                }}>
+                  <AppIcon name={logoUploading ? 'loading' : 'camera'} size={14} spin={logoUploading} />
+                  {logoUploading ? 'Uploading…' : (hospital?.logo_url ? 'Replace Logo' : 'Upload Logo')}
+                </label>
+                <input
+                  id="logo-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoUpload}
+                  disabled={logoUploading}
+                  style={{ display: 'none' }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                  PNG or JPG. Max 5MB. Recommended: square or wide logo, transparent background.
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                Only hospital administrators can change the logo.
+              </div>
+            )}
           </div>
         </div>
       </div>
