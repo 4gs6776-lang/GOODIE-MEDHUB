@@ -52,6 +52,7 @@ import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
+import AiDiagnostics from './AiDiagnostics'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
@@ -130,6 +131,7 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'facilities', label: 'Facilities', section: 'Operations', icon: 'building' },
   { key: 'audit-log', label: 'Audit Log', section: 'Operations', icon: 'shield' },
+  { key: 'ai-diagnostics', label: 'AI Diagnostics', section: 'Operations', icon: 'activity' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
@@ -1241,7 +1243,21 @@ export default function Dashboard(){
                     </div>
                     <select className="dash-filter"><option>This Month</option><option>Last Month</option><option>This Year</option></select>
                   </div>
-                  <div className="dash-large-chart" aria-label="Patient registration and appointment trend for the current month">
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                  {(() => {
+                    const now = new Date()
+                    const year = now.getFullYear(), month = now.getMonth()
+                    const thisMonth = patients.filter(p => {
+                      const d = new Date(p.created_at)
+                      return d.getFullYear() === year && d.getMonth() === month
+                    }).length
+                    return `${thisMonth} patient${thisMonth === 1 ? '' : 's'} registered this month · ${appointments.filter(a => {
+                      const d = new Date(a.appointment_time)
+                      return d.getFullYear() === year && d.getMonth() === month
+                    }).length} appointment${appointments.length === 1 ? '' : 's'}`
+                  })()}
+                </div>
+                <div className="dash-large-chart" aria-label="Patient registration and appointment trend for the current month">
                     <div className="dash-chart-summary">
                       <span><b>{patients.filter(p => { const d = new Date(p.created_at); const n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() }).length}</b> new this month</span>
                       <span><b>{appointments.filter(a => { const d = new Date(a.appointment_time); const n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() }).length}</b> visits this month</span>
@@ -1500,6 +1516,7 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'facilities' && <Facilities />}
           {tab === 'audit-log' && <AuditLog />}
+          {tab === 'ai-diagnostics' && <AiDiagnostics onClose={() => setTab('overview')} />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'messages' && <Messages />}
