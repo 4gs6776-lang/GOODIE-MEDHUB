@@ -24,6 +24,13 @@ export default function PatientProfile({ patientId, onClose }){
   // NEW: Fetch the stock records (Items Given)
   const { records: stockRecords } = useOfflineTable('patient_stock_records', hospital?.id)
 
+  // Doctors can view patient details but cannot add/edit/delete patients.
+  // The "Edit Info" tab is hidden from doctors.
+  const isDoctor = profile?.role === 'doctor'
+  const visibleTabs = isDoctor
+    ? TABS.filter(t => t !== 'Edit Info')
+    : TABS
+
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
   // Send to Pharmacy modal state
@@ -163,7 +170,7 @@ export default function PatientProfile({ patientId, onClose }){
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '12px 20px 10px' }}>
-          {TABS.map(t => (
+          {visibleTabs.map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
