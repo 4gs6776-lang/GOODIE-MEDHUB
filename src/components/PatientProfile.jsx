@@ -5,15 +5,16 @@ import MedicationChart from './MedicationChart'
 import AppIcon from './icons'
 import PatientWallet from './PatientWallet'
 import { writeAudit } from '../lib/audit'
+import { formatDateTime } from '../lib/datetime'
 
-const TABS = ['Overview', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
+const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
 // the app. Reuses the same offline-first tables every other module reads —
 // nothing new is stored here except through those existing hooks.
 export default function PatientProfile({ patientId, onClose }){
   const { profile, hospital } = useAuth()
   const { records: patients, updateRecord: updatePatient, loadError: patientsLoadError } = useOfflineTable('patients', hospital?.id)
-  const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
+  const { records: vitals, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: prescriptions, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: pharmacyItems, updateRecord: updatePharmacyItem } = useOfflineTable('pharmacy_items', hospital?.id)
   const { records: invoices, addRecord: addInvoice, updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
@@ -164,6 +165,17 @@ export default function PatientProfile({ patientId, onClose }){
         <div className="thin-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           {tab === 'Overview' && (
             <OverviewTab patient={patient} latestConsultation={history[0]} activePrescriptions={activePrescriptions} outstandingBalance={outstandingBalance} admissionRequest={activeAdmissionRequest} />
+          )}
+          {tab === 'Vitals' && (
+            <VitalsTab
+              patient={patient}
+              allVitals={vitals}
+              history={history}
+              profile={profile}
+              hospital={hospital}
+              addVitals={addVitals}
+              showToast={showToast}
+            />
           )}
           {tab === 'Wallet' && <PatientWallet patient={patient} />}
           {tab === 'History' && <HistoryTab history={history} />}
@@ -566,5 +578,216 @@ function EditInfoTab({ patient, updatePatient, showToast }){
       <div className="field"><label>Address</label><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
       <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
     </form>
+  )
+}
+
+// =====================================================================
+// VitalsTab — shows all recorded vitals for this patient in a table,
+// newest first. Each row shows: date/time, vitals readings, nurse notes,
+// chief complaint, diagnosis, assigned doctor. Clickable to expand.
+//
+// Also has an "Add Vitals" button that opens a modal for recording new
+// vitals (same fields as the Nursing triage form).
+// =====================================================================
+
+function VitalsTab({ patient, allVitals, history, profile, hospital, addVitals, showToast }) {
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  // New vitals form state
+  const [newVitals, setNewVitals] = useState({
+    temperature: '', blood_pressure: '', pulse_rate: '', respiratory_rate: '',
+    spo2: '', weight: '', height: '', nurse_notes: '', urgency: 'Routine',
+  })
+
+  // Filter vitals for this patient, newest first
+  const patientVitals = (allVitals || [])
+    .filter(v => v.patient_id === patient?.id)
+    .sort((a, b) => new Date(b.recorded_at || b.created_at) - new Date(a.recorded_at || a.created_at))
+
+  function formatVal(v) {
+    if (v == null || v === '') return '—'
+    return String(v)
+  }
+
+  async function handleSaveVitals(e) {
+    e.preventDefault()
+    setFormError('')
+    if (!patient?.id) { setFormError('Patient not loaded.'); return }
+    if (!profile?.id) { setFormError('Account still loading.'); return }
+
+    setSaving(true)
+    try {
+      await addVitals({
+        patient_id: patient.id,
+        patient_name: patient.full_name,
+        ...newVitals,
+        status: 'waiting',
+        recorded_at: new Date().toISOString(),
+        created_by: profile.id,
+      })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'vitals.recorded_from_profile',
+        entityType: 'patient_vitals', entityId: null,
+        patientId: patient.id,
+        summary: `Vitals recorded for ${patient.full_name} from patient profile`,
+        metadata: { ...newVitals, source: 'patient_profile' },
+      })
+      showToast('Vitals recorded')
+      setShowAddModal(false)
+      setNewVitals({ temperature: '', blood_pressure: '', pulse_rate: '', respiratory_rate: '', spo2: '', weight: '', height: '', nurse_notes: '', urgency: 'Routine' })
+    } catch (err) {
+      setFormError(err.message || 'Could not save vitals.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      {/* Header + Add button */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ivory)' }}>
+          Vitals History ({patientVitals.length})
+        </div>
+        <button className="btn btn-primary" style={{ width: 'auto', padding: '7px 14px', fontSize: 12 }} onClick={() => { setFormError(''); setShowAddModal(true) }}>
+          <AppIcon name="plus" size={14} /> Add Vitals
+        </button>
+      </div>
+
+      {patientVitals.length === 0 ? (
+        <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)', fontSize: 13, background: 'var(--bg-elevated)', borderRadius: 10, border: '1px solid var(--line)' }}>
+          No vitals recorded yet. Click "Add Vitals" to record the first set.
+        </div>
+      ) : (
+        <div className="dash-table-wrap">
+          <table className="dash-full-table">
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>Date / Time</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>Temp</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>BP</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>Pulse</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>RR</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>SpO₂</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>Wt</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>Urgency</th>
+                <th style={{ textAlign: 'left', fontSize: 11, color: 'var(--muted)', padding: '0 12px 12px', textTransform: 'uppercase', letterSpacing: 1 }}>Doctor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {patientVitals.map(v => {
+                const expanded = expandedId === v.id
+                const urgencyColor = v.urgency === 'Emergency' ? 'var(--danger)' : v.urgency === 'Urgent' ? 'var(--gold)' : 'var(--teal)'
+                return (
+                  <>
+                    <tr key={v.id} style={{ borderTop: '1px solid var(--line-soft)', cursor: 'pointer' }} onClick={() => setExpandedId(expanded ? null : v.id)}>
+                      <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {v.recorded_at ? formatDateTime(v.recorded_at, hospital?.timezone || 'Africa/Lagos') : '—'}
+                      </td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{formatVal(v.temperature)}{v.temperature ? '°C' : ''}</td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{formatVal(v.blood_pressure)}</td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{formatVal(v.pulse_rate)}</td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{formatVal(v.respiratory_rate)}</td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{formatVal(v.spo2)}{v.spo2 ? '%' : ''}</td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{formatVal(v.weight)}{v.weight ? 'kg' : ''}</td>
+                      <td style={{ padding: 12 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: `${urgencyColor}22`, color: urgencyColor, textTransform: 'uppercase' }}>
+                          {v.urgency || 'Routine'}
+                        </span>
+                      </td>
+                      <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{v.assigned_doctor || '—'}</td>
+                    </tr>
+                    {expanded && (
+                      <tr key={v.id + '-expanded'} style={{ background: 'var(--bg-elevated)' }}>
+                        <td colSpan={9} style={{ padding: 14 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                            {v.chief_complaints && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Chief Complaint</div>
+                                <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>{v.chief_complaints}</div>
+                              </div>
+                            )}
+                            {v.allergy_history && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Allergies</div>
+                                <div style={{ fontSize: 12.5, color: 'var(--danger)' }}>{v.allergy_history}</div>
+                              </div>
+                            )}
+                            {v.nurse_notes && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Nurse Notes</div>
+                                <div style={{ fontSize: 12.5, color: 'var(--ivory)', fontStyle: 'italic' }}>{v.nurse_notes}</div>
+                              </div>
+                            )}
+                            {v.height && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Height</div>
+                                <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>{v.height} cm</div>
+                              </div>
+                            )}
+                            {Array.isArray(v.diagnoses) && v.diagnoses.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Diagnoses</div>
+                                <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>{v.diagnoses.map(d => d.label || d.name).join(', ')}</div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ---- Add Vitals Modal ---- */}
+      {showAddModal && (
+        <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowAddModal(false) }}>
+          <div className="card dash-modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+            <div className="dash-modal-title">Record New Vitals</div>
+            <div className="dash-modal-body">
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+                For <strong style={{ color: 'var(--teal)' }}>{patient?.full_name}</strong>
+              </div>
+              {formError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{formError}</div>}
+              <form id="vitals-form" onSubmit={handleSaveVitals}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div className="field"><label>Temperature (°C)</label><input type="number" step="0.1" value={newVitals.temperature} onChange={e => setNewVitals(v => ({ ...v, temperature: e.target.value }))} placeholder="36.8" /></div>
+                  <div className="field"><label>Blood Pressure</label><input value={newVitals.blood_pressure} onChange={e => setNewVitals(v => ({ ...v, blood_pressure: e.target.value }))} placeholder="120/80" /></div>
+                  <div className="field"><label>Pulse Rate (bpm)</label><input type="number" value={newVitals.pulse_rate} onChange={e => setNewVitals(v => ({ ...v, pulse_rate: e.target.value }))} placeholder="75" /></div>
+                  <div className="field"><label>Resp. Rate (bpm)</label><input type="number" value={newVitals.respiratory_rate} onChange={e => setNewVitals(v => ({ ...v, respiratory_rate: e.target.value }))} placeholder="18" /></div>
+                  <div className="field"><label>SpO₂ (%)</label><input type="number" value={newVitals.spo2} onChange={e => setNewVitals(v => ({ ...v, spo2: e.target.value }))} placeholder="98" /></div>
+                  <div className="field"><label>Weight (kg)</label><input type="number" step="0.1" value={newVitals.weight} onChange={e => setNewVitals(v => ({ ...v, weight: e.target.value }))} placeholder="68" /></div>
+                  <div className="field"><label>Height (cm)</label><input type="number" value={newVitals.height} onChange={e => setNewVitals(v => ({ ...v, height: e.target.value }))} placeholder="175" /></div>
+                  <div className="field">
+                    <label>Urgency</label>
+                    <select value={newVitals.urgency} onChange={e => setNewVitals(v => ({ ...v, urgency: e.target.value }))}>
+                      <option value="Routine">Routine</option>
+                      <option value="Urgent">Urgent</option>
+                      <option value="Emergency">Emergency</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="field" style={{ marginTop: 10 }}>
+                  <label>Nurse Observations / Notes</label>
+                  <input value={newVitals.nurse_notes} onChange={e => setNewVitals(v => ({ ...v, nurse_notes: e.target.value }))} placeholder="e.g. Patient complains of headache" />
+                </div>
+              </form>
+            </div>
+            <div className="dash-modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowAddModal(false)} disabled={saving}>Cancel</button>
+              <button type="submit" form="vitals-form" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save Vitals'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
