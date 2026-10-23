@@ -96,6 +96,9 @@ const BASELINE_MODULE_ACTIONS = [ACTIONS.VIEW, ACTIONS.CREATE, ACTIONS.EDIT]
 //  - front desk cancels appointments
 const ROLE_ACTION_OVERRIDES = {
   doctor: {
+    patients: [ACTIONS.VIEW],
+    hmo_patients: [ACTIONS.VIEW],
+    anc_patients: [ACTIONS.VIEW],
     doctor: [ACTIONS.DELETE],
   },
   lab: {
