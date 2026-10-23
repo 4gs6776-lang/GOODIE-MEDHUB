@@ -96,9 +96,6 @@ const BASELINE_MODULE_ACTIONS = [ACTIONS.VIEW, ACTIONS.CREATE, ACTIONS.EDIT]
 //  - front desk cancels appointments
 const ROLE_ACTION_OVERRIDES = {
   doctor: {
-    patients: [ACTIONS.VIEW],
-    hmo_patients: [ACTIONS.VIEW],
-    anc_patients: [ACTIONS.VIEW],
     doctor: [ACTIONS.DELETE],
   },
   lab: {
@@ -112,7 +109,13 @@ const ROLE_ACTION_OVERRIDES = {
     appointments: [ACTIONS.CANCEL],
   },
 }
-
+const ROLE_ACTION_RESTRICTIONS = {
+  doctor: {
+    patients: [ACTIONS.VIEW],
+    hmo_patients: [ACTIONS.VIEW],
+    anc_patients: [ACTIONS.VIEW],
+  },
+}
 const moduleActionCache = new Map()
 
 function actionsForModule(role, moduleKey) {
@@ -121,12 +124,26 @@ function actionsForModule(role, moduleKey) {
   if (cached) return cached
 
   let actions
+
   if (FULL_ACCESS_ROLES.includes(role)) {
     actions = ALL_ACTIONS
   } else if (ROLE_MODULES[role]?.includes(moduleKey)) {
     actions = new Set(BASELINE_MODULE_ACTIONS)
-    const overrides = ROLE_ACTION_OVERRIDES[role]?.[moduleKey]
-    if (overrides) overrides.forEach(a => actions.add(a))
+
+    const restrictions =
+      ROLE_ACTION_RESTRICTIONS[role]?.[moduleKey]
+
+    if (restrictions) {
+      actions = new Set(restrictions)
+    }
+
+    const overrides =
+      ROLE_ACTION_OVERRIDES[role]?.[moduleKey]
+
+    if (overrides) {
+      overrides.forEach(action => actions.add(action))
+    }
+
     actions = [...actions]
   } else {
     actions = []
