@@ -69,6 +69,7 @@ const CATEGORIES = [
   { value: 'personal', label: 'Personal Folder' },
   { value: 'family', label: 'Family Folder' },
   { value: 'emergency', label: 'Emergency Folder' },
+  { value: 'hmo', label: 'HMO Folder' },
   { value: 'anc', label: 'ANC Folder' },
 ]
 const NIGERIAN_STATES = [
