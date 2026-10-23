@@ -52,6 +52,7 @@ import Reception from './Reception'
 import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
+import AiDiagnostics from './AiDiagnostics'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
@@ -130,6 +131,7 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', section: 'Operations', icon: 'reports' },
   { key: 'facilities', label: 'Facilities', section: 'Operations', icon: 'building' },
   { key: 'audit-log', label: 'Audit Log', section: 'Operations', icon: 'shield' },
+  { key: 'ai-diagnostics', label: 'AI Diagnostics', section: 'Operations', icon: 'activity' },
   { key: 'notifications', label: 'Reminders', section: 'Operations', icon: 'bell' },
   { key: 'roster', label: 'Duty Roster', section: 'Operations', icon: 'calendar' },
   { key: 'messages', label: 'Messages', section: 'Operations', icon: 'chat' },
@@ -1496,6 +1498,7 @@ export default function Dashboard(){
           {tab === 'reports' && <Reports />}
           {tab === 'facilities' && <Facilities />}
           {tab === 'audit-log' && <AuditLog />}
+          {tab === 'ai-diagnostics' && <AiDiagnostics onClose={() => setTab('overview')} />}
           {tab === 'notifications' && <Notifications />}
           {tab === 'roster' && <DutyRoster />}
           {tab === 'messages' && <Messages />}
