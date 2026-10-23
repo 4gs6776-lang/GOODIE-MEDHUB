@@ -6,6 +6,7 @@ import AppIcon from '../../components/icons'
 import { formatTime, dayKeyInZone, getTimezone } from '../../lib/datetime'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
+import { useMedicationReminders } from '../../hooks/useMedicationReminders'
 
 const HOUR = 60 * 60 * 1000
 
@@ -13,6 +14,9 @@ export default function Notifications(){
   const { hospital } = useAuth()
   const timezone = getTimezone(hospital)
   const [searchTerm, setSearchTerm] = useState('')
+
+  // Medication reminders — polls every 30 seconds
+  const { dueIn2Min, dueNow } = useMedicationReminders(hospital?.id)
   const { records: appointments, loading: loadingAppts } = useOfflineTable('appointments', hospital?.id)
   const { records: inventory, loading: loadingInventory } = useOfflineTable('inventory_items', hospital?.id)
   const { records: labTests, loading: loadingLab } = useOfflineTable('lab_tests', hospital?.id)
@@ -103,6 +107,64 @@ export default function Notifications(){
 
   return (
     <>
+      {/* ---- Medication Reminders (due now + due in 2 min) ---- */}
+      {(dueNow.length > 0 || dueIn2Min.length > 0) && (
+        <div className="dash-panel" style={{ marginBottom: 20, borderColor: 'var(--danger)' }}>
+          <div className="dash-panel-head">
+            <div>
+              <div className="dash-panel-title" style={{ color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: '50%', background: 'var(--danger)',
+                  display: 'inline-block',
+                  animation: 'gmedhub-blink 1s ease-in-out infinite alternate',
+                  boxShadow: '0 0 6px var(--danger)',
+                }} />
+                Medication Reminders ({dueNow.length + dueIn2Min.length})
+              </div>
+              <div className="dash-panel-sub">Doses due now or within the next 2 minutes</div>
+            </div>
+          </div>
+          <div style={{ padding: '12px 16px' }}>
+            {dueNow.map((rx, i) => (
+              <div key={`due-${i}`} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 12px', marginBottom: 6, borderRadius: 8,
+                background: 'rgba(240,79,95,0.10)', border: '1px solid rgba(240,79,95,0.3)',
+              }}>
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 10, background: 'var(--danger)', color: '#fff', marginRight: 8 }}>DUE NOW</span>
+                  <strong style={{ fontSize: 13 }}>{rx.drug_name}</strong>
+                  {rx.dosage && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 6 }}>{rx.dosage}</span>}
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>{rx.patient_name}</div>
+              </div>
+            ))}
+            {dueIn2Min.map((rx, i) => (
+              <div key={`soon-${i}`} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 12px', marginBottom: 6, borderRadius: 8,
+                background: 'rgba(232,184,46,0.08)', border: '1px solid rgba(232,184,46,0.25)',
+              }}>
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 10, background: 'var(--gold)', color: '#000', marginRight: 8 }}>IN 2 MIN</span>
+                  <strong style={{ fontSize: 13 }}>{rx.drug_name}</strong>
+                  {rx.dosage && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 6 }}>{rx.dosage}</span>}
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>{rx.patient_name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Blink animation keyframes */}
+      <style>{`
+        @keyframes gmedhub-blink {
+          from { opacity: 1; }
+          to { opacity: 0.2; }
+        }
+      `}</style>
+
       <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}>

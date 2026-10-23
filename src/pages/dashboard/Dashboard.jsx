@@ -53,6 +53,7 @@ import PatientProfile from '../../components/PatientProfile'
 import Messages from './Messages'
 import ShiftHandover from './ShiftHandover'
 import AiDiagnostics from './AiDiagnostics'
+import { useMedicationReminders } from '../../hooks/useMedicationReminders'
 import { usePagination } from '../../lib/usePagination'
 import { useSubscriptionAlerts, getSubscriptionBanner } from '../../lib/useSubscriptionAlerts'
 import { getEntitlements, subscribeEntitlements, isModuleAllowedByPlan } from '../../lib/planEntitlements'
@@ -230,6 +231,29 @@ export default function Dashboard(){
   const headerMenuRef = useRef(null)
 
   const { records: patients, loading, isOnline, pendingCount, addRecord, deleteRecord } = useOfflineTable('patients', hospital?.id)
+
+  // ---- Medication reminders (blinking red light on Reminders nav item) ----
+  const { dueIn2Min, dueNow } = useMedicationReminders(hospital?.id)
+  const [reminderToast, setReminderToast] = useState(null)
+
+  // Fire a toast when a medication is due in 2 minutes or right now
+  useEffect(() => {
+    if (dueIn2Min.length > 0) {
+      const first = dueIn2Min[0]
+      const msg = `In 2 minutes: give ${first.drug_name} (${first.dosage || ''}) to ${first.patient_name}`
+      setReminderToast(msg)
+      setTimeout(() => setReminderToast(null), 10000)
+    }
+  }, [dueIn2Min.length])
+
+  useEffect(() => {
+    if (dueNow.length > 0) {
+      const first = dueNow[0]
+      const msg = `DUE NOW: give ${first.drug_name} (${first.dosage || ''}) to ${first.patient_name}`
+      setReminderToast(msg)
+      setTimeout(() => setReminderToast(null), 10000)
+    }
+  }, [dueNow.length])
   
   // NEW: Fetch patient vitals to determine who was attended today
   const { records: vitals } = useOfflineTable('patient_vitals', hospital?.id)
@@ -928,6 +952,15 @@ export default function Dashboard(){
                 >
                   <AppIcon name={item.icon} size={17}/>
                   <span>{item.label}</span>
+                  {item.key === 'notifications' && (dueIn2Min.length > 0 || dueNow.length > 0) && (
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: 'var(--danger)',
+                      display: 'inline-block', marginLeft: 'auto',
+                      animation: 'gmedhub-blink 1s ease-in-out infinite alternate',
+                      boxShadow: '0 0 6px var(--danger)',
+                    }} />
+                  )}
                 </button>
               </div>
             )
@@ -1243,21 +1276,7 @@ export default function Dashboard(){
                     </div>
                     <select className="dash-filter"><option>This Month</option><option>Last Month</option><option>This Year</option></select>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-                  {(() => {
-                    const now = new Date()
-                    const year = now.getFullYear(), month = now.getMonth()
-                    const thisMonth = patients.filter(p => {
-                      const d = new Date(p.created_at)
-                      return d.getFullYear() === year && d.getMonth() === month
-                    }).length
-                    return `${thisMonth} patient${thisMonth === 1 ? '' : 's'} registered this month · ${appointments.filter(a => {
-                      const d = new Date(a.appointment_time)
-                      return d.getFullYear() === year && d.getMonth() === month
-                    }).length} appointment${appointments.length === 1 ? '' : 's'}`
-                  })()}
-                </div>
-                <div className="dash-large-chart" aria-label="Patient registration and appointment trend for the current month">
+                  <div className="dash-large-chart" aria-label="Patient registration and appointment trend for the current month">
                     <div className="dash-chart-summary">
                       <span><b>{patients.filter(p => { const d = new Date(p.created_at); const n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() }).length}</b> new this month</span>
                       <span><b>{appointments.filter(a => { const d = new Date(a.appointment_time); const n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() }).length}</b> visits this month</span>
