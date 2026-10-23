@@ -61,6 +61,10 @@ export default function Laboratory(){
   const { records: patients } = useOfflineTable('patients', hospital?.id)
   const { records: billableCharges, addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
 
+  // Nurses can view lab results but cannot create/cancel/advance/archive.
+  // Only lab technicians, admins, and owners can make changes.
+  const isNurseReadOnly = profile?.role === 'nurse'
+
   const loading = loadingTests || loadingOrders
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState(null)
@@ -534,9 +538,14 @@ export default function Laboratory(){
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%', maxWidth: 600 }}>
             <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, test..." style={{ flex: 1, minWidth: 150 }} />
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
-              <AppIcon name="plus" size={14} /> New Request
-            </button>
+            {!isNurseReadOnly && (
+              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
+                <AppIcon name="plus" size={14} /> New Request
+              </button>
+            )}
+            {isNurseReadOnly && (
+              <span style={{ fontSize: 11, color: 'var(--gold)', alignSelf: 'center' }}>Read-only view — nurses can view results but not make changes</span>
+            )}
           </div>
         </div>
 
@@ -602,7 +611,7 @@ export default function Laboratory(){
                       </td>
                       <td style={{ padding: 12 }}>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          {action && (
+                          {action && !isNurseReadOnly && (
                             <button
                               type="button"
                               className="appt-status-btn"
@@ -613,7 +622,7 @@ export default function Laboratory(){
                               {action.label}
                             </button>
                           )}
-                          {test.isPending && (
+                          {test.isPending && !isNurseReadOnly && (
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -624,7 +633,7 @@ export default function Laboratory(){
                               Cancel
                             </button>
                           )}
-                          {stage === 'completed' && !test.isGroup && (
+                          {stage === 'completed' && !test.isGroup && !isNurseReadOnly && (
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -636,12 +645,14 @@ export default function Laboratory(){
                               Reopen
                             </button>
                           )}
-                          <button
-                            onClick={() => (test.isGroup ? handleArchiveGroup(test) : handleArchive(test))}
-                            className="icon-btn-delete"
-                            title="Archive"
-                            aria-label={test.isGroup ? `Archive all requested tests for ${test.patient_name}` : `Archive ${test.test_name} request for ${test.patient_name}`}
-                          ><TrashIcon size={14}/></button>
+                          {!isNurseReadOnly && (
+                            <button
+                              onClick={() => (test.isGroup ? handleArchiveGroup(test) : handleArchive(test))}
+                              className="icon-btn-delete"
+                              title="Archive"
+                              aria-label={test.isGroup ? `Archive all requested tests for ${test.patient_name}` : `Archive ${test.test_name} request for ${test.patient_name}`}
+                            ><TrashIcon size={14}/></button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -847,9 +858,11 @@ export default function Laboratory(){
               <button className="btn btn-ghost" style={{ width: 'auto', border: '1px solid var(--line)', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handlePrintForm}>
                 <AppIcon name="print" size={14} /> Print Form
               </button>
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleSaveAllResults} disabled={saving}>
-                {saving ? 'Saving...' : 'Save All Results & Send to Billing'}
-              </button>
+              {!isNurseReadOnly && (
+                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleSaveAllResults} disabled={saving}>
+                  {saving ? 'Saving...' : 'Save All Results & Send to Billing'}
+                </button>
+              )}
             </div>
           </div>
         </div>
