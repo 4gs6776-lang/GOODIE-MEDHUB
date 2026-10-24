@@ -344,7 +344,7 @@ export default function Laboratory(){
           </div>
           <div class="box">
             <h3>Report Details</h3>
-            <div><strong>Date:</strong> ${formatDateTimeSec(new Date(), timezone)}</div>
+            <div><strong>Date:</strong> ${escapeHtml(formatDateTimeSec(new Date(), timezone))}</div>
             <div><strong>Lab Scientist:</strong> ${escapeHtml(profile?.full_name || 'N/A')}</div>
           </div>
         </div>
@@ -356,6 +356,10 @@ export default function Laboratory(){
         <div class="footer">This is a computer generated report from ${escapeHtml(hospital?.name || 'the laboratory')}.</div>
       </body></html>`
     const win = window.open('', '_blank')
+    if (!win) {
+      showToast('Your browser blocked the print window. Allow pop-ups for this site and try again.')
+      return
+    }
     win.document.write(html)
     win.document.close()
     win.focus()
