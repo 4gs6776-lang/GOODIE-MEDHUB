@@ -121,10 +121,10 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
     // items are listed individually.
     const rows = []
     if (groupedMedications) {
-      rows.push(`<tr><td>Medications</td><td>${groupedMedications.quantity || '—'}</td><td>—</td><td>₦${Number(groupedMedications.total||0).toFixed(2)}</td></tr>`)
+      rows.push(`<tr><td>Medications</td><td>${escapeHtml(groupedMedications.quantity || '—')}</td><td>—</td><td>₦${Number(groupedMedications.total||0).toFixed(2)}</td></tr>`)
     }
     otherItems.forEach(it => {
-      rows.push(`<tr><td>${it.item_name}</td><td>${it.quantity}</td><td>₦${Number(it.unit_price||0).toFixed(2)}</td><td>₦${Number(it.total||0).toFixed(2)}</td></tr>`)
+      rows.push(`<tr><td>${escapeHtml(it.item_name)}</td><td>${escapeHtml(it.quantity)}</td><td>₦${Number(it.unit_price||0).toFixed(2)}</td><td>₦${Number(it.total||0).toFixed(2)}</td></tr>`)
     })
     const itemsRows = rows.join('')
 
@@ -149,7 +149,7 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
     ` : ''
 
     const html = `
-      <html><head><title>Receipt ${invoice.invoice_number}</title>
+      <html><head><title>Receipt ${escapeHtml(invoice.invoice_number)}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 40px; color: #111; max-width: 800px; margin: auto; }
         .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
@@ -184,13 +184,13 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
           <div class="box">
             <h3>Patient Details</h3>
             <div><strong>Name:</strong> ${escapeHtml(invoice.patient_name)}</div>
-            <div><strong>ID:</strong> ${invoice.patient_id || '—'}</div>
+            <div><strong>ID:</strong> ${escapeHtml(invoice.patient_id || '—')}</div>
           </div>
           <div class="box">
             <h3>Payment Details</h3>
-            <div><strong>Receipt #:</strong> ${invoice.invoice_number || invoice.id.slice(0,8)}</div>
-            <div><strong>Date:</strong> ${formatDateTime(invoice.created_at, timezone)}</div>
-            <div><strong>Method:</strong> ${invoice.payment_method || 'N/A'}</div>
+            <div><strong>Receipt #:</strong> ${escapeHtml(invoice.invoice_number || invoice.id.slice(0,8))}</div>
+            <div><strong>Date:</strong> ${escapeHtml(formatDateTime(invoice.created_at, timezone))}</div>
+            <div><strong>Method:</strong> ${escapeHtml(invoice.payment_method || 'N/A')}</div>
           </div>
         </div>
         <table>
