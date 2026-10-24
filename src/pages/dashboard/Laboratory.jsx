@@ -10,6 +10,7 @@ import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import Autocomplete from '../../components/common/Autocomplete'
 import LabResultViewer from '../../components/LabResultViewer'
 import { writeAudit } from '../../lib/audit'
+import { escapeHtml } from '../../lib/escapeHtml'
 import { getTimezone, formatDateTimeSec, formatDate } from '../../lib/datetime'
 import {
   labStage, stageStatus, normalizeLabRow, LAB_STAGE_LABEL, ABNORMAL_FLAGS,
