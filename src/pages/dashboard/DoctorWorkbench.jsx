@@ -398,7 +398,7 @@ export default function DoctorWorkbench() {
   function handlePrint() {
     if (medications.length === 0) return
     const patientName = activePatient?.full_name || 'Patient'
-        const rows = medications.map((m, i) => `<li><strong>${i + 1}. ${escapeHtml(m.drugName)}</strong><br/>${escapeHtml(m.dose)} ${escapeHtml(m.route || '')} ${escapeHtml(m.frequency || '')}${m.duration ? ` for ${escapeHtml(m.duration)}` : ''}.${m.instructions ? `<br/><em>${escapeHtml(m.instructions)}</em>` : ''}</li>`).join('')
+    const rows = medications.map((m, i) => `<li><strong>${i + 1}. ${escapeHtml(m.drugName)}</strong><br/>${escapeHtml(m.dose)} ${escapeHtml(m.route || '')} ${escapeHtml(m.frequency || '')}${m.duration ? ` for ${escapeHtml(m.duration)}` : ''}.${m.instructions ? `<br/><em>${escapeHtml(m.instructions)}</em>` : ''}</li>`).join('')
     const html = `<html><head><title>Prescription</title><style>body{font-family:sans-serif;padding:32px;color:#111}h1{font-size:18px}.meta{color:#555;font-size:13px;margin-bottom:20px}ol{padding-left:20px}li{margin-bottom:14px}</style></head><body><h1>${escapeHtml(hospital?.name || 'Prescription')}</h1><div class="meta">Patient: ${escapeHtml(patientName)} · Date: ${formatDate(new Date(), getTimezone(hospital))} · Dr: ${escapeHtml(profile?.full_name || '')}</div><ol>${rows}</ol></body></html>`
     const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); win.print()
   }
@@ -435,7 +435,7 @@ export default function DoctorWorkbench() {
   }
 
   const historySummary = [chiefComplaints && `Chief complaint: ${chiefComplaints}`, historyPresenting && `HPC: ${historyPresenting}`, pastMedicalHistory && `PMH: ${pastMedicalHistory}`, pastSurgicalHistory && `PSH: ${pastSurgicalHistory}`, drugHistory && `Drug Hx: ${drugHistory}`, allergyHistory && `Allergies: ${allergyHistory}`, familySocialHistory && `Family/Social: ${familySocialHistory}`].filter(Boolean).join(' · ')
-    return (
+  return (
     <>
       <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
         <div className="dash-stat-card"><div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}><AppIcon name="users" size={20} /></div><div><div className="dash-stat-label">Waiting for Doctor</div><div className="dash-stat-value">{queue.length}</div><div className="dash-stat-delta" style={{ color: 'var(--gold)' }}>triaged</div></div></div>
