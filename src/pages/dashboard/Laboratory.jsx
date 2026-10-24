@@ -313,11 +313,11 @@ export default function Laboratory(){
     let testRows = ''
     formTests.forEach((t, i) => {
       const res = formResults[t.id]?.result || ''
-      testRows += `<tr><td style="padding:8px;border:1px solid #ccc;">${i+1}</td><td style="padding:8px;border:1px solid #ccc;font-weight:bold;">${t.test_name}</td><td style="padding:8px;border:1px solid #ccc;">${res || 'Pending'}</td></tr>`
+      testRows += `<tr><td style="padding:8px;border:1px solid #ccc;">${i+1}</td><td style="padding:8px;border:1px solid #ccc;font-weight:bold;">${escapeHtml(t.test_name)}</td><td style="padding:8px;border:1px solid #ccc;">${escapeHtml(res || 'Pending')}</td></tr>`
     })
 
     const html = `
-      <html><head><title>Lab Result - ${formPatient?.full_name}</title>
+      <html><head><title>Lab Result - ${escapeHtml(formPatient?.full_name)}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 40px; color: #111; max-width: 800px; margin: auto; }
         .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
@@ -333,27 +333,27 @@ export default function Laboratory(){
         .sign { margin-top: 60px; border-top: 1px solid #000; width: 200px; text-align: center; font-size: 12px; padding-top: 5px; }
       </style></head><body>
         <div class="header">
-          <div class="h-name">${hospital?.name || 'Hospital'}</div>
+          <div class="h-name">${escapeHtml(hospital?.name || 'Hospital')}</div>
           <div class="h-meta">Laboratory Test Report</div>
         </div>
         <div class="grid">
           <div class="box">
             <h3>Patient Details</h3>
-            <div><strong>Name:</strong> ${formPatient?.full_name || 'N/A'}</div>
-            <div><strong>Phone:</strong> ${formPatient?.phone || 'N/A'}</div>
+            <div><strong>Name:</strong> ${escapeHtml(formPatient?.full_name || 'N/A')}</div>
+            <div><strong>Phone:</strong> ${escapeHtml(formPatient?.phone || 'N/A')}</div>
           </div>
           <div class="box">
             <h3>Report Details</h3>
             <div><strong>Date:</strong> ${formatDateTimeSec(new Date(), timezone)}</div>
-            <div><strong>Lab Scientist:</strong> ${profile?.full_name || 'N/A'}</div>
+            <div><strong>Lab Scientist:</strong> ${escapeHtml(profile?.full_name || 'N/A')}</div>
           </div>
         </div>
         <table>
           <thead><tr><th style="width:50px;">#</th><th>Test Parameter</th><th>Result</th></tr></thead>
           <tbody>${testRows}</tbody>
         </table>
-        <div class="sign">Authorized Signature: ${profile?.full_name || ''}</div>
-        <div class="footer">This is a computer generated report from ${hospital?.name || 'the laboratory'}.</div>
+        <div class="sign">Authorized Signature: ${escapeHtml(profile?.full_name || '')}</div>
+        <div class="footer">This is a computer generated report from ${escapeHtml(hospital?.name || 'the laboratory')}.</div>
       </body></html>`
     const win = window.open('', '_blank')
     win.document.write(html)
