@@ -1017,3 +1017,48 @@ export async function skipStuckSyncItem(id) {
     return false
   }
 }
+// ============================================================
+// CLEAR LOCAL DATA ON LOGOUT
+//
+// Called when someone signs out so the next person on a shared
+// computer cannot read the previous user's patient records.
+// Records still waiting to sync are KEPT (deleting them would lose
+// clinical work) — they are uploaded the next time someone logs in.
+// ============================================================
+
+export async function clearLocalDataOnLogout() {
+  // 1. Try to upload anything still waiting, while we still have a session.
+  try {
+    if (navigator.onLine) await flushTableQueue()
+  } catch (err) {
+    console.error('Flush before logout failed:', err)
+  }
+
+  // 2. Delete every record that is safely on the server.
+  let keptUnsynced = 0
+  try {
+    const db = await openDB()
+    const all = await getAllLocalRecords(db)
+    for (const record of all) {
+      if (record._synced === false && record._discarded !== true) {
+        keptUnsynced += 1
+        continue
+      }
+      await deleteLocalRecord(db, record.id)
+    }
+  } catch (err) {
+    console.error('Could not clear local records on logout:', err)
+  }
+
+  // 3. Remove cached API responses saved by the service worker.
+  try {
+    if (typeof caches !== 'undefined') {
+      const names = await caches.keys()
+      await Promise.all(names.filter((n) => n.includes('supabase')).map((n) => caches.delete(n)))
+    }
+  } catch (err) {
+    console.error('Could not clear caches on logout:', err)
+  }
+
+  return { keptUnsynced }
+}
