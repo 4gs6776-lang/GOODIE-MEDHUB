@@ -87,11 +87,6 @@ useEffect(() => {
 
 
   async function signOut(){
-    clearUserRole()
-    await supabase.auth.signOut()
-  }
-
-   async function signOut(){
     // Upload leftovers and wipe synced patient data from this device first,
     // while the session is still valid. Capped at 6 seconds so a slow
     // network can never trap someone on the logout button.
@@ -105,6 +100,12 @@ useEffect(() => {
     }
     clearUserRole()
     await supabase.auth.signOut()
+  }
+
+  async function reload(){
+    if (session?.user) {
+      await loadProfileAndHospital(session.user.id)
+    }
   }
 
   const isOwner = profile?.role === 'owner'
