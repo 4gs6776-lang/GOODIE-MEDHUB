@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { setUserRole, clearUserRole } from '../lib/subscriptionLock'
+import { clearLocalDataOnLogout } from '../lib/useOfflineTable'
 
 // Exported so the QA harness (qa.html) can mount a mocked provider —
 // production code always uses AuthProvider/useAuth; this changes nothing.
@@ -90,10 +91,20 @@ useEffect(() => {
     await supabase.auth.signOut()
   }
 
-  async function reload(){
-    if (session?.user) {
-      await loadProfileAndHospital(session.user.id)
+   async function signOut(){
+    // Upload leftovers and wipe synced patient data from this device first,
+    // while the session is still valid. Capped at 6 seconds so a slow
+    // network can never trap someone on the logout button.
+    try {
+      await Promise.race([
+        clearLocalDataOnLogout(),
+        new Promise(resolve => setTimeout(resolve, 6000)),
+      ])
+    } catch (err) {
+      console.error('Logout cleanup failed:', err)
     }
+    clearUserRole()
+    await supabase.auth.signOut()
   }
 
   const isOwner = profile?.role === 'owner'
