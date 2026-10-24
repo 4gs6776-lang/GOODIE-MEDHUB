@@ -398,8 +398,8 @@ export default function DoctorWorkbench() {
   function handlePrint() {
     if (medications.length === 0) return
     const patientName = activePatient?.full_name || 'Patient'
-    const rows = medications.map((m, i) => `<li><strong>${i + 1}. ${m.drugName}</strong><br/>${m.dose} ${m.route || ''} ${m.frequency || ''}${m.duration ? ` for ${m.duration}` : ''}.${m.instructions ? `<br/><em>${m.instructions}</em>` : ''}</li>`).join('')
-    const html = `<html><head><title>Prescription</title><style>body{font-family:sans-serif;padding:32px;color:#111}h1{font-size:18px}.meta{color:#555;font-size:13px;margin-bottom:20px}ol{padding-left:20px}li{margin-bottom:14px}</style></head><body><h1>${hospital?.name || 'Prescription'}</h1><div class="meta">Patient: ${patientName} · Date: ${formatDate(new Date(), getTimezone(hospital))} · Dr: ${profile?.full_name || ''}</div><ol>${rows}</ol></body></html>`
+        const rows = medications.map((m, i) => `<li><strong>${i + 1}. ${escapeHtml(m.drugName)}</strong><br/>${escapeHtml(m.dose)} ${escapeHtml(m.route || '')} ${escapeHtml(m.frequency || '')}${m.duration ? ` for ${escapeHtml(m.duration)}` : ''}.${m.instructions ? `<br/><em>${escapeHtml(m.instructions)}</em>` : ''}</li>`).join('')
+    const html = `<html><head><title>Prescription</title><style>body{font-family:sans-serif;padding:32px;color:#111}h1{font-size:18px}.meta{color:#555;font-size:13px;margin-bottom:20px}ol{padding-left:20px}li{margin-bottom:14px}</style></head><body><h1>${escapeHtml(hospital?.name || 'Prescription')}</h1><div class="meta">Patient: ${escapeHtml(patientName)} · Date: ${formatDate(new Date(), getTimezone(hospital))} · Dr: ${escapeHtml(profile?.full_name || '')}</div><ol>${rows}</ol></body></html>`
     const win = window.open('', '_blank'); if (!win) return; win.document.write(html); win.document.close(); win.focus(); win.print()
   }
 
