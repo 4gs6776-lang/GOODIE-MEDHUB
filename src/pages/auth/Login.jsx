@@ -99,8 +99,7 @@ export default function Login(){
             ? <img src={hospitalLogo} alt={hospitalName || 'Hospital'} />
             : <LockIcon />}
         </div>
-
-        <h1 className="neo-title">Welcome</h1>
+        <h1 className="neo-title">Welcome to G-Medhub</h1>
         <p className="neo-sub">{hospitalName ? `Log in to ${hospitalName}` : 'Log in to your hospital workspace'}</p>
 
         {error && <div className="neo-error" role="alert">{error}</div>}
