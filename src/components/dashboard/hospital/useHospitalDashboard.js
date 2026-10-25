@@ -169,6 +169,21 @@ export function useHospitalDashboard(hospital, profile) {
     m.dischargedToday = adms.records.filter((a) => a.status === 'discharged' && isToday(a.discharge_date)).length
     m.pendingAdmissionRequests = admReqs.records.filter((r) => r.status === 'pending').length
     m.admissionSeries = dailySeries(adms.records, (a) => a.admitted_at, SERIES_DAYS, tz, now)
+    // Patient census = how many admitted patients were still in hospital at the end of each day.
+    // A stay counts if it started on/before that day and has not ended by then: it is still 'active',
+    // or its discharge_date falls on a later day. Stays that ended without a recorded date are skipped
+    // rather than guessed.
+    const stays = adms.records
+      .filter((a) => a.admitted_at)
+      .map((a) => ({
+        from: dayKeyInZone(a.admitted_at, tz),
+        to: a.status === 'active' ? null : (a.discharge_date ? dayKeyInZone(a.discharge_date, tz) : undefined),
+      }))
+      .filter((st) => st.to !== undefined)
+    m.censusSeries = m.admissionSeries.map((pt) => ({
+      key: pt.key,
+      value: stays.filter((st) => st.from <= pt.key && (st.to === null || st.to > pt.key)).length,
+    }))
 
     // ---- Laboratory (lab_tests + lab_orders, stages from lib/lab.js — same as Laboratory.jsx)
     const labs = [...labTests.records, ...labOrders.records].filter((t) => labStage(t.status) !== 'cancelled')
