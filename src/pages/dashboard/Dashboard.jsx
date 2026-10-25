@@ -1095,12 +1095,19 @@ export default function Dashboard(){
             <LiveClock hospital={hospital} />
 
             {/* 1. Theme Toggle */}
-            <button 
-              className="dash-icon-btn" 
+            <button
+              type="button"
+              className="hd-theme"
+              data-mode={theme}
+              role="switch"
+              aria-checked={theme === 'dark'}
+              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               onClick={toggleTheme}
             >
-              <AppIcon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
+              <span className="hd-theme-thumb" aria-hidden="true" />
+              <span className="hd-theme-ico" aria-hidden="true"><AppIcon name="sun" size={14}/></span>
+              <span className="hd-theme-ico" aria-hidden="true"><AppIcon name="moon" size={14}/></span>
             </button>
 
             {/* 2. Notifications Bell Popover */}
