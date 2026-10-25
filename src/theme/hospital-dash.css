@@ -248,3 +248,12 @@ html.light-mode .hd-root .hd-panel{background:linear-gradient(180deg, color-mix(
   .hd-kpi-value{background:linear-gradient(180deg,var(--hd-text) 30%, color-mix(in srgb,var(--tone,var(--hd-cyan)) 55%,var(--hd-text)) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; -webkit-text-fill-color:transparent; width:fit-content}
 }
 @media (prefers-reduced-motion:reduce){ .hd-halo{animation:none} }
+
+/* chart dots: light centre with a coloured ring (matches the reference) */
+.hd-root{--hd-dotcore:#EAF1FF}
+html.light-mode .hd-root{--hd-dotcore:#FFFFFF}
+
+/* two charts side by side (patient growth + census) */
+.hd-duo{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px}
+.hd-duo > :only-child{grid-column:1/-1}
+@media (max-width:1100px){ .hd-duo{grid-template-columns:minmax(0,1fr)} }
