@@ -195,3 +195,56 @@ html.light-mode .hd-bars i{box-shadow:none}
   .hd-card,.hd-theme-thumb,.hd-meter u{transition:none}
   .hd-card:hover{transform:none}
 }
+
+/* ---- 99. Emergency Line card (sidebar) -------------------------------
+   This card sits in the sidebar, outside the dashboard wrapper, so it
+   cannot use the --hd-* tokens. It uses the app's shared surface tokens
+   (--bg-card / --line, which follow dark and light mode) plus the same
+   cyan and green accents as the new dashboard. To undo, delete this block. */
+html .dash-emergency{
+  background:var(--bg-card); border:1px solid var(--line); border-radius:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+html .dash-emergency-head{color:var(--muted)}
+html .dash-emergency-head svg{color:#20D9E8}
+html .dash-emergency strong{color:#FFFFFF; font-weight:600}
+html .dash-emergency-name{color:var(--muted)}
+html .dash-emergency small{display:inline-flex; align-items:center; gap:6px; color:#34D399; font-weight:600}
+html .dash-emergency small::before{content:""; width:6px; height:6px; border-radius:50%; background:#34D399; box-shadow:0 0 0 3px rgba(52,211,153,.18)}
+html.light-mode .dash-emergency strong{color:var(--ivory)}
+html.light-mode .dash-emergency-head svg{color:#0E8FA8}
+html.light-mode .dash-emergency small{color:#0F9F6E}
+html.light-mode .dash-emergency small::before{background:#0F9F6E; box-shadow:0 0 0 3px rgba(15,159,110,.16)}
+
+/* ---- 98. Chart glow, gradients and text colour ------------------------
+   Only visual polish. Colours come from the same --hd-* tokens as the rest
+   of the dashboard, so dark and light mode keep working. */
+.hd-chart.short{height:220px}
+.hd-glowline .recharts-line-curve{transition:filter .2s ease}
+.hd-glow-cyan .recharts-line-curve{filter:drop-shadow(0 0 6px color-mix(in srgb,var(--hd-cyan) 70%,transparent))}
+.hd-glow-blue .recharts-line-curve{filter:drop-shadow(0 0 6px color-mix(in srgb,var(--hd-blue) 70%,transparent))}
+.hd-glow-purple .recharts-line-curve{filter:drop-shadow(0 0 6px color-mix(in srgb,var(--hd-purple) 70%,transparent))}
+.hd-glow-pink .recharts-line-curve{filter:drop-shadow(0 0 6px color-mix(in srgb,var(--hd-pink) 70%,transparent))}
+.hd-glow-amber .recharts-line-curve{filter:drop-shadow(0 0 6px color-mix(in srgb,var(--hd-amber) 70%,transparent))}
+html.light-mode .hd-glowline .recharts-line-curve{filter:none}
+.hd-halo{transform-box:fill-box; transform-origin:center; animation:hdHalo 2.2s ease-out 3}
+@keyframes hdHalo{0%{transform:scale(.7); opacity:.4} 100%{transform:scale(1.7); opacity:0}}
+
+/* better text: brighter values, labels with stronger contrast */
+.hd-root{--hd-text:#F7F8FC; --hd-mute:#A9A9B8}
+
+/* gradient on cards: a soft tint from each card's own accent colour */
+.hd-root .hd-kpi{background:radial-gradient(130% 100% at 0% 0%, color-mix(in srgb,var(--tone,var(--hd-blue)) 16%,transparent) 0%, transparent 62%), var(--hd-card)}
+html.light-mode .hd-root .hd-kpi{background:radial-gradient(130% 100% at 0% 0%, color-mix(in srgb,var(--tone,var(--hd-blue)) 9%,transparent) 0%, transparent 62%), var(--hd-card)}
+.hd-root .hd-panel{position:relative; background:linear-gradient(180deg, color-mix(in srgb,var(--hd-cyan) 6%,var(--hd-card)) 0%, var(--hd-card) 42%)}
+html.light-mode .hd-root .hd-panel{background:linear-gradient(180deg, color-mix(in srgb,var(--hd-cyan) 5%,var(--hd-card)) 0%, var(--hd-card) 42%)}
+.hd-root .hd-panel::before{content:""; position:absolute; left:14px; right:14px; top:0; height:1px; pointer-events:none;
+  background:linear-gradient(90deg, transparent, color-mix(in srgb,var(--hd-cyan) 60%,transparent), color-mix(in srgb,var(--hd-purple) 55%,transparent), color-mix(in srgb,var(--hd-pink) 45%,transparent), transparent); opacity:.75}
+
+/* gradient headings and numbers (falls back to plain text if unsupported) */
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .hd-head h1{background:linear-gradient(95deg,var(--hd-text) 8%, var(--hd-cyan) 58%, var(--hd-blue) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; -webkit-text-fill-color:transparent; width:fit-content}
+  .hd-panel-head h3{background:linear-gradient(90deg,var(--hd-text) 35%, color-mix(in srgb,var(--hd-cyan) 70%,var(--hd-text)) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; -webkit-text-fill-color:transparent; width:fit-content}
+  .hd-kpi-value{background:linear-gradient(180deg,var(--hd-text) 30%, color-mix(in srgb,var(--tone,var(--hd-cyan)) 55%,var(--hd-text)) 100%); -webkit-background-clip:text; background-clip:text; color:transparent; -webkit-text-fill-color:transparent; width:fit-content}
+}
+@media (prefers-reduced-motion:reduce){ .hd-halo{animation:none} }
