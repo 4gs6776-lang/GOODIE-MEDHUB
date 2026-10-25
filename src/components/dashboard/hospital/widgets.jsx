@@ -238,12 +238,12 @@ function makeDot(color, total, showAll) {
       return (
         <g key={`d${index}`}>
           <circle className="hd-halo" cx={cx} cy={cy} r={10} fill={color} opacity={0.22} />
-          <circle cx={cx} cy={cy} r={4.6} fill={color} style={{ stroke: 'var(--hd-card)' }} strokeWidth={2} />
+          <circle cx={cx} cy={cy} r={4.6} strokeWidth={2.2} style={{ fill: 'var(--hd-dotcore)', stroke: color }} />
         </g>
       )
     }
     if (!showAll) return null
-    return <circle key={`d${index}`} cx={cx} cy={cy} r={3} fill={color} style={{ stroke: 'var(--hd-card)' }} strokeWidth={1.5} />
+    return <circle key={`d${index}`} cx={cx} cy={cy} r={3} strokeWidth={1.8} style={{ fill: 'var(--hd-dotcore)', stroke: color }} />
   }
 }
 
@@ -318,19 +318,19 @@ export function ActivityChart({ series, loading, theme }) {
 }
 
 // ---- patient growth (one smooth curve: running total of registered patients) ----
-export function GrowthChart({ points, loading, theme }) {
+export function GrowthChart({ points, loading, theme, name = 'Total patients', tone = 'cyan', emptyText, summary = 'Total registered patients' }) {
   const showAnim = useIntroAnimation()
   const colors = PALETTE[theme]
   const uid = cleanId(useId())
   const rows = useMemo(() => (points || []).map((p) => ({ label: fmtDay(p.key), total: p.value })), [points])
 
   if (loading) return <Skeleton h={220} style={{ borderRadius: 12 }} />
-  if (rows.length < 2 || rows[rows.length - 1].total === 0) {
-    return <EmptyNote>No registered patients yet. This curve starts as soon as the first patient is registered.</EmptyNote>
+  if (rows.length < 2 || rows.every((r) => r.total === 0)) {
+    return <EmptyNote>{emptyText || 'No registered patients yet. This curve starts as soon as the first patient is registered.'}</EmptyNote>
   }
-  const color = colors.cyan
+  const color = colors[tone]
   return (
-    <div className="hd-chart short" role="img" aria-label={`Total registered patients over the last ${rows.length} days, now ${rows[rows.length - 1].total}`}>
+    <div className="hd-chart short" role="img" aria-label={`${summary} over the last ${rows.length} days, now ${rows[rows.length - 1].total}`}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={rows} margin={{ top: 10, right: 12, bottom: 0, left: -18 }}>
           <defs><AreaGradient id={`${uid}-g`} color={color} top={0.4} /></defs>
@@ -339,9 +339,9 @@ export function GrowthChart({ points, loading, theme }) {
           <YAxis tick={{ fill: colors.axis, fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} width={44}
             domain={[(min) => Math.max(0, Math.floor(min) - 2), (max) => Math.ceil(max) + 2]} />
           <Tooltip content={<ChartTip />} cursor={{ stroke: colors.axis, strokeOpacity: 0.3 }} />
-          <Area type="monotone" dataKey="total" name="Total patients" stroke="none" fill={`url(#${uid}-g)`} tooltipType="none" activeDot={false}
+          <Area type="monotone" dataKey="total" name={name} stroke="none" fill={`url(#${uid}-g)`} tooltipType="none" activeDot={false}
             isAnimationActive={showAnim} animationDuration={1300} animationEasing="ease-out" />
-          <Line className="hd-glowline hd-glow-cyan" type="monotone" dataKey="total" name="Total patients" stroke={color} strokeWidth={2.6}
+          <Line className={`hd-glowline hd-glow-${tone}`} type="monotone" dataKey="total" name={name} stroke={color} strokeWidth={2.6}
             dot={makeDot(color, rows.length, rows.length <= 14)} activeDot={{ r: 5.5 }}
             isAnimationActive={showAnim} animationDuration={1300} animationEasing="ease-out" />
         </ComposedChart>
