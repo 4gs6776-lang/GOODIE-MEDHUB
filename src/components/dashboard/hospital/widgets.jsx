@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 
 // =====================================================================
@@ -206,23 +206,62 @@ const fmtDay = (key) => {
 
 function ChartTip({ active, payload, label }) {
   if (!active || !payload?.length) return null
-  const rows = payload.filter((p) => p.dataKey !== 'total')
+  const seen = new Set()
+  const rows = payload.filter((p) => p.name && !seen.has(p.dataKey) && seen.add(p.dataKey))
   return (
     <div className="hd-tip">
       <div className="hd-tip-title">{label}</div>
       {rows.map((p) => (
-        <div key={p.dataKey} className="hd-tip-row"><i style={{ background: p.color }} />{p.name}<b>{nf.format(p.value)}</b></div>
+        <div key={p.dataKey} className="hd-tip-row"><i style={{ background: p.color || p.stroke }} />{p.name}<b>{nf.format(p.value)}</b></div>
       ))}
     </div>
   )
 }
 
-export function ActivityChart({ series, loading, theme }) {
+const cleanId = (s) => s.replace(/[^a-zA-Z0-9]/g, '')
+
+// Soft fade from the line colour down to transparent (the area under the curve).
+function AreaGradient({ id, color, top }) {
+  return (
+    <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stopColor={color} stopOpacity={top} />
+      <stop offset="100%" stopColor={color} stopOpacity={0} />
+    </linearGradient>
+  )
+}
+
+// Small glowing dots (only on short ranges) and a halo on the latest point.
+function makeDot(color, total, showAll) {
+  return function dot({ cx, cy, index }) {
+    if (cx == null || cy == null) return null
+    if (index === total - 1) {
+      return (
+        <g key={`d${index}`}>
+          <circle className="hd-halo" cx={cx} cy={cy} r={10} fill={color} opacity={0.22} />
+          <circle cx={cx} cy={cy} r={4.6} fill={color} style={{ stroke: 'var(--hd-card)' }} strokeWidth={2} />
+        </g>
+      )
+    }
+    if (!showAll) return null
+    return <circle key={`d${index}`} cx={cx} cy={cy} r={3} fill={color} style={{ stroke: 'var(--hd-card)' }} strokeWidth={1.5} />
+  }
+}
+
+// Draws for the first ~1.5 s after the page opens, then stays still so that
+// switching date ranges does not replay the animation.
+function useIntroAnimation() {
   const reduced = useReducedMotion()
+  const [intro, setIntro] = useState(true)
+  useEffect(() => { const t = setTimeout(() => setIntro(false), 1500); return () => clearTimeout(t) }, [])
+  return intro && !reduced
+}
+
+// ---- main activity chart (several lines, one gradient-filled lead) ----
+export function ActivityChart({ series, loading, theme }) {
+  const showAnim = useIntroAnimation()
   const colors = PALETTE[theme]
+  const uid = cleanId(useId())
   const [off, setOff] = useState(() => new Set())
-  const [animate, setAnimate] = useState(true)
-  useEffect(() => { const t = setTimeout(() => setAnimate(false), 1500); return () => clearTimeout(t) }, [])
 
   // Only series that actually have data in this range get a line.
   const live = useMemo(() => series.filter((s) => s.points.some((p) => p.value > 0)), [series])
@@ -232,21 +271,16 @@ export function ActivityChart({ series, loading, theme }) {
     if (!live.length) return []
     return live[0].points.map((p, i) => {
       const row = { label: fmtDay(p.key) }
-      let total = 0
-      live.forEach((s) => {
-        row[s.key] = s.points[i].value
-        if (!off.has(s.key)) total += s.points[i].value
-      })
-      row.total = total
+      live.forEach((s) => { row[s.key] = s.points[i].value })
       return row
     })
-  }, [live, off])
+  }, [live])
 
   if (loading) return <Skeleton h={250} style={{ borderRadius: 12 }} />
   if (!live.length) return <EmptyNote>No recorded activity in this period yet. Lines appear here as soon as patients are registered, appointments booked or tests requested.</EmptyNote>
 
   const toggle = (key) => setOff((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
-  const showAnim = animate && !reduced
+  const showAllDots = rows.length <= 14
 
   return (
     <>
@@ -259,20 +293,59 @@ export function ActivityChart({ series, loading, theme }) {
       </div>
       <div className="hd-chart" role="img" aria-label={`Daily counts of ${active.map((s) => s.label).join(', ')}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+          <ComposedChart data={rows} margin={{ top: 10, right: 12, bottom: 0, left: -18 }}>
+            <defs>
+              {active.map((s, i) => <AreaGradient key={s.key} id={`${uid}-${s.key}`} color={colors[s.color]} top={i === 0 ? 0.36 : 0.12} />)}
+            </defs>
             <CartesianGrid stroke={colors.grid} strokeDasharray="2 6" vertical={false} />
             <XAxis dataKey="label" tick={{ fill: colors.axis, fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={28} />
             <YAxis tick={{ fill: colors.axis, fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} width={44} />
-            <YAxis yAxisId="vol" hide domain={[0, (max) => Math.max(1, max) * 4.5]} />
             <Tooltip content={<ChartTip />} cursor={{ stroke: colors.axis, strokeOpacity: 0.3 }} />
-            <Bar yAxisId="vol" dataKey="total" name="All shown" fill={colors.purple} fillOpacity={0.28} radius={[3, 3, 0, 0]} isAnimationActive={showAnim} animationDuration={900} />
             {active.map((s) => (
-              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={colors[s.color]} strokeWidth={2.2}
-                dot={false} activeDot={{ r: 4 }} isAnimationActive={showAnim} animationDuration={1200} animationEasing="ease-out" />
+              <Area key={`a-${s.key}`} type="monotone" dataKey={s.key} name={s.label} stroke="none" fill={`url(#${uid}-${s.key})`}
+                tooltipType="none" activeDot={false} isAnimationActive={showAnim} animationDuration={1300} animationEasing="ease-out" />
+            ))}
+            {active.map((s) => (
+              <Line key={s.key} className={`hd-glowline hd-glow-${s.color}`} type="monotone" dataKey={s.key} name={s.label} stroke={colors[s.color]} strokeWidth={2.4}
+                dot={makeDot(colors[s.color], rows.length, showAllDots)} activeDot={{ r: 5.5 }}
+                isAnimationActive={showAnim} animationDuration={1300} animationEasing="ease-out" />
             ))}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
     </>
+  )
+}
+
+// ---- patient growth (one smooth curve: running total of registered patients) ----
+export function GrowthChart({ points, loading, theme }) {
+  const showAnim = useIntroAnimation()
+  const colors = PALETTE[theme]
+  const uid = cleanId(useId())
+  const rows = useMemo(() => (points || []).map((p) => ({ label: fmtDay(p.key), total: p.value })), [points])
+
+  if (loading) return <Skeleton h={220} style={{ borderRadius: 12 }} />
+  if (rows.length < 2 || rows[rows.length - 1].total === 0) {
+    return <EmptyNote>No registered patients yet. This curve starts as soon as the first patient is registered.</EmptyNote>
+  }
+  const color = colors.cyan
+  return (
+    <div className="hd-chart short" role="img" aria-label={`Total registered patients over the last ${rows.length} days, now ${rows[rows.length - 1].total}`}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={rows} margin={{ top: 10, right: 12, bottom: 0, left: -18 }}>
+          <defs><AreaGradient id={`${uid}-g`} color={color} top={0.4} /></defs>
+          <CartesianGrid stroke={colors.grid} strokeDasharray="2 6" vertical={false} />
+          <XAxis dataKey="label" tick={{ fill: colors.axis, fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={28} />
+          <YAxis tick={{ fill: colors.axis, fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} width={44}
+            domain={[(min) => Math.max(0, Math.floor(min) - 2), (max) => Math.ceil(max) + 2]} />
+          <Tooltip content={<ChartTip />} cursor={{ stroke: colors.axis, strokeOpacity: 0.3 }} />
+          <Area type="monotone" dataKey="total" name="Total patients" stroke="none" fill={`url(#${uid}-g)`} tooltipType="none" activeDot={false}
+            isAnimationActive={showAnim} animationDuration={1300} animationEasing="ease-out" />
+          <Line className="hd-glowline hd-glow-cyan" type="monotone" dataKey="total" name="Total patients" stroke={color} strokeWidth={2.6}
+            dot={makeDot(color, rows.length, rows.length <= 14)} activeDot={{ r: 5.5 }}
+            isAnimationActive={showAnim} animationDuration={1300} animationEasing="ease-out" />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
