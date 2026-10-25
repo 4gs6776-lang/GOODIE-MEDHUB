@@ -232,13 +232,22 @@ export default function DashboardOverview({ hospital, profile }) {
         </div>
       )}
 
-      {/* ---------- patient growth ---------- */}
-      {access.patients && (
-        <div className="hd-mid">
-          <Panel title="Patient growth" index={11}
-            sub={ready ? `${nf.format(d.totalPatients)} registered in total · ${newInRange > 0 ? `+${nf.format(newInRange)}` : 'no new patients'} in the last ${range} days` : 'Total registered patients over time'}>
-            <GrowthChart points={last(d.growthSeries, range)} loading={!ready} theme={theme} />
-          </Panel>
+      {/* ---------- patient growth + census ---------- */}
+      {(access.patients || access.beds) && (
+        <div className="hd-duo">
+          {access.patients && (
+            <Panel title="Patient growth" index={11}
+              sub={ready ? `${nf.format(d.totalPatients)} registered in total · ${newInRange > 0 ? `+${nf.format(newInRange)}` : 'no new patients'} in the last ${range} days` : 'Total registered patients over time'}>
+              <GrowthChart points={last(d.growthSeries, range)} loading={!ready} theme={theme} />
+            </Panel>
+          )}
+          {access.beds && (
+            <Panel title="Patient census" index={12}
+              sub={ready ? `${nf.format(d.admittedCount)} admitted right now · patients in hospital at the end of each day` : 'Admitted patients per day'}>
+              <GrowthChart points={last(d.censusSeries, range)} loading={!ready} theme={theme} tone="blue" name="Patients admitted" summary="Admitted patients"
+                emptyText="No admissions recorded in this period. The census curve fills in as patients are admitted and discharged." />
+            </Panel>
+          )}
         </div>
       )}
 
