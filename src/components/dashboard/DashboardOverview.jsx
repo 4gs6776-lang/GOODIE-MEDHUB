@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import AppIcon from '../icons'
-import { formatWeekdayDate, formatTime, formatDateTime, getTimezone } from '../../lib/datetime'
+import { formatWeekdayDate, formatTime, formatDateTime, getTimezone, dayKeyInZone, todayKeyInZone } from '../../lib/datetime'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, Legend,
@@ -106,8 +106,16 @@ export default function DashboardOverview({ hospital, profile }) {
   const timezone = getTimezone(hospital)
   const [dateRange, setDateRange] = useState('7d')
   const [rangeKey, setRangeKey] = useState(0)
-  const now = new Date()
-  const rangeBounds = useMemo(() => getRangeBounds(dateRange, now), [dateRange])
+  const [now, setNow] = useState(() => new Date())
+
+  // Refresh the dashboard's notion of 'today' while it remains open. This keeps
+  // date-based metrics accurate across midnight without requiring a page reload.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const rangeBounds = useMemo(() => getRangeBounds(dateRange, now), [dateRange, now])
 
   const { records: patients, loading: loadingPatients } = useOfflineTable('patients', hospital?.id)
   const { records: beds, loading: loadingBeds } = useOfflineTable('beds', hospital?.id)
@@ -124,11 +132,13 @@ export default function DashboardOverview({ hospital, profile }) {
     laboratory: activePatients.filter(p => p.queue_status === 'in_lab').length,
     discharged: activePatients.filter(p => p.queue_status === 'discharged').length,
   }), [activePatients])
-  const todayBounds = useMemo(() => {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    return { start, end: new Date(start.getTime() + 86400000) }
-  }, [])
-  const todayAppointments = useMemo(() => appointments.filter(a => isWithin(a.appointment_time, todayBounds.start, todayBounds.end) && !['cancelled', 'canceled'].includes(String(a.status || '').toLowerCase())), [appointments, todayBounds])
+  // Appointment dates are evaluated in the hospital's configured timezone,
+  // not the device's timezone, so staff see the same 'today' as the hospital.
+  const todayKey = todayKeyInZone(timezone)
+  const todayAppointments = useMemo(() => appointments.filter(a =>
+    dayKeyInZone(a.appointment_time, timezone) === todayKey &&
+    !['cancelled', 'canceled'].includes(String(a.status || '').toLowerCase())
+  ), [appointments, timezone, todayKey])
 
   // Metrics use existing records only. Approved requests are not added to occupied beds,
   // because they may represent the same admission before/after bed allocation.
@@ -194,7 +204,7 @@ export default function DashboardOverview({ hospital, profile }) {
       })
     }
     return days
-  }, [activePatients, vitals])
+  }, [activePatients, vitals, now])
 
   const trendsData = useMemo(() => {
     const cats = ['personal', 'family', 'emergency', 'anc', 'hmo']
