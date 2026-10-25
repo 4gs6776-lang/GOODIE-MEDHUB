@@ -129,6 +129,12 @@ export function useHospitalDashboard(hospital, profile) {
     )
     m.ancCount = patients.filter((p) => p.category === 'anc').length // same rule as AncPatients.jsx
     m.registrationSeries = dailySeries(patients, (p) => p.created_at, SERIES_DAYS, tz, now)
+    // Patient growth = running total of registered patients. Patients registered
+    // before the 90-day window form the starting base, so the last point is
+    // always the real total shown elsewhere on the dashboard.
+    const registeredInWindow = m.registrationSeries.reduce((sum, pt) => sum + pt.value, 0)
+    let runningTotal = m.totalPatients - registeredInWindow
+    m.growthSeries = m.registrationSeries.map((pt) => { runningTotal += pt.value; return { key: pt.key, value: runningTotal } })
     const nameById = new Map(patients.map((p) => [p.id, p.full_name || [p.surname, p.other_names].filter(Boolean).join(' ')]))
 
     // ---- Triage / consultation records (patient_vitals rows are the encounter record)
