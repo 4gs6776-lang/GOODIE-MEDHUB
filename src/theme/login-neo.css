@@ -198,3 +198,41 @@
 @media (max-width:420px){
   .neo-card{ padding:60px 22px 24px; border-radius:28px; }
 }
+
+
+/* ElGoodie brand animation — scoped to the login title only. */
+.elgoodie-animated {
+  display: inline-block;
+  background: linear-gradient(90deg, #007f95, #2563eb, #7c3aed, #b7791f, #007f95);
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: elgoodieColorFlow 6s ease-in-out infinite;
+}
+
+.presents-animated {
+  display: inline-block;
+  color: #2563eb;
+  animation: presentsColorShift 6s ease-in-out infinite;
+}
+
+@keyframes elgoodieColorFlow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes presentsColorShift {
+  0%, 100% { color: #2563eb; }
+  25% { color: #007f95; }
+  50% { color: #7c3aed; }
+  75% { color: #b7791f; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .elgoodie-animated,
+  .presents-animated {
+    animation: none;
+  }
+}
