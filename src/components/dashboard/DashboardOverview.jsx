@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useHospitalDashboard, weekOverWeek } from './hospital/useHospitalDashboard'
 import {
-  KpiCard, GlowBars, Ring, Sparkline, Skeleton, EmptyNote, ActivityChart,
+  KpiCard, GlowBars, Ring, Sparkline, Skeleton, EmptyNote, ActivityChart, GrowthChart,
   useThemeMode, PALETTE, money, nf, AnimatedNumber,
 } from './hospital/widgets'
 import { formatWeekdayDate, formatTime, relativeShort, relativeTime } from '../../lib/datetime'
@@ -67,8 +67,8 @@ export default function DashboardOverview({ hospital, profile }) {
 
   // ---- chart series (only the areas this role may see) ----
   const chartSeries = [
-    access.patients && { key: 'registrations', label: 'Registrations', color: 'blue', points: last(d.registrationSeries, range) },
-    access.appointments && { key: 'appointments', label: 'Appointments', color: 'cyan', points: last(d.apptSeries, range) },
+    access.patients && { key: 'registrations', label: 'Registrations', color: 'cyan', points: last(d.registrationSeries, range) },
+    access.appointments && { key: 'appointments', label: 'Appointments', color: 'blue', points: last(d.apptSeries, range) },
     access.triage && { key: 'triage', label: 'Triage records', color: 'purple', points: last(d.triageSeries, range) },
     access.lab && { key: 'lab', label: 'Lab requests', color: 'pink', points: last(d.labSeries, range) },
     access.beds && { key: 'admissions', label: 'Admissions', color: 'amber', points: last(d.admissionSeries, range) },
@@ -84,6 +84,7 @@ export default function DashboardOverview({ hospital, profile }) {
     access.patients && { key: 'closed', label: 'Visit closed today', n: d.queueDischargedToday.length, tone: 'green', list: d.queueDischargedToday.map((p) => ({ id: p.id, name: p.full_name, meta: p.hospital_number, at: p.queue_updated_at })) },
   ].filter(Boolean)
   const openStage = flow.find((s) => s.key === stage)
+  const newInRange = last(d.registrationSeries, range).reduce((sum, pt) => sum + pt.value, 0)
 
   const showPulse = access.patients || access.triage || access.appointments || access.beds
   const hasAnything = showPulse || access.lab || access.pharmacy || access.finance
@@ -228,6 +229,16 @@ export default function DashboardOverview({ hospital, profile }) {
               )}
             </Panel>
           )}
+        </div>
+      )}
+
+      {/* ---------- patient growth ---------- */}
+      {access.patients && (
+        <div className="hd-mid">
+          <Panel title="Patient growth" index={11}
+            sub={ready ? `${nf.format(d.totalPatients)} registered in total · ${newInRange > 0 ? `+${nf.format(newInRange)}` : 'no new patients'} in the last ${range} days` : 'Total registered patients over time'}>
+            <GrowthChart points={last(d.growthSeries, range)} loading={!ready} theme={theme} />
+          </Panel>
         </div>
       )}
 
