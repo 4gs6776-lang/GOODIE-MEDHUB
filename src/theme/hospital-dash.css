@@ -257,3 +257,29 @@ html.light-mode .hd-root{--hd-dotcore:#FFFFFF}
 .hd-duo{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px}
 .hd-duo > :only-child{grid-column:1/-1}
 @media (max-width:1100px){ .hd-duo{grid-template-columns:minmax(0,1fr)} }
+
+/* ---- 97. App-wide colours for every module (dark mode) -----------------
+   The module pages, sidebar, panels and banners read their colours from two
+   token sets: --bg-* / --teal-* (globals) and --dash-* (premium.css). The
+   first stage only changed --bg-*. This block moves the rest to the same
+   near-black surfaces and cyan accent as the new overview. Light mode is
+   not touched. To undo, delete this block. */
+html:not(.light-mode){
+  --teal:#20D9E8; --teal-bright:#5EE7F2;
+  --teal-soft:rgba(32,217,232,.11); --teal-active:rgba(32,217,232,.15); --teal-border:rgba(32,217,232,.26);
+}
+html:not(.light-mode) .dash-shell{
+  --dash-ink:#F7F8FC; --dash-muted:#A9A9B8; --dash-dim:#6B6B78;
+  --dash-bg:#050505; --dash-bg-2:#080808; --dash-panel:#0B0B0F; --dash-panel-2:#0E0E13;
+  --dash-surface:#101015; --dash-surface-2:#14141B;
+  --dash-border:#1B1B24; --dash-border-strong:#2A2A36;
+  --dash-teal:#20D9E8;
+}
+/* small hard-coded teal tints → same cyan, so nothing looks half-converted */
+html:not(.light-mode) .dash-nav-item.active{box-shadow:inset 2px 0 0 #20D9E8, inset 0 0 0 1px rgba(32,217,232,.1)}
+html:not(.light-mode) .dash-search:focus-within{border-color:rgba(32,217,232,.4); box-shadow:0 0 0 3px rgba(32,217,232,.08)}
+html:not(.light-mode) .dash-bars i{background:rgba(32,217,232,.55)}
+html:not(.light-mode) .teal-stat .dash-stat-icon{background:rgba(32,217,232,.1)}
+html:not(.light-mode) .btn-primary{box-shadow:0 7px 18px -12px rgba(32,217,232,.9)}
+html:not(.light-mode) .btn-primary:hover:not(:disabled){box-shadow:0 9px 22px -12px rgba(32,217,232,.95)}
+html:not(.light-mode) tbody tr:hover{background:rgba(32,217,232,.035)}
