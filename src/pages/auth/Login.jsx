@@ -99,7 +99,10 @@ export default function Login(){
             ? <img src={hospitalLogo} alt={hospitalName || 'Hospital'} />
             : <LockIcon />}
         </div>
-        <h1 className="neo-title">ElGoodie Presents</h1>
+       <h1 className="neo-title">
+  <span className="elgoodie-animated">ElGoodie</span>
+  <span className="presents-animated"> Presents</span>
+</h1>
         <p className="neo-sub">{hospitalName ? `Log in to ${hospitalName}` : 'The Overarching Brand Identity'}</p>
 
         {error && <div className="neo-error" role="alert">{error}</div>}
