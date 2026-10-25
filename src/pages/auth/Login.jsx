@@ -100,7 +100,7 @@ export default function Login(){
             : <LockIcon />}
         </div>
         <h1 className="neo-title">ElGoodie Presents</h1>
-        <p className="neo-sub">{hospitalName ? `Log in to ${hospitalName}` : 'Access your hospital workspace'}</p>
+        <p className="neo-sub">{hospitalName ? `Log in to ${hospitalName}` : 'The Overarching Brand Identity'}</p>
 
         {error && <div className="neo-error" role="alert">{error}</div>}
         {note === 'forgot' && (
