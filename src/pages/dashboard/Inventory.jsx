@@ -41,7 +41,7 @@ export default function Inventory() {
     showToast(`New item added: ${newRow.name || 'inventory item'}`)
     syncFromServer()
   })
-  const resetForm = () => { setEditingId(null); setName(''); setCategory(CATEGORIES[0]); setQuantity(''); setUnit('units'); setSupplier(''); setReorderLevel('10'); setCostPrice(''); setSellingPrice(''); setBatchNumber(''); setExpiryDate(''); setGenericName(''); setStrength(''); setDosageForm(''); setFormError('') }
+  const resetForm = () => { setEditingId(null); setName(''); setCategory(CATEGORIES[0]); setQuantity(''); setUnit('units'); setSupplier(''); setReorderLevel('10'); setCostPrice(''); setSellingPrice(''); setBatchNumber(''); setExpiryDate(''); setGenericName(''); setStrength(''); setDosageForm(''); setRequiresRx(false); setFormError('') }
   
   const openEdit = (item) => {
     setEditingId(item.id); setName(item.name || ''); setCategory(item.category || CATEGORIES[0]); setQuantity(String(item.quantity || '')); setUnit(item.unit || 'units'); setSupplier(item.supplier || ''); setReorderLevel(String(item.reorder_level || '10'))
@@ -251,14 +251,24 @@ export default function Inventory() {
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 18 }}>{editingId ? 'Edit Item' : 'New Item'}</div>
             {formError && <div className="error-box">{formError}</div>}
             <form onSubmit={handleSubmit}>
-              <div className="field"><label>Item Name *</label><input value={name} onChange={e => setName(e.target.value)} /></div>
-              <div className="field"><label>Category *</label><select value={category} onChange={e => setCategory(e.target.value)}>{CATEGORIES.map(v => <option key={v} value={v}>{v}</option>)}</select></div>
-              <div className="field"><label>Quantity *</label><input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
-              <div className="field"><label>Unit</label><input value={unit} onChange={e => setUnit(e.target.value)} /></div>
-              <div className="field"><label>Selling Price</label><input type="number" step="0.01" value={sellingPrice} onChange={e => setSellingPrice(e.target.value)} /></div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', columnGap: 12 }}>
+                <div className="field" style={{ gridColumn: '1 / -1' }}><label>Item Name *</label><input value={name} onChange={e => setName(e.target.value)} /></div>
+                <div className="field"><label>Category *</label><select value={category} onChange={e => setCategory(e.target.value)}>{CATEGORIES.map(v => <option key={v} value={v}>{v}</option>)}</select></div>
+                <div className="field"><label>Supplier</label><input value={supplier} onChange={e => setSupplier(e.target.value)} /></div>
+                <div className="field"><label>Generic Name</label><input value={genericName} onChange={e => setGenericName(e.target.value)} /></div>
+                <div className="field"><label>Strength</label><input value={strength} onChange={e => setStrength(e.target.value)} placeholder="e.g. 500mg" /></div>
+                <div className="field"><label>Dosage Form</label><input value={dosageForm} onChange={e => setDosageForm(e.target.value)} placeholder="e.g. Tablet, Syrup" /></div>
+                <div className="field"><label>Quantity *</label><input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
+                <div className="field"><label>Unit</label><input value={unit} onChange={e => setUnit(e.target.value)} /></div>
+                <div className="field"><label>Reorder Level</label><input type="number" min="0" value={reorderLevel} onChange={e => setReorderLevel(e.target.value)} /></div>
+                <div className="field"><label>Cost Price</label><input type="number" step="0.01" value={costPrice} onChange={e => setCostPrice(e.target.value)} /></div>
+                <div className="field"><label>Selling Price</label><input type="number" step="0.01" value={sellingPrice} onChange={e => setSellingPrice(e.target.value)} /></div>
+                <div className="field"><label>Batch Number</label><input value={batchNumber} onChange={e => setBatchNumber(e.target.value)} /></div>
+                <div className="field"><label>Expiry Date</label><input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></div>
               <div className="field" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <input type="checkbox" id="requires-rx" checked={requiresRx} onChange={e => setRequiresRx(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--teal)' }} />
                 <label htmlFor="requires-rx" style={{ margin: 0, fontSize: 13, color: 'var(--ivory)' }}>Requires prescription (hide from walk-in sales)</label>
+              </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}><button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button></div>
             </form>
