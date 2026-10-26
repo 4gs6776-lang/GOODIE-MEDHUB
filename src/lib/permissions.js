@@ -34,6 +34,14 @@ export const ROLE_LABELS = {
   staff: 'Staff',
 }
 
+// Who may CHANGE a patient's stored details (name, age, contacts, allergies,
+// ward/bed...) or delete a patient record. Everyone else can still view
+// patients and use them in their own work (consultations, dispensing, billing).
+export const PATIENT_EDIT_ROLES = ['front_desk', 'nurse', 'admin']
+export function canEditPatientDetails(role) {
+  return PATIENT_EDIT_ROLES.includes(role)
+}
+
 export const MODULES = [
   'overview',
   'patients',
