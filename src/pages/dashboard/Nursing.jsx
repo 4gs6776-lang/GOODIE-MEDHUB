@@ -4,7 +4,7 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import PatientProfile from '../../components/PatientProfile'
 import SearchInput from '../../components/common/SearchInput'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
-import { writeAudit } from '../../lib/audit'
+import SendToPharmacyModal from '../../components/SendToPharmacyModal'
 import AiDiagnostics from './AiDiagnostics'
 
 const URGENCY_LEVELS = ['Routine', 'Urgent', 'Emergency']
@@ -29,14 +29,6 @@ export default function Nursing(){
   const [saving, setSaving] = useState(false)
   const [aiTriagePatientId, setAiTriagePatientId] = useState(null)
   const [pharmPatientId, setPharmPatientId] = useState(null)
-  // Send to Pharmacy modal state
-  const [pharmDrug, setPharmDrug] = useState('')
-  const [pharmQty, setPharmQty] = useState('')
-  const [pharmNotes, setPharmNotes] = useState('')
-  const [pharmSaving, setPharmSaving] = useState(false)
-  const [pharmError, setPharmError] = useState('')
-
-  const { addRecord: addPrescription } = useOfflineTable('prescriptions', hospital?.id)
 
   const [vitals, setVitals] = useState({
     temperature: '', blood_pressure: '', pulse_rate: '', respiratory_rate: '', spo2: '', weight: '', height: '', nurse_notes: '',
@@ -488,65 +480,13 @@ export default function Nursing(){
         />
       )}
 
-      {/* ---- Send to Pharmacy modal ---- */}
-      {pharmPatientId && (
-        <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setPharmPatientId(null) }}>
-          <div className="card dash-modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
-            <div className="dash-modal-title">Send to Pharmacy</div>
-            <div className="dash-modal-body">
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
-                For <strong style={{ color: 'var(--teal)' }}>{patients.find(p => p.id === pharmPatientId)?.full_name || 'patient'}</strong>
-              </div>
-              {pharmError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{pharmError}</div>}
-              <form id="nursing-pharm-form" onSubmit={async (e) => {
-                e.preventDefault()
-                setPharmError('')
-                if (!pharmDrug.trim()) { setPharmError('Drug name is required.'); return }
-                if (!pharmQty.trim()) { setPharmError('Quantity is required.'); return }
-                setPharmSaving(true)
-                try {
-                  const p = patients.find(p => p.id === pharmPatientId)
-                  await addPrescription({
-                    patient_id: pharmPatientId,
-                    patient_name: p?.full_name || 'Patient',
-                    drug_name: pharmDrug.trim(),
-                    dosage: null, route: null, frequency: null, duration: null,
-                    quantity: pharmQty.trim(),
-                    instructions: pharmNotes.trim() || null,
-                    status: 'active',
-                    prescribed_at: new Date().toISOString(),
-                    doctor_id: profile?.id || null,
-                    created_by: profile?.id || null,
-                  })
-                  showToast(`"${pharmDrug}" sent to Pharmacy for ${p?.full_name || 'patient'}`)
-                  setPharmPatientId(null)
-                  setPharmDrug(''); setPharmQty(''); setPharmNotes('')
-                } catch (err) {
-                  setPharmError(err.message || 'Could not send to pharmacy.')
-                } finally {
-                  setPharmSaving(false)
-                }
-              }}>
-                <div className="field">
-                  <label>Drug Name *</label>
-                  <input value={pharmDrug} onChange={e => setPharmDrug(e.target.value)} placeholder="e.g. Paracetamol 500mg" autoFocus required />
-                </div>
-                <div className="field">
-                  <label>Quantity *</label>
-                  <input value={pharmQty} onChange={e => setPharmQty(e.target.value)} placeholder="e.g. 20 tablets" required />
-                </div>
-                <div className="field">
-                  <label>Notes (optional)</label>
-                  <input value={pharmNotes} onChange={e => setPharmNotes(e.target.value)} placeholder="e.g. For headache, give TDS" />
-                </div>
-              </form>
-            </div>
-            <div className="dash-modal-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => setPharmPatientId(null)} disabled={pharmSaving}>Cancel</button>
-              <button type="submit" form="nursing-pharm-form" className="btn btn-primary" disabled={pharmSaving}>{pharmSaving ? 'Sending…' : 'Send to Pharmacy'}</button>
-            </div>
-          </div>
-        </div>
+      {/* ---- Send to Pharmacy modal (tied to the patient's active prescriptions) ---- */}
+      {pharmPatientId && patients.find((p) => p.id === pharmPatientId) && (
+        <SendToPharmacyModal
+          patient={patients.find((p) => p.id === pharmPatientId)}
+          onClose={() => setPharmPatientId(null)}
+          onSent={showToast}
+        />
       )}
     </>
   )
