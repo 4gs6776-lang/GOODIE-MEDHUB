@@ -27,7 +27,7 @@ export default function Inventory() {
   const [editingId, setEditingId] = useState(null)
   const [name, setName] = useState(''); const [category, setCategory] = useState(CATEGORIES[0]); const [quantity, setQuantity] = useState(''); const [unit, setUnit] = useState('units')
   const [supplier, setSupplier] = useState(''); const [reorderLevel, setReorderLevel] = useState('10'); const [costPrice, setCostPrice] = useState(''); const [sellingPrice, setSellingPrice] = useState('')
-  const [batchNumber, setBatchNumber] = useState(''); const [expiryDate, setExpiryDate] = useState(''); const [genericName, setGenericName] = useState(''); const [strength, setStrength] = useState(''); const [dosageForm, setDosageForm] = useState('')
+  const [batchNumber, setBatchNumber] = useState(''); const [expiryDate, setExpiryDate] = useState(''); const [genericName, setGenericName] = useState(''); const [strength, setStrength] = useState(''); const [dosageForm, setDosageForm] = useState(''); const [requiresRx, setRequiresRx] = useState(false)
   const [saving, setSaving] = useState(false); const [formError, setFormError] = useState('')
   const [showDispenseModal, setShowDispenseModal] = useState(false); const [dispensingItem, setDispensingItem] = useState(null); const [dispenseQuantity, setDispenseQuantity] = useState('')
   const [dispensing, setDispensing] = useState(false); const [dispenseError, setDispenseError] = useState(''); const [selectedPatient, setSelectedPatient] = useState(null)
@@ -45,7 +45,7 @@ export default function Inventory() {
   
   const openEdit = (item) => {
     setEditingId(item.id); setName(item.name || ''); setCategory(item.category || CATEGORIES[0]); setQuantity(String(item.quantity || '')); setUnit(item.unit || 'units'); setSupplier(item.supplier || ''); setReorderLevel(String(item.reorder_level || '10'))
-    setCostPrice(String(item.cost_price || '')); setSellingPrice(String(item.selling_price || '')); setBatchNumber(item.batch_number || ''); setExpiryDate(item.expiry_date || ''); setGenericName(item.generic_name || ''); setStrength(item.strength || ''); setDosageForm(item.dosage_form || '')
+    setCostPrice(String(item.cost_price || '')); setSellingPrice(String(item.selling_price || '')); setBatchNumber(item.batch_number || ''); setExpiryDate(item.expiry_date || ''); setGenericName(item.generic_name || ''); setStrength(item.strength || ''); setDosageForm(item.dosage_form || ''); setRequiresRx(item.requires_prescription === true)
     setFormError(''); setShowModal(true)
   }
 
@@ -58,7 +58,7 @@ export default function Inventory() {
     if (!hospital || !profile) return setFormError('Loading account...')
     setSaving(true)
     try {
-      const payload = { name: name.trim(), category, quantity: parsedQty, unit: unit.trim() || 'units', supplier: supplier.trim(), reorder_level: parseInt(reorderLevel, 10) || 10, cost_price: parseFloat(costPrice) || 0, selling_price: parseFloat(sellingPrice) || 0, batch_number: batchNumber.trim(), expiry_date: expiryDate || null, generic_name: genericName.trim(), strength: strength.trim(), dosage_form: dosageForm.trim(), updated_at: new Date().toISOString() }
+      const payload = { name: name.trim(), category, quantity: parsedQty, unit: unit.trim() || 'units', supplier: supplier.trim(), reorder_level: parseInt(reorderLevel, 10) || 10, cost_price: parseFloat(costPrice) || 0, selling_price: parseFloat(sellingPrice) || 0, batch_number: batchNumber.trim(), expiry_date: expiryDate || null, generic_name: genericName.trim(), strength: strength.trim(), dosage_form: dosageForm.trim(), requires_prescription: requiresRx, updated_at: new Date().toISOString() }
       if (editingId) {
         await updateRecord(editingId, payload)
         writeAudit({
@@ -256,6 +256,10 @@ export default function Inventory() {
               <div className="field"><label>Quantity *</label><input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
               <div className="field"><label>Unit</label><input value={unit} onChange={e => setUnit(e.target.value)} /></div>
               <div className="field"><label>Selling Price</label><input type="number" step="0.01" value={sellingPrice} onChange={e => setSellingPrice(e.target.value)} /></div>
+              <div className="field" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input type="checkbox" id="requires-rx" checked={requiresRx} onChange={e => setRequiresRx(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--teal)' }} />
+                <label htmlFor="requires-rx" style={{ margin: 0, fontSize: 13, color: 'var(--ivory)' }}>Requires prescription (hide from walk-in sales)</label>
+              </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 22 }}><button type="button" className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button></div>
             </form>
           </div>

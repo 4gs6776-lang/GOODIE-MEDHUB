@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
@@ -8,8 +8,9 @@ import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
+import WalkInSaleModal from '../../components/pharmacy/WalkInSaleModal'
 import useMediaQuery from '../../lib/useMediaQuery'
-import { getTimezone, formatDate as formatDateTz } from '../../lib/datetime'
+import { getTimezone, formatDate as formatDateTz, formatDateTime } from '../../lib/datetime'
 import { writeAudit } from '../../lib/audit'
 import { ROLE_LABELS } from '../../lib/permissions'
 import { effectiveQty, parseRxQuantity, rxSummary } from '../../lib/pharmacyRequests'
@@ -39,6 +40,9 @@ export default function Pharmacy() {
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [activeRx, setActiveRx] = useState(null) // Tracks if dispensing from a doctor's order
   const [activeReq, setActiveReq] = useState(null) // Tracks if dispensing a staff request
+  const [pharmTab, setPharmTab] = useState('queue') // 'queue' | 'inventory' | 'sales'
+  const [showWalkInModal, setShowWalkInModal] = useState(false)
+  const [salesRefreshKey, setSalesRefreshKey] = useState(0)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -379,8 +383,7 @@ export default function Pharmacy() {
 
   return (
     <>
-      {/* Stats — shared .dash-stats grid (collapses 4→2→1 via CSS) and
-          unified AppIcon instead of the old oversized inline-SVG cards. */}
+      {/* Stats — shared .dash-stats grid */}
       <div className="dash-stats" style={{ marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="pill" size={20} /></div>
@@ -412,11 +415,29 @@ export default function Pharmacy() {
         </div>
       </div>
 
-      {/* DOCTOR'S PRESCRIPTION QUEUE — an actionable work queue, not a
-          browsable record list, so it is intentionally left unpaginated
-          per the "don't apply pagination where it hurts the workflow"
-          rule. If this queue starts running into the hundreds in
-          practice, it should get pagination too — flag it if so. */}
+      {/* ---- Tab switcher: Queue / Walk-in Sale / Inventory / Sales History ---- */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[
+          { key: 'queue', label: 'Prescription Queue' },
+          { key: 'walkin', label: 'Walk-in Sale' },
+          { key: 'inventory', label: 'Pharmacy Inventory' },
+          { key: 'sales', label: 'Sales History' },
+        ].map(t => (
+          <button
+            key={t.key}
+            type="button"
+            className={`btn ${pharmTab === t.key ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5 }}
+            onClick={() => { setPharmTab(t.key); if (t.key === 'walkin') setShowWalkInModal(true) }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* DOCTOR'S PRESCRIPTION QUEUE */}
+      {pharmTab === 'queue' && (
+      <>
       {/* Staff medication requests: who asked for what, for which patient */}
       {openRequests.length > 0 && (
         <div className="dash-panel" style={{ marginBottom: 20 }}>
@@ -514,8 +535,11 @@ export default function Pharmacy() {
           </div>
         )}
       </div>
+      </>
+      )}
 
-      {/* EXISTING INVENTORY TABLE */}
+      {/* EXISTING INVENTORY TABLE — shown when pharmTab === 'inventory' */}
+      {pharmTab === 'inventory' && (
       <div className="dash-panel">
         <div className="dash-panel-head">
           <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><ConnectionState isOnline={isOnline} pendingCount={pendingCount} />{' · Auto-sends charges to Billing'}</div></div>
@@ -576,6 +600,20 @@ export default function Pharmacy() {
           </>
         )}
       </div>
+      )}
+
+      {/* ---- Sales History tab ---- */}
+      {pharmTab === 'sales' && <SalesHistory hospital={hospital} timezone={timezone} refreshKey={salesRefreshKey} />}
+
+      {/* ---- Walk-in Sale modal ---- */}
+      {showWalkInModal && (
+        <WalkInSaleModal
+          hospital={hospital}
+          profile={profile}
+          onClose={() => setShowWalkInModal(false)}
+          onSaleComplete={() => { setSalesRefreshKey(k => k + 1); setPharmTab('sales') }}
+        />
+      )}
 
       {showDispenseModal && dispensingItem && (
         /* Shared modal chrome → bottom sheet with pinned actions on phones */
@@ -616,6 +654,113 @@ export default function Pharmacy() {
         </div>
       )}
       {toast && <div className="dash-toast dash-toast-success">{toast}</div>}
+    </>
+  )
+}
+
+// =====================================================================
+// SalesHistory — paginated list of pharmacy_sales
+// =====================================================================
+function SalesHistory({ hospital, timezone, refreshKey }) {
+  const { records: sales, loading } = useOfflineTable('pharmacy_sales', hospital?.id)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+
+  const filtered = useMemo(() => {
+    let arr = [...sales].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    if (typeFilter !== 'all') arr = arr.filter(s => s.sale_type === typeFilter)
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      arr = arr.filter(s =>
+        String(s.sale_number || '').toLowerCase().includes(q) ||
+        String(s.customer_name || '').toLowerCase().includes(q) ||
+        String(s.payment_method || '').toLowerCase().includes(q)
+      )
+    }
+    return arr
+  }, [sales, typeFilter, search, refreshKey])
+
+  const todayStr = new Date().toDateString()
+  const todaySales = filtered.filter(s => new Date(s.created_at).toDateString() === todayStr)
+  const todayRevenue = todaySales.reduce((sum, s) => sum + Number(s.total || 0), 0)
+
+  const {
+    pageItems: pagedSales, currentPage, setCurrentPage, pageSize, setPageSize,
+    totalPages, totalItems, startIndex, endIndex,
+  } = usePagination(filtered, { pageSize: 15, resetKey: `${search}|${typeFilter}|${refreshKey}` })
+
+  const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  return (
+    <>
+      {/* Mini stats */}
+      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="billing" size={18} /></div>
+          <div><div className="dash-stat-label">Today's Sales</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(todayRevenue)}</div><div className="dash-stat-delta">{todaySales.length} sale(s)</div></div>
+        </div>
+        <div className="dash-stat-card">
+          <div className="dash-stat-icon" style={{ background: 'rgba(118,87,232,0.14)', color: 'var(--violet)' }}><AppIcon name="users" size={18} /></div>
+          <div><div className="dash-stat-label">Total Sales</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{filtered.length}</div></div>
+        </div>
+      </div>
+
+      <div className="dash-panel">
+        <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+          <div><div className="dash-panel-title">Pharmacy Sales History</div><div className="dash-panel-sub">Walk-in sales and prescription dispensing records</div></div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }}>
+              <option value="all">All types</option>
+              <option value="walk_in">Walk-in</option>
+              <option value="prescription">Prescription</option>
+            </select>
+            <SearchInput value={search} onChange={setSearch} placeholder="Search sale #, customer…" style={{ minWidth: 200, maxWidth: 320 }} />
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 13 }}>Loading sales…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 13 }}>No sales recorded yet. Click "Walk-in Sale" to make your first sale.</div>
+        ) : (
+          <>
+            <div className="dash-table-wrap">
+              <table className="dash-full-table">
+                <thead><tr><th>Sale #</th><th>Date / Time</th><th>Customer</th><th>Type</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Staff</th></tr></thead>
+                <tbody>
+                  {pagedSales.map(s => (
+                    <tr key={s.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
+                      <td style={{ padding: 12, fontWeight: 700, fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{s.sale_number || '—'}</td>
+                      <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.created_at ? formatDateTime(s.created_at, timezone) : '—'}</td>
+                      <td style={{ padding: 12, fontWeight: 700 }}>{s.customer_name || '—'}</td>
+                      <td style={{ padding: 12 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: s.sale_type === 'walk_in' ? 'rgba(0,199,199,0.14)' : 'rgba(118,87,232,0.14)', color: s.sale_type === 'walk_in' ? 'var(--teal)' : 'var(--violet)', textTransform: 'uppercase' }}>
+                          {s.sale_type === 'walk_in' ? 'Walk-in' : 'Rx'}
+                        </span>
+                      </td>
+                      <td style={{ padding: 12, fontSize: 12.5 }}>{Array.isArray(s.items) ? s.items.length : 0} item(s)</td>
+                      <td style={{ padding: 12, fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--teal)' }}>{formatMoney(s.total)}</td>
+                      <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{s.payment_method || '—'}</td>
+                      <td style={{ padding: 12 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: s.status === 'completed' ? 'rgba(24,217,155,0.14)' : s.status === 'refunded' ? 'rgba(240,79,95,0.14)' : 'rgba(154,170,183,0.14)', color: s.status === 'completed' ? 'var(--mint)' : s.status === 'refunded' ? 'var(--danger)' : 'var(--muted)', textTransform: 'uppercase' }}>
+                          {s.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: 12, fontSize: 11.5, color: 'var(--muted)' }}>{s.dispensed_by_name || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              currentPage={currentPage} totalPages={totalPages} totalItems={totalItems}
+              startIndex={startIndex} endIndex={endIndex} pageSize={pageSize}
+              onPageChange={setCurrentPage} onPageSizeChange={setPageSize}
+              itemLabel="sales"
+            />
+          </>
+        )}
+      </div>
     </>
   )
 }
