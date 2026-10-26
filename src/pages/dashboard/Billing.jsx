@@ -4,6 +4,7 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import { supabase } from '../../lib/supabaseClient'
 import CashierWorkspace from '../../components/CashierWorkspace'
+import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
@@ -39,7 +40,8 @@ export default function Billing({ initialSearch = '' }) {
   // Patient wallets — needed for wallet credit on reversal
   const { records: walletRecords } = useOfflineTable('patient_wallets', hospital?.id)
   // Patients — needed to resolve patient names for wallet txns + payments
-  const { records: patients } = useOfflineTable('patients', hospital?.id)
+  // AND for the "Create Invoice" patient picker
+  const { records: patients, loading: patientsLoading } = useOfflineTable('patients', hospital?.id)
   // Staff — to resolve "received_by" and "reversed_by" names
   const { records: staff } = useOfflineTable('profiles', hospital?.id)
 
@@ -47,6 +49,13 @@ export default function Billing({ initialSearch = '' }) {
   const [search, setSearch] = useState(initialSearch)
   useEffect(() => { if (initialSearch) setSearch(initialSearch) }, [initialSearch])
   const [selectedPatient, setSelectedPatient] = useState(null)
+  // ---- "Create Invoice" picker ---------------------------------------
+  // Lets the cashier open the CashierWorkspace for ANY registered
+  // patient (one with a personal folder at the hospital), even if no
+  // other module has produced a billable charge yet. They can then add
+  // manual charges (consultation, procedure, etc.) directly.
+  const [showCreateInvoice, setShowCreateInvoice] = useState(false)
+
   const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions' | 'payments'
   const [txnTypeFilter, setTxnTypeFilter] = useState('all')  // 'all' | 'deposit' | 'charge' | 'refund' | 'adjustment'
   const [txnSearch, setTxnSearch] = useState('')
@@ -370,9 +379,20 @@ export default function Billing({ initialSearch = '' }) {
             <div className="dash-panel-title">Patient Billing Queue</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Patients with automatically generated charges waiting for review.</div>
           </div>
-          <div className="dash-search" style={{ maxWidth: 260 }}>
-            <Icon name="search" size={15} />
-            <input placeholder="Search patient name…" value={search} onChange={e => setSearch(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              onClick={() => setShowCreateInvoice(true)}
+              title="Open the billing workspace for any registered patient and add manual charges (e.g. consultation, procedure)"
+            >
+              <AppIcon name="plus" size={14} /> Create Invoice
+            </button>
+            <div className="dash-search" style={{ maxWidth: 260 }}>
+              <Icon name="search" size={15} />
+              <input placeholder="Search patient name…" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
           </div>
         </div>
 
@@ -745,6 +765,73 @@ export default function Billing({ initialSearch = '' }) {
           profile={profile}
           onClose={() => setSelectedPatient(null)}
         />
+      )}
+
+      {/* ---- "Create Invoice" patient picker -------------------------------
+          Lets the cashier pick any registered patient (a personal folder
+          holder at the hospital) and open the billing workspace for them.
+          Inside the workspace they can add custom charges (consultation,
+          procedure, etc.) and generate an invoice. Wallet auto-deduction
+          and HMO claim filing work the same as the existing flow. */}
+      {showCreateInvoice && (
+        <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowCreateInvoice(false) }}>
+          <div className="card dash-modal" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14 }}>
+              <div>
+                <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Create Invoice</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                  Pick a patient with a personal folder at the hospital to begin billing.
+                </div>
+              </div>
+              <button className="dash-icon-btn" onClick={() => setShowCreateInvoice(false)} aria-label="Close patient picker">
+                <AppIcon name="close" size={18} />
+              </button>
+            </div>
+
+            <div className="dash-modal-body">
+              <div className="field">
+                <label>Select Patient *</label>
+                <PatientAutocomplete
+                  patients={patients}
+                  value={null}
+                  loading={loading || patientsLoading}
+                  onChange={(option) => {
+                    if (!option || !option.patient) return
+                    setSelectedPatient({ id: option.patient.id, name: option.patient.full_name })
+                    setShowCreateInvoice(false)
+                    writeAudit({
+                      hospitalId: hospital?.id, actor: profile,
+                      action: 'billing.create_invoice_opened',
+                      entityType: 'patient', entityId: option.patient.id,
+                      patientId: option.patient.id,
+                      summary: `Opened billing workspace to create a manual invoice for ${option.patient.full_name || 'patient'}`,
+                      metadata: { patient_id: option.patient.id, patient_name: option.patient.full_name, source: 'create_invoice_button' },
+                    })
+                  }}
+                  placeholder="Search patient by name, MRN or phone…"
+                  emptyText="No matching patient — register them at Reception first"
+                  ariaLabel="Patient"
+                />
+              </div>
+
+              <div style={{
+                marginTop: 14, padding: '10px 12px', borderRadius: 8,
+                background: 'rgba(0,199,199,0.06)', border: '1px solid var(--line-soft)',
+                fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6,
+              }}>
+                <strong style={{ color: 'var(--teal)' }}>Tip:</strong> After selecting a patient you'll be able to
+                add custom charges (consultation, lab, procedure), apply discounts, and generate an invoice.
+                If the patient has a wallet balance, it will be{' '}
+                <strong style={{ color: 'var(--teal)' }}>auto-deducted first</strong>{' '}
+                before any remaining balance is due.
+              </div>
+            </div>
+
+            <div className="dash-modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowCreateInvoice(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && <div className="billing-toast">{toast}</div>}
