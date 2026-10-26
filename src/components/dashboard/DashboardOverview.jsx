@@ -25,6 +25,24 @@ const RANGES = [
 
 const last = (series, n) => (series || []).slice(-n)
 
+// "Good morning, Nurse Goodnews" — time of day follows the hospital's own timezone.
+const ROLE_TITLES = { doctor: 'Dr.', nurse: 'Nurse', pharmacist: 'Pharmacist' }
+const TITLE_WORDS = /^(dr|doctor|nurse|pharm|pharmacist|mr|mrs|ms|miss)\.?$/i
+
+function greetingFor(profile, tz) {
+  let hour = new Date().getHours()
+  try {
+    const h = parseInt(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: tz || undefined }).format(new Date()), 10)
+    if (Number.isFinite(h)) hour = h
+  } catch { /* unknown timezone: fall back to the device clock */ }
+  const part = hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening'
+  const words = String(profile?.full_name || '').trim().split(/\s+/).filter(Boolean)
+  const name = words.find((w) => !TITLE_WORDS.test(w)) || ''
+  const title = ROLE_TITLES[profile?.role] || ''
+  const who = [title, name].filter(Boolean).join(' ')
+  return who ? `${part}, ${who}` : part
+}
+
 function Atmosphere() {
   // Decorative only: very faint orbital linework behind the content.
   return (
@@ -63,7 +81,6 @@ export default function DashboardOverview({ hospital, profile }) {
   const [stage, setStage] = useState(null)
   const { access, data: d, loading, isOnline, pendingSync, tz } = useHospitalDashboard(hospital, profile)
   const ready = !loading
-  const firstName = (profile?.full_name || '').split(' ')[0]
 
   // ---- chart series (only the areas this role may see) ----
   const chartSeries = [
@@ -96,8 +113,8 @@ export default function DashboardOverview({ hospital, profile }) {
       {/* ---------- header ---------- */}
       <header className="hd-head hd-in" style={{ '--i': 0 }}>
         <div>
-          <h1>Hospital overview</h1>
-          <p>{formatWeekdayDate(new Date().toISOString(), tz)}{firstName ? ` · Welcome back, ${firstName}` : ''}</p>
+          <h1>{greetingFor(profile, tz)}</h1>
+          <p>Hospital overview · {formatWeekdayDate(new Date().toISOString(), tz)}</p>
         </div>
         <div className={`hd-status ${isOnline ? 'on' : 'off'}`} role="status">
           <i />{isOnline ? 'Live' : 'Offline · showing saved data'}
