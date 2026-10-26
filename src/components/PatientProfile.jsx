@@ -6,6 +6,7 @@ import AppIcon from './icons'
 import PatientWallet from './PatientWallet'
 import { writeAudit } from '../lib/audit'
 import { formatDateTime } from '../lib/datetime'
+import { canEditPatientDetails } from '../lib/permissions'
 
 const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
@@ -26,10 +27,11 @@ export default function PatientProfile({ patientId, onClose }){
 
   // Doctors can view patient details but cannot add/edit/delete patients.
   // The "Edit Info" tab is hidden from doctors.
-  const isDoctor = profile?.role === 'doctor'
-  const visibleTabs = isDoctor
-    ? TABS.filter(t => t !== 'Edit Info')
-    : TABS
+  // Only Front Desk, Nurse and Admin may edit patient details.
+  const canEditPatient = canEditPatientDetails(profile?.role)
+  const visibleTabs = canEditPatient
+    ? TABS
+    : TABS.filter(t => t !== 'Edit Info')
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
@@ -230,7 +232,7 @@ export default function PatientProfile({ patientId, onClose }){
               profile={profile} addInvoice={addInvoice} updateInvoice={updateInvoice} showToast={showToast}
             />
           )}
-          {tab === 'Edit Info' && (
+          {tab === 'Edit Info' && canEditPatient && (
             <EditInfoTab patient={patient} updatePatient={updatePatient} showToast={showToast} />
           )}
         </div>

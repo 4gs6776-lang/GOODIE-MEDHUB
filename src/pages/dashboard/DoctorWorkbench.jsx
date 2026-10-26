@@ -688,6 +688,7 @@ export default function DoctorWorkbench() {
             <div><div className="dash-panel-title">Finish Up</div><div className="dash-panel-sub">Finalizes meds and completes visit</div></div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-ghost" onClick={clearWorkbench}>Cancel</button>
+              <button type="button" className="btn btn-primary" style={{ width: 'auto', background: 'var(--violet)', color: '#fff' }} onClick={() => setShowAiDiagnostics(true)} disabled={!activePatient} title="Get AI-assisted differential diagnosis and recommendations">AI Assist</button>
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleCompleteConsultation} disabled={completing}>{completing ? 'Completing…' : 'Complete Consultation'}</button>
             </div>
           </div>

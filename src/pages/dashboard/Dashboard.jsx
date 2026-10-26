@@ -19,6 +19,7 @@ import {
   FULL_ACCESS_ROLES,
   ROLE_LABELS,
   getAccessibleModules,
+  canEditPatientDetails,
 } from '../../lib/permissions'
 import Billing from './Billing'
 import Staff from './Staff'
@@ -537,6 +538,7 @@ export default function Dashboard(){
   }
 
   function handleDelete(patient){
+    if (!canEditPatientDetails(profile?.role)) return
     if (pending) commitPendingDelete(pending.patient)
     let secondsLeft = 5
     setPending({patient,secondsLeft})
@@ -1279,7 +1281,7 @@ export default function Dashboard(){
                                 <td>{p.age}</td>
                                 <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
                                 <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at, hospitalTz)}</td>
-                                <td>{profile?.role !== 'doctor' ? <button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button> : null}</td>
+                                <td>{canEditPatientDetails(profile?.role) ? <button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button> : null}</td>
                               </tr>
                             ))}
                           </tbody>

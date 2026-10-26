@@ -32,6 +32,7 @@ const TABLE_SYNC_ORDER = [
   'patient_vitals',
   'encounters',
   'prescriptions',
+  'pharmacy_requests',
   'pharmacy_orders',
   'medication_administrations',
   'lab_orders',
