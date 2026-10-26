@@ -4,9 +4,9 @@ import { useOfflineTable } from '../lib/useOfflineTable'
 import MedicationChart from './MedicationChart'
 import AppIcon from './icons'
 import PatientWallet from './PatientWallet'
-import SendToPharmacyModal from './SendToPharmacyModal'
 import { writeAudit } from '../lib/audit'
 import { formatDateTime } from '../lib/datetime'
+import { canEditPatientDetails } from '../lib/permissions'
 
 const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
@@ -27,15 +27,21 @@ export default function PatientProfile({ patientId, onClose }){
 
   // Doctors can view patient details but cannot add/edit/delete patients.
   // The "Edit Info" tab is hidden from doctors.
-  const isDoctor = profile?.role === 'doctor'
-  const visibleTabs = isDoctor
-    ? TABS.filter(t => t !== 'Edit Info')
-    : TABS
+  // Only Front Desk, Nurse and Admin may edit patient details.
+  const canEditPatient = canEditPatientDetails(profile?.role)
+  const visibleTabs = canEditPatient
+    ? TABS
+    : TABS.filter(t => t !== 'Edit Info')
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
   // Send to Pharmacy modal state
   const [showPharmModal, setShowPharmModal] = useState(false)
+  const [pharmDrug, setPharmDrug] = useState('')
+  const [pharmQty, setPharmQty] = useState('')
+  const [pharmNotes, setPharmNotes] = useState('')
+  const [pharmSaving, setPharmSaving] = useState(false)
+  const [pharmError, setPharmError] = useState('')
 
   const patient = patients.find(p => p.id === patientId)
 
@@ -153,7 +159,7 @@ export default function PatientProfile({ patientId, onClose }){
             <button
               className="btn btn-primary"
               style={{ width: 'auto', padding: '6px 12px', fontSize: 11.5, background: 'var(--violet)', color: '#fff' }}
-              onClick={() => setShowPharmModal(true)}
+              onClick={() => { setPharmError(''); setShowPharmModal(true) }}
               title="Send a medication request to Pharmacy"
             >
               Send to Pharmacy
@@ -226,7 +232,7 @@ export default function PatientProfile({ patientId, onClose }){
               profile={profile} addInvoice={addInvoice} updateInvoice={updateInvoice} showToast={showToast}
             />
           )}
-          {tab === 'Edit Info' && (
+          {tab === 'Edit Info' && canEditPatient && (
             <EditInfoTab patient={patient} updatePatient={updatePatient} showToast={showToast} />
           )}
         </div>
@@ -241,9 +247,75 @@ export default function PatientProfile({ patientId, onClose }){
           </div>
         )}
 
-        {/* ---- Send to Pharmacy modal (tied to the patient's active prescriptions) ---- */}
+        {/* ---- Send to Pharmacy modal ---- */}
         {showPharmModal && patient && (
-          <SendToPharmacyModal patient={patient} onClose={() => setShowPharmModal(false)} onSent={showToast} />
+          <div className="dash-modal-backdrop" style={{ zIndex: 80 }} onClick={e => { if (e.target === e.currentTarget) setShowPharmModal(false) }}>
+            <div className="card dash-modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+              <div className="dash-modal-title">Send to Pharmacy</div>
+              <div className="dash-modal-body">
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+                  For <strong style={{ color: 'var(--teal)' }}>{patient.full_name}</strong>
+                </div>
+                {pharmError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{pharmError}</div>}
+                <form id="pharm-form" onSubmit={async (e) => {
+                  e.preventDefault()
+                  setPharmError('')
+                  if (!pharmDrug.trim()) { setPharmError('Drug name is required.'); return }
+                  if (!pharmQty.trim()) { setPharmError('Quantity is required.'); return }
+                  setPharmSaving(true)
+                  try {
+                    await addPrescription({
+                      patient_id: patient.id,
+                      patient_name: patient.full_name,
+                      drug_name: pharmDrug.trim(),
+                      dosage: null,
+                      route: null,
+                      frequency: null,
+                      duration: null,
+                      quantity: pharmQty.trim(),
+                      instructions: pharmNotes.trim() || null,
+                      status: 'active',
+                      prescribed_at: new Date().toISOString(),
+                      doctor_id: profile?.id || null,
+                      created_by: profile?.id || null,
+                    })
+                    writeAudit({
+                      hospitalId: hospital?.id, actor: profile,
+                      action: 'prescription.nurse_sent_to_pharmacy',
+                      entityType: 'prescription', entityId: null,
+                      patientId: patient.id,
+                      summary: `Nurse sent ${pharmDrug.trim()} (qty ${pharmQty.trim()}) to pharmacy for ${patient.full_name}`,
+                      metadata: { drug_name: pharmDrug.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
+                    })
+                    showToast(`"${pharmDrug}" sent to Pharmacy for ${patient.full_name}`)
+                    setShowPharmModal(false)
+                    setPharmDrug(''); setPharmQty(''); setPharmNotes('')
+                  } catch (err) {
+                    setPharmError(err.message || 'Could not send to pharmacy.')
+                  } finally {
+                    setPharmSaving(false)
+                  }
+                }}>
+                  <div className="field">
+                    <label>Drug Name *</label>
+                    <input value={pharmDrug} onChange={e => setPharmDrug(e.target.value)} placeholder="e.g. Paracetamol 500mg" autoFocus required />
+                  </div>
+                  <div className="field">
+                    <label>Quantity *</label>
+                    <input value={pharmQty} onChange={e => setPharmQty(e.target.value)} placeholder="e.g. 20 tablets" required />
+                  </div>
+                  <div className="field">
+                    <label>Notes (optional)</label>
+                    <input value={pharmNotes} onChange={e => setPharmNotes(e.target.value)} placeholder="e.g. For headache, give TDS" />
+                  </div>
+                </form>
+              </div>
+              <div className="dash-modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setShowPharmModal(false)} disabled={pharmSaving}>Cancel</button>
+                <button type="submit" form="pharm-form" className="btn btn-primary" disabled={pharmSaving}>{pharmSaving ? 'Sending…' : 'Send to Pharmacy'}</button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

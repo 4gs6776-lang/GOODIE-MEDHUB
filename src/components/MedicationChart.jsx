@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { canEditPatientDetails } from '../lib/permissions'
 import '../theme/marChart.css'
 import AppIcon from './icons'
 import TrashIcon from './icons/TrashIcon'
@@ -69,6 +70,10 @@ function deriveSign(profile){
 }
 
 export default function MedicationChart({ patient, entries, admissionRequest, latestConsultation, profile, hospitalName, addEntry, updateEntry, deleteEntry, updatePatient, showToast, prescriptions = [] }){
+  // Ward, bed, diagnosis, allergies... are saved on the patient record, so only
+  // Front Desk, Nurse and Admin may change them; other roles see them read-only.
+  const canEditPatient = canEditPatientDetails(profile?.role)
+
   // Chart order is chronological — oldest entry first, like a real paper MAR sheet.
   const sorted = useMemo(
     () => [...entries].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
@@ -224,7 +229,7 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
   }
 
   async function commitHeaderField(key, value){
-    if (!updatePatient) return
+    if (!updatePatient || !canEditPatientDetails(profile?.role)) return
     try { await updatePatient(patient.id, { [key]: value || null }) } catch { /* best-effort */ }
   }
 
@@ -426,12 +431,12 @@ export default function MedicationChart({ patient, entries, admissionRequest, la
           <MarField label="Hospital Number" value={patient.hospital_number} />
           <MarField label="Age" value={age != null ? `${age} yrs` : ''} />
           <MarField label="Sex" value={patient.gender} />
-          <MarField label="Ward" value={header.ward} editable onChange={v => setHeaderField('ward', v)} onBlurCommit={v => commitHeaderField('ward', v)} />
-          <MarField label="Bed" value={header.bed} editable onChange={v => setHeaderField('bed', v)} onBlurCommit={v => commitHeaderField('bed', v)} />
-          <MarField label="Consultant / Doctor" value={header.consultant} editable onChange={v => setHeaderField('consultant', v)} onBlurCommit={v => commitHeaderField('consultant', v)} />
+          <MarField label="Ward" value={header.ward} editable={canEditPatient} onChange={v => setHeaderField('ward', v)} onBlurCommit={v => commitHeaderField('ward', v)} />
+          <MarField label="Bed" value={header.bed} editable={canEditPatient} onChange={v => setHeaderField('bed', v)} onBlurCommit={v => commitHeaderField('bed', v)} />
+          <MarField label="Consultant / Doctor" value={header.consultant} editable={canEditPatient} onChange={v => setHeaderField('consultant', v)} onBlurCommit={v => commitHeaderField('consultant', v)} />
           <MarField label="Date Admitted" value={dateAdmitted} />
-          <MarField label="Diagnosis" value={header.diagnosis} editable wide onChange={v => setHeaderField('diagnosis', v)} onBlurCommit={v => commitHeaderField('diagnosis', v)} />
-          <MarField label="Allergies (edit)" value={header.allergies} editable wide danger={!!header.allergies} onChange={v => setHeaderField('allergies', v)} onBlurCommit={v => commitHeaderField('allergies', v)} />
+          <MarField label="Diagnosis" value={header.diagnosis} editable={canEditPatient} wide onChange={v => setHeaderField('diagnosis', v)} onBlurCommit={v => commitHeaderField('diagnosis', v)} />
+          <MarField label="Allergies (edit)" value={header.allergies} editable={canEditPatient} wide danger={!!header.allergies} onChange={v => setHeaderField('allergies', v)} onBlurCommit={v => commitHeaderField('allergies', v)} />
         </div>
 
         <div className="mar-table-scroll">
