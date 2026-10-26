@@ -39,6 +39,7 @@ export default function PatientProfile({ patientId, onClose }){
   const [showPharmModal, setShowPharmModal] = useState(false)
   const [pharmDrug, setPharmDrug] = useState('')
   const [pharmQty, setPharmQty] = useState('')
+  const [pharmDosage, setPharmDosage] = useState('')
   const [pharmNotes, setPharmNotes] = useState('')
   const [pharmSaving, setPharmSaving] = useState(false)
   const [pharmError, setPharmError] = useState('')
@@ -261,6 +262,7 @@ export default function PatientProfile({ patientId, onClose }){
                   e.preventDefault()
                   setPharmError('')
                   if (!pharmDrug.trim()) { setPharmError('Drug name is required.'); return }
+                  if (!pharmDosage.trim()) { setPharmError('Dosage is required.'); return }
                   if (!pharmQty.trim()) { setPharmError('Quantity is required.'); return }
                   setPharmSaving(true)
                   try {
@@ -268,7 +270,7 @@ export default function PatientProfile({ patientId, onClose }){
                       patient_id: patient.id,
                       patient_name: patient.full_name,
                       drug_name: pharmDrug.trim(),
-                      dosage: null,
+                      dosage: pharmDosage.trim(),
                       route: null,
                       frequency: null,
                       duration: null,
@@ -285,11 +287,11 @@ export default function PatientProfile({ patientId, onClose }){
                       entityType: 'prescription', entityId: null,
                       patientId: patient.id,
                       summary: `Nurse sent ${pharmDrug.trim()} (qty ${pharmQty.trim()}) to pharmacy for ${patient.full_name}`,
-                      metadata: { drug_name: pharmDrug.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
+                      metadata: { drug_name: pharmDrug.trim(), dosage: pharmDosage.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
                     })
                     showToast(`"${pharmDrug}" sent to Pharmacy for ${patient.full_name}`)
                     setShowPharmModal(false)
-                    setPharmDrug(''); setPharmQty(''); setPharmNotes('')
+                    setPharmDrug(''); setPharmDosage(''); setPharmQty(''); setPharmNotes('')
                   } catch (err) {
                     setPharmError(err.message || 'Could not send to pharmacy.')
                   } finally {
@@ -299,6 +301,10 @@ export default function PatientProfile({ patientId, onClose }){
                   <div className="field">
                     <label>Drug Name *</label>
                     <input value={pharmDrug} onChange={e => setPharmDrug(e.target.value)} placeholder="e.g. Paracetamol 500mg" autoFocus required />
+                  </div>
+                  <div className="field">
+                    <label>Dosage *</label>
+                    <input value={pharmDosage} onChange={e => setPharmDosage(e.target.value)} placeholder="e.g. 500mg, 2 tablets" required />
                   </div>
                   <div className="field">
                     <label>Quantity *</label>
