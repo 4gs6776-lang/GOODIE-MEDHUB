@@ -462,8 +462,9 @@ export default function Pharmacy() {
           per the "don't apply pagination where it hurts the workflow"
           rule. If this queue starts running into the hundreds in
           practice, it should get pagination too — flag it if so. */}
-      {/* ---- Tab switcher: Queue / Walk-in Sale / Inventory / Sales History ---- */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      {/* ---- Tab switcher: Queue / Walk-in Sale / Inventory / Sales History
+            + History button (always visible, right-aligned) ---- */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
           { key: 'queue', label: 'Prescription Queue' },
           { key: 'walkin', label: 'Walk-in Sale' },
@@ -480,6 +481,9 @@ export default function Pharmacy() {
             {t.label}
           </button>
         ))}
+        <div style={{ marginLeft: 'auto' }}>
+          <ModuleHistoryButton moduleKey="pharmacy" />
+        </div>
       </div>
 
       {/* DOCTOR'S PRESCRIPTION QUEUE */}
@@ -591,7 +595,6 @@ export default function Pharmacy() {
         <div className="dash-panel-head">
           <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><ConnectionState isOnline={isOnline} pendingCount={pendingCount} />{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug..." style={{ minWidth: 260, maxWidth: 420 }} />
-          <ModuleHistoryButton moduleKey="pharmacy" />
         </div>
         {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : (
           <>
