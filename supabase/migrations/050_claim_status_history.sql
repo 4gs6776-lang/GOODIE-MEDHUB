@@ -87,7 +87,7 @@ select
   'submitted',
   ic.created_by,
   'System (backfilled)',
-  ic.submitted_at || coalesce(''::timestamptz, ic.created_at),
+  coalesce(ic.submitted_at, ic.created_at),
   'Initial submission (backfilled by Phase 3 migration)',
   jsonb_build_object('backfilled', true, 'amount', ic.amount, 'provider', ic.provider)
 from public.insurance_claims ic
