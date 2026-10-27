@@ -8,6 +8,8 @@ import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import CreditNoteModal from '../../components/CreditNoteModal'
 import MultiInvoicePaymentModal from '../../components/MultiInvoicePaymentModal'
+import ApprovalQueueModal from '../../components/ApprovalQueueModal'
+import EndOfDayReconciliationModal from '../../components/EndOfDayReconciliationModal'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
@@ -73,6 +75,8 @@ export default function Billing({ initialSearch = '' }) {
   const [creditNoteInvoice, setCreditNoteInvoice] = useState(null)  // the invoice being credited
   const [showMultiPayModal, setShowMultiPayModal] = useState(false)
   const [multiPayPatient, setMultiPayPatient] = useState(null)
+  const [showApprovals, setShowApprovals] = useState(false)
+  const [showEndOfDay, setShowEndOfDay] = useState(false)
   const [cnSearch, setCnSearch] = useState('')  // credit notes tab search
 
   const [toast, setToast] = useState(null)
@@ -546,7 +550,27 @@ export default function Billing({ initialSearch = '' }) {
             {t.label}
           </button>
         ))}
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {profile && ['admin', 'owner', 'billing'].includes(profile.role) && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--gold)', borderColor: 'var(--gold)' }}
+              onClick={() => setShowApprovals(true)}
+              title="View pending approval requests"
+            >
+              <AppIcon name="shield" size={14} /> Approvals
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setShowEndOfDay(true)}
+            title="End-of-day cashier reconciliation — count cash, verify totals"
+          >
+            <AppIcon name="clock" size={14} /> End of Day
+          </button>
           <ModuleHistoryButton moduleKey="billing" />
         </div>
       </div>
@@ -1501,6 +1525,14 @@ export default function Billing({ initialSearch = '' }) {
           onClose={() => setShowMultiPayModal(false)}
           onAllocated={() => { setShowMultiPayModal(false); showToast('Payment allocated across invoices') }}
         />
+      )}
+
+      {/* ---- Phase 4: Approval Queue + End of Day Reconciliation modals ---- */}
+      {showApprovals && (
+        <ApprovalQueueModal onClose={() => setShowApprovals(false)} />
+      )}
+      {showEndOfDay && (
+        <EndOfDayReconciliationModal onClose={() => setShowEndOfDay(false)} />
       )}
 
       {selectedPatient && (
