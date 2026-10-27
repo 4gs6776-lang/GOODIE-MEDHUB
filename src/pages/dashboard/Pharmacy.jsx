@@ -13,6 +13,7 @@ import WalkInSaleModal from '../../components/pharmacy/WalkInSaleModal'
 import useMediaQuery from '../../lib/useMediaQuery'
 import { getTimezone, formatDate as formatDateTz, formatDateTime } from '../../lib/datetime'
 import { writeAudit } from '../../lib/audit'
+import { ROLE_LABELS } from '../../lib/permissions'
 
 export default function Pharmacy() {
   const { profile, hospital } = useAuth()
@@ -27,6 +28,14 @@ export default function Pharmacy() {
   
   // NEW: Fetch prescriptions to receive doctor's orders
   const { records: prescriptions, updateRecord: updatePrescription, syncFromServer: syncPrescriptions } = useOfflineTable('prescriptions', hospital?.id)
+  // NEW: Staff medication requests (nurses + patient profiles send these)
+  // Schema: see migration 030_pharmacy_requests.sql
+  // openRequests = pending requests not yet dispensed/cancelled
+  const { records: pharmRequests, updateRecord: updatePharmRequest } = useOfflineTable('pharmacy_requests', hospital?.id)
+  // NEW: Pharmacy walk-in sales records (created by WalkInSaleModal)
+  // Schema: sale_number, customer_name, items (jsonb), total, payment_method,
+  //         sale_type ('walk_in' | 'prescription'), status, dispensed_by_name
+  const { records: pharmacySales, syncFromServer: syncPharmacySales } = useOfflineTable('pharmacy_sales', hospital?.id)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showDispenseModal, setShowDispenseModal] = useState(false)
@@ -177,6 +186,87 @@ export default function Pharmacy() {
     }
   }
 
+  // ---- Staff medication requests (sent from patient profiles + nursing) ----
+  // openRequests = pending requests (status === 'requested'), newest first
+  const openRequests = useMemo(() => {
+    return (pharmRequests || [])
+      .filter(r => r.status === 'requested')
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  }, [pharmRequests])
+
+  // rxSummary: for a prescription + its requests, return how many were
+  // prescribed, how many were requested across all open requests, and
+  // how many remain available to dispense.
+  function rxSummary(rx, allRequests) {
+    if (!rx) return null
+    const prescribed = Number(rx.quantity || 0)
+    const requested = (allRequests || [])
+      .filter(r => r.prescription_id === rx.id && r.status !== 'cancelled')
+      .reduce((s, r) => s + Number(r.quantity || 0), 0)
+    return { total: prescribed, requested, remaining: prescribed - requested }
+  }
+
+  // openDispenseRequest: when pharmacist clicks "Dispense" on a staff
+  // request — find the matching drug in inventory, find the patient,
+  // open the standard dispense modal pre-filled.
+  function openDispenseRequest(req) {
+    const matchedDrug = inventoryItems.find(it =>
+      String(it.name || '').toLowerCase() === String(req.drug_name || '').toLowerCase() ||
+      String(it.generic_name || '').toLowerCase() === String(req.drug_name || '').toLowerCase()
+    )
+    const matchedPatient = patients.find(p => p.id === req.patient_id)
+    if (!matchedPatient) {
+      showToast('Patient record not found.')
+      return
+    }
+    if (!matchedDrug) {
+      setDispensingItem({
+        id: null,
+        name: req.drug_name,
+        quantity: 9999,
+        unit: 'units',
+        selling_price: 0,
+        expiry_date: null,
+      })
+      showToast(`"${req.drug_name}" is not in inventory. Enter price manually.`)
+    } else {
+      setDispensingItem(matchedDrug)
+    }
+    setDispenseQuantity(String(req.quantity || '1'))
+    setDispenseError('')
+    setSelectedPatient(matchedPatient)
+    setActiveRx(null)  // not from a prescription directly
+    setActiveReq(req)  // track this staff request for completion
+    setShowDispenseModal(true)
+  }
+
+  // handleRejectRequest: pharmacist declines a staff request
+  async function handleRejectRequest(req) {
+    const reason = prompt(`Reject request for ${req.quantity} × ${req.drug_name}?\n\nReason (required):`)
+    if (!reason?.trim()) return
+    try {
+      await updatePharmRequest(req.id, {
+        status: 'cancelled',
+        notes: (req.notes ? req.notes + ' | ' : '') + `Rejected by pharmacy: ${reason.trim()}`,
+      })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'pharmacy_request.rejected',
+        entityType: 'pharmacy_request', entityId: req.id,
+        patientId: req.patient_id || null,
+        summary: `Rejected medication request — ${req.quantity} × ${req.drug_name} for ${req.patient_name || 'patient'} — reason: ${reason.trim()}`,
+        metadata: {
+          request_id: req.id, drug_name: req.drug_name, quantity: req.quantity,
+          patient_id: req.patient_id, requested_by: req.requested_by_name,
+          reason: reason.trim(),
+        },
+      })
+      showToast('Request rejected')
+    } catch (err) {
+      showToast(err.message || 'Failed to reject request')
+    }
+  }
+
   // Automatic Dispense (From Doctor's Queue)
   const openDispenseRx = (rx) => {
     // Find matching drug in inventory
@@ -213,9 +303,9 @@ export default function Pharmacy() {
     setShowDispenseModal(true)
   }
 
-  const closeDispense = () => { 
+  const closeDispense = () => {
     if (dispensing) return
-    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null) 
+    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null); setActiveReq(null)
   }
 
   const handleDispense = async (e) => {
@@ -267,6 +357,28 @@ export default function Pharmacy() {
       // 4. If this was from a Doctor's Order, mark prescription as dispensed
       if (activeRx) {
         await updatePrescription(activeRx.id, { status: 'dispensed' })
+      }
+
+      // 4b. If this was from a staff medication request, mark it dispensed
+      if (activeReq) {
+        await updatePharmRequest(activeReq.id, {
+          status: 'dispensed',
+          dispensed_quantity: qty,
+          dispensed_by: profile?.id || null,
+          dispensed_by_name: profile?.full_name || null,
+          dispensed_at: new Date().toISOString(),
+        })
+        writeAudit({
+          hospitalId: hospital?.id, actor: profile,
+          action: 'pharmacy_request.dispensed',
+          entityType: 'pharmacy_request', entityId: activeReq.id,
+          patientId: selectedPatient.id,
+          summary: `Dispensed ${qty} × ${dispensingItem.name} for staff request by ${activeReq.requested_by_name || 'staff'} — for ${selectedPatient.full_name}`,
+          metadata: {
+            request_id: activeReq.id, drug_name: dispensingItem.name, quantity: qty,
+            requested_by: activeReq.requested_by_name,
+          },
+        })
       }
 
       // 5. Audit trail — dispense event.
