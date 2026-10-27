@@ -62,6 +62,7 @@ export default function Billing({ initialSearch = '' }) {
   const [showCreateInvoice, setShowCreateInvoice] = useState(false)
 
   const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions' | 'payments' | 'expenses'
+  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions' | 'payments'
   const [txnTypeFilter, setTxnTypeFilter] = useState('all')  // 'all' | 'deposit' | 'charge' | 'refund' | 'adjustment'
   const [txnSearch, setTxnSearch] = useState('')
   const [payMethodFilter, setPayMethodFilter] = useState('all')

@@ -36,6 +36,16 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   const { records: allItems } = useOfflineTable('invoice_items', hospital?.id)
   const { records: allPayments, addRecord: addPayment } = useOfflineTable('payments', hospital?.id)
   const { records: bankAccounts } = useOfflineTable('hospital_bank_accounts', hospital?.id)
+  // ---- Patient wallet — for wallet-first deduction on partial payments
+  // Per the universal wallet-first rule: ANY charge against a patient
+  // who has a wallet balance must deduct from the wallet FIRST, then
+  // record the remaining amount as a regular payment. Same logic that
+  // CashierWorkspace uses at invoice-creation time, applied here to
+  // additional payments recorded against an existing invoice.
+  const { records: walletRecords } = useOfflineTable('patient_wallets', hospital?.id)
+  const { addRecord: addWalletTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+  // Patients — to resolve HMO category (HMO patients bypass the wallet)
+  const { records: patients } = useOfflineTable('patients', hospital?.id)
 
   const [showPay, setShowPay] = useState(false)
   const [payAmount, setPayAmount] = useState('')
@@ -83,33 +93,167 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
   const walletDeduction = Number(invoice.wallet_deduction || 0)
   const cashierCollected = Math.max(0, totalPaid - walletDeduction)
 
+  // ---- Patient's wallet (for wallet-first deduction on the next payment)
+  // HMO patients bypass the wallet — their bills go to the HMO claim flow.
+  // Self-pay patients with a wallet get auto-deducted on every payment
+  // recorded here, including partial payments against an existing invoice.
+  const patientRecord = patients.find(p => p.id === invoice.patient_id) || null
+  const isHmoPatient = !!patientRecord?.hmo_provider
+    && patientRecord?.hmo_provider !== 'Self-Pay (No HMO)'
+    && patientRecord?.category === 'hmo'
+  const patientWallet = (!isHmoPatient)
+    ? (walletRecords.find(w => w.patient_id === invoice.patient_id) || null)
+    : null
+  const walletBalance = Number(patientWallet?.balance || 0)
+  // How much of the OUTSTANDING BALANCE the wallet could cover right now
+  const walletCanCover = patientWallet ? Math.min(walletBalance, balance) : 0
+  // The remaining balance after the wallet has done its part — this is
+  // what the cashier must collect at the counter (cash / POS / transfer).
+  const remainingAfterWallet = Math.max(0, balance - walletCanCover)
+
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   async function handleSavePayment(e) {
     e.preventDefault()
-    const amt = Number(payAmount)
-    if (isNaN(amt) || amt <= 0) { setPayError('Enter a valid amount.'); return }
-    if (amt > balance + 0.001) { setPayError(`Amount exceeds the outstanding balance (${balance.toFixed(2)}).`); return }
+    const amt = Number(payAmount) || 0
+
+    // If the wallet can cover the whole balance, the cashier is allowed to
+    // leave the amount at 0 — the wallet deduction alone will close out the
+    // invoice. Otherwise we require a positive cashier-collected amount.
+    if (amt < 0) { setPayError('Amount cannot be negative.'); return }
+    if (amt === 0 && walletCanCover <= 0) {
+      setPayError('Enter a valid amount (greater than 0).')
+      return
+    }
+    if (amt > remainingAfterWallet + 0.001) {
+      // The cashier entered more than what's actually outstanding after
+      // the wallet deduction. Show a clear error message — we cap at the
+      // remaining balance, never collect more than what's owed.
+      if (walletCanCover > 0) {
+        setPayError(`The wallet will cover ${formatMoney(walletCanCover)} automatically. The amount you can collect at the counter is at most ${formatMoney(remainingAfterWallet)}.`)
+      } else {
+        setPayError(`Amount exceeds the outstanding balance (${balance.toFixed(2)}).`)
+      }
+      return
+    }
+
+    // ---- Wallet-first deduction (universal rule) -----------------------
+    // Any charge against a patient who has a wallet balance must deduct
+    // from the wallet FIRST. The cashier-entered `amt` is the amount
+    // they collected at the counter — it does NOT replace the wallet
+    // deduction, it stacks on top of it (capped at the remaining
+    // balance after the wallet has done its part).
+    //
+    //   walletDeduction  = min(walletBalance, balance)
+    //   cashierCollected = min(amt, balance - walletDeduction)
+    //   totalThisPayment = walletDeduction + cashierCollected
+    //
+    // Edge cases handled:
+    //   - Wallet fully covers the balance → cashier's `amt` is refunded
+    //     conceptually (we just don't record a cash payment for it).
+    //     The cashier should enter 0 — but if they entered more, we cap
+    //     cashierCollected at the remaining balance.
+    //   - Wallet has 0 → behaves exactly like the old code.
+    //   - HMO patient → no wallet deduction, behaves like the old code.
+    const walletDeductionThisPayment = walletCanCover  // already capped at balance
+    const cashierCollectedThisPayment = Math.max(0, Math.min(amt, balance - walletDeductionThisPayment))
+    const totalThisPayment = walletDeductionThisPayment + cashierCollectedThisPayment
+
+    if (totalThisPayment <= 0) {
+      setPayError('Nothing to record — the invoice is already fully paid.')
+      return
+    }
+    if (cashierCollectedThisPayment > 0 && cashierCollectedThisPayment < amt - 0.001) {
+      // The cashier entered more than the remaining-after-wallet balance.
+      // We'll still proceed (capping at the actual remaining balance), but
+      // surface a clear note so they're not surprised by the difference.
+      // We don't block — the wallet just absorbed part of what they thought
+      // was a cash payment.
+      // (No alert here; the post-save toast will explain it.)
+    }
+
     setSaving(true)
     setPayError('')
     try {
-      await addPayment({
-        hospital_id: hospital.id, invoice_id: invoice.id, patient_id: invoice.patient_id,
-        patient_name: invoice.patient_name, amount: amt, method: payMethod,
-        received_by: profile?.id, reference_number: `REF-${Date.now().toString().slice(-6)}`
-      })
-      const newPaid = totalPaid + amt
-      const newBal = grandTotal - newPaid
+      // ---- 1. Record the wallet charge (if any) ----------------------
+      // Append-only ledger entry. The trigger on patient_wallet_transactions
+      // will update the wallets.balance column automatically.
+      if (walletDeductionThisPayment > 0 && patientWallet) {
+        const newWalletBalance = walletBalance - walletDeductionThisPayment
+        await addWalletTxn({
+          hospital_id: hospital.id,
+          patient_id: invoice.patient_id,
+          wallet_id: patientWallet.id,
+          type: 'charge',
+          amount: -walletDeductionThisPayment,            // negative = money leaving the wallet
+          balance_after: newWalletBalance,
+          method: 'Wallet',
+          invoice_id: invoice.id,
+          performed_by: profile?.id,
+          performed_by_name: profile?.full_name || null,
+          notes: `Auto-deducted for invoice ${invoice.invoice_number || invoice.id.slice(0,8)} (additional payment)`,
+        })
+        writeAudit({
+          hospitalId: hospital.id, actor: profile,
+          action: 'wallet.charge',
+          entityType: 'invoice', entityId: invoice.id,
+          patientId: invoice.patient_id,
+          summary: `Auto-charged ${formatMoney(walletDeductionThisPayment)} from ${invoice.patient_name || 'patient'}'s wallet for invoice ${invoice.invoice_number || invoice.id.slice(0,8)} (additional payment)`,
+          metadata: {
+            invoice_id: invoice.id, invoice_number: invoice.invoice_number,
+            wallet_id: patientWallet.id,
+            wallet_deduction: walletDeductionThisPayment,
+            wallet_balance_before: walletBalance,
+            wallet_balance_after: newWalletBalance,
+          },
+        })
+      }
+
+      // ---- 2. Record the cashier-collected portion (if any) ---------
+      // Only insert a payment row if the cashier actually collected cash /
+      // POS / transfer. If the wallet covered the whole remaining balance,
+      // there's nothing for the cashier to record — skip the payment row.
+      if (cashierCollectedThisPayment > 0) {
+        await addPayment({
+          hospital_id: hospital.id, invoice_id: invoice.id, patient_id: invoice.patient_id,
+          patient_name: invoice.patient_name, amount: cashierCollectedThisPayment, method: payMethod,
+          received_by: profile?.id, reference_number: `REF-${Date.now().toString().slice(-6)}`
+        })
+      }
+
+      // ---- 3. Update the invoice with new totals --------------------
+      const newPaid = totalPaid + totalThisPayment
+      const newBal = Math.max(0, grandTotal - newPaid)
+      const newStatus = newBal <= 0.001 ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid')
+      // wallet_deduction on the invoice is the cumulative total — add the
+      // new deduction to whatever was already recorded.
+      const newWalletDeduction = walletDeduction + walletDeductionThisPayment
       await updateInvoice(invoice.id, {
-        amount_paid: newPaid, balance: newBal,
-        payment_method: payMethod, status: newBal <= 0 ? 'paid' : 'partial'
+        amount_paid: newPaid,
+        balance: newBal,
+        wallet_deduction: newWalletDeduction,
+        wallet_id: newWalletDeduction > 0 ? (invoice.wallet_id || patientWallet?.id || null) : (invoice.wallet_id || null),
+        payment_method: walletDeductionThisPayment > 0
+          ? (cashierCollectedThisPayment > 0 ? `${payMethod} + Wallet` : 'Wallet')
+          : payMethod,
+        status: newStatus,
       })
+
+      // ---- 4. Audit -------------------------------------------------
       writeAudit({
         hospitalId: hospital.id, actor: profile, action: 'invoice.payment_recorded',
         entityType: 'invoice', entityId: invoice.id, patientId: invoice.patient_id || null,
-        summary: `Payment of ₦${amt.toFixed(2)} (${payMethod}) recorded for ${invoice.patient_name || 'invoice'} ${invoice.invoice_number || ''}`.trim(),
-        metadata: { amount: amt, method: payMethod, invoice_total: grandTotal, balance_after: newBal },
+        summary: `Payment of ${formatMoney(totalThisPayment)} recorded for ${invoice.patient_name || 'invoice'} ${invoice.invoice_number || ''} — wallet ${formatMoney(walletDeductionThisPayment)} + cashier ${formatMoney(cashierCollectedThisPayment)} (${payMethod})`.trim(),
+        metadata: {
+          total_this_payment: totalThisPayment,
+          wallet_deduction: walletDeductionThisPayment,
+          cashier_collected: cashierCollectedThisPayment,
+          method: payMethod,
+          invoice_total: grandTotal,
+          balance_after: newBal,
+        },
       })
+
       setPayAmount(''); setShowPay(false)
       onClose() // Close to refresh table
     } catch (err) { setPayError(err.message || 'Could not save the payment.') } finally { setSaving(false) }
@@ -349,14 +493,71 @@ export default function InvoiceViewer({ invoice, onClose, hospital, profile }) {
 
       {showPay && (
         <div className="dash-modal-backdrop" style={{ zIndex: 110 }} onClick={e => { if (e.target === e.currentTarget) setShowPay(false) }}>
-          <div className="card dash-modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+          <div className="card dash-modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="dash-modal-title">Record Payment</div>
             <div className="dash-modal-body">
+              {/* ---- Wallet-first deduction banner ------------------------
+                  Per the universal wallet-first rule: if this patient has
+                  a wallet balance, the wallet is deducted FIRST. The
+                  cashier-collected amount below is for the REMAINDER after
+                  the wallet has done its part. */}
+              {walletCanCover > 0 && (
+                <div style={{
+                  marginBottom: 14, padding: '10px 12px', borderRadius: 8,
+                  background: 'rgba(0,199,199,0.08)', border: '1px solid var(--teal-border)',
+                  fontSize: 12, color: 'var(--ivory)', lineHeight: 1.6,
+                }}>
+                  <div style={{ fontWeight: 700, color: 'var(--teal)', marginBottom: 4 }}>
+                    Wallet balance: {formatMoney(walletBalance)}
+                  </div>
+                  <div style={{ color: 'var(--muted)', fontSize: 11.5 }}>
+                    {walletCanCover >= balance ? (
+                      <>The wallet will cover the full outstanding balance of <strong style={{ color: 'var(--teal)' }}>{formatMoney(balance)}</strong>.
+                      You can leave the amount below as 0 — the wallet handles it automatically.</>
+                    ) : (
+                      <>The wallet will auto-deduct <strong style={{ color: 'var(--teal)' }}>{formatMoney(walletCanCover)}</strong> first.
+                      The remaining <strong style={{ color: 'var(--gold)' }}>{formatMoney(remainingAfterWallet)}</strong> must be collected at the counter.</>
+                    )}
+                  </div>
+                </div>
+              )}
+              {isHmoPatient && (
+                <div style={{
+                  marginBottom: 14, padding: '8px 12px', borderRadius: 8,
+                  background: 'rgba(118,87,232,0.06)', border: '1px solid rgba(118,87,232,0.25)',
+                  fontSize: 11.5, color: 'var(--muted)',
+                }}>
+                  <strong style={{ color: 'var(--violet)' }}>HMO patient:</strong> Wallet is bypassed. The patient pays their share directly.
+                </div>
+              )}
               <form id="record-payment-form" onSubmit={handleSavePayment}>
                 {payError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{payError}</div>}
                 <div className="field">
-                  <label>Amount (₦)</label>
-                  <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder={`Max: ${balance.toFixed(2)}`} autoFocus required />
+                  <label>Amount to Collect at Counter (₦)</label>
+                  <input
+                    type="number"
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    placeholder={walletCanCover > 0
+                      ? (remainingAfterWallet > 0 ? `Max: ${remainingAfterWallet.toFixed(2)} (wallet covers the rest)` : '0 — wallet covers everything')
+                      : `Max: ${balance.toFixed(2)}`
+                    }
+                    autoFocus
+                  />
+                  {walletCanCover > 0 && remainingAfterWallet > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      Total payment will be{' '}
+                      <strong style={{ color: 'var(--teal)' }}>
+                        {formatMoney(walletCanCover + (Math.min(Number(payAmount) || 0, remainingAfterWallet)))}
+                      </strong>{' '}
+                      (wallet {formatMoney(walletCanCover)} + cash {formatMoney(Math.min(Number(payAmount) || 0, remainingAfterWallet))})
+                    </div>
+                  )}
+                  {walletCanCover >= balance && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      Enter 0 (or any amount) — the wallet will fully cover the invoice.
+                    </div>
+                  )}
                 </div>
                 <div className="field">
                   <label>Method</label>
