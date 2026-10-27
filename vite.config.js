@@ -24,6 +24,12 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // The main JS bundle for this app is ~2.1 MB because we ship a
+        // full hospital management system (Pharmacy, Billing, Lab, IPD,
+        // Nursing, Inventory, AI Diagnostics, etc.) in one bundle.
+        // Workbox's default precache limit is 2 MiB — bumping it to
+        // 5 MiB so the bundle precaches without failing the build.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.origin.includes('supabase.co') && url.pathname.includes('/rest/'),
@@ -38,4 +44,23 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // Raise the warning threshold so Vite doesn't complain about
+    // the ~2 MB bundle. We're aware of it; splitting it would mean
+    // lazy-loading routes which is a bigger refactor.
+    chunkSizeWarningLimit: 2500,
+    rollupOptions: {
+      output: {
+        // Split large vendor deps into their own chunks so the main
+        // app bundle stays smaller and individual chunks can precache.
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'supabase-vendor': ['@supabase/supabase-js'],
+          'charts-vendor': ['recharts'],
+          'sheets-vendor': ['xlsx'],
+          'icons-vendor': ['lucide-react'],
+        },
+      },
+    },
+  },
 })
