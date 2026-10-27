@@ -775,15 +775,88 @@ export default function Dashboard(){
   // hospital's own timezone.
   const subBanner = isHospitalAdmin ? getSubscriptionBanner(subAlerts.subscription, todayKeyInZone(hospitalTz)) : null
 
-  const recentMessageCount = useMemo(() => {
+  // ---- TRUE unread message count (per-user read tracking) -----------
+  // Replaces the old "messages from others in the last 24h" heuristic.
+  // Uses the message_channel_reads table (migration 033) which records
+  // when the current user last opened each channel.
+  //
+  // The Messages page computes the actual count (since it already loads
+  // both messages and read states). It broadcasts via a window event so
+  // the Dashboard bell can pick it up without prop drilling. We default
+  // to a re-computed value here using just the messages table as a
+  // fallback — the moment the user opens Messages, the count gets
+  // replaced by the accurate value from the event.
+  const { records: myReadStates } = useOfflineTable('message_channel_reads', hospital?.id)
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0)
+
+  // Recompute the count locally — gives a sensible default before the
+  // user opens the Messages page (or if they never do).
+  const computedUnreadCount = useMemo(() => {
     if (!profile?.id) return 0
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000
-    return (allMessages || []).filter(m =>
-      m.sender_id !== profile.id &&
-      (m.channel_type === 'department' || m.recipient_id === profile.id) &&
-      new Date(m.created_at).getTime() >= cutoff
-    ).length
-  }, [allMessages, profile?.id])
+    const myReads = new Map()
+    for (const r of myReadStates) {
+      if (r.user_id === profile.id) {
+        myReads.set(`${r.channel_type}|${r.channel_key}`, new Date(r.last_read_at).getTime())
+      }
+    }
+    let count = 0
+    for (const m of allMessages || []) {
+      if (m.sender_id === profile.id) continue
+      if (m.channel_type !== 'department' && m.channel_type !== 'dm') continue
+      if (m.channel_type === 'dm') {
+        const ids = (m.channel_key || '').split('__')
+        if (!ids.includes(profile.id)) continue
+      }
+      const lastRead = myReads.get(`${m.channel_type}|${m.channel_key}`) || 0
+      if (new Date(m.created_at).getTime() > lastRead) count++
+    }
+    return count
+  }, [allMessages, myReadStates, profile?.id])
+
+  // Listen for the live update event from the Messages page. When it
+  // fires, replace the local computed value with the accurate one.
+  useEffect(() => {
+    function onUnreadUpdate(e) {
+      if (e?.detail && typeof e.detail.count === 'number') {
+        setUnreadMessageCount(e.detail.count)
+      }
+    }
+    window.addEventListener('gmed:messages-unread', onUnreadUpdate)
+    return () => window.removeEventListener('gmed:messages-unread', onUnreadUpdate)
+  }, [])
+
+  // Use the event-sourced value if it's been set (> 0 OR if we've
+  // ever received an event); otherwise fall back to the locally computed
+  // value. We use a ref-style approach: track whether the event has
+  // ever fired.
+  const unreadMessageCountRef = useRef(false)
+  useEffect(() => {
+    if (computedUnreadCount !== null) {
+      // The event hasn't fired yet — use the locally computed value.
+      if (!unreadMessageCountRef.current) {
+        setUnreadMessageCount(computedUnreadCount)
+      }
+    }
+  }, [computedUnreadCount])
+  useEffect(() => {
+    function markFired() { unreadMessageCountRef.current = true }
+    window.addEventListener('gmed:messages-unread', markFired, { once: true })
+    return () => window.removeEventListener('gmed:messages-unread', markFired)
+  }, [])
+
+  // Final value: prefer the event-sourced count once the event has
+  // fired, otherwise the locally-computed default.
+  const recentMessageCount = unreadMessageCountRef.current ? unreadMessageCount : computedUnreadCount
+
+  // ---- TRUE unread count for the bell badge ------------------------
+  // Only counts: (1) unread subscription alerts + (2) unread messages.
+  // Status info like low stock, ready labs, today's appointments stay
+  // in the popover (so users still see them when they click the bell),
+  // but they no longer inflate the badge count.
+  const trueUnreadCount = useMemo(() => {
+    const subUnread = (subAlerts.notifications || []).length
+    return subUnread + recentMessageCount
+  }, [subAlerts.notifications, recentMessageCount])
 
   const upcoming = appointments
     .filter(a => {
@@ -1186,12 +1259,14 @@ export default function Dashboard(){
                 onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
               >
                 <AppIcon name="bell" size={18}/>
-                {notificationItems.length > 0 && <span>{notificationItems.length}</span>}
+                {trueUnreadCount > 0 && <span>{trueUnreadCount > 9 ? '9+' : trueUnreadCount}</span>}
               </button>
 
               {activeMenu === 'notifs' && (
                 <div className="dash-popover-menu">
-                  <div className="dash-popover-header">Notifications ({notificationItems.length})</div>
+                  <div className="dash-popover-header">
+                    Notifications {trueUnreadCount > 0 ? `(${trueUnreadCount} unread)` : ''}
+                  </div>
                   {(subAlerts.notifications || []).length > 0 && (
                     <button className="dash-view-all" style={{ margin: '4px 14px 0' }} onClick={subAlerts.markAllRead}>
                       Mark subscription alerts as read

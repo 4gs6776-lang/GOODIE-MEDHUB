@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useOfflineTable } from '../lib/useOfflineTable'
 import MedicationChart from './MedicationChart'
@@ -6,9 +6,9 @@ import AppIcon from './icons'
 import PatientWallet from './PatientWallet'
 import { writeAudit } from '../lib/audit'
 import { formatDateTime } from '../lib/datetime'
-import { canEditPatientDetails } from '../lib/permissions'
+import { computePatientStatement } from '../lib/billingService'
 
-const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Edit Info']
+const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Statement', 'Edit Info']
 // Full-screen patient dashboard, opened by clicking a patient anywhere in
 // the app. Reuses the same offline-first tables every other module reads —
 // nothing new is stored here except through those existing hooks.
@@ -25,13 +25,17 @@ export default function PatientProfile({ patientId, onClose }){
   // NEW: Fetch the stock records (Items Given)
   const { records: stockRecords } = useOfflineTable('patient_stock_records', hospital?.id)
 
+  // Phase 2: payments + credit notes for the Account Statement tab
+  const { records: allPayments } = useOfflineTable('payments', hospital?.id)
+  const { records: creditNotes } = useOfflineTable('credit_notes', hospital?.id)
+  const { records: deposits } = useOfflineTable('deposits', hospital?.id)
+
   // Doctors can view patient details but cannot add/edit/delete patients.
   // The "Edit Info" tab is hidden from doctors.
-  // Only Front Desk, Nurse and Admin may edit patient details.
-  const canEditPatient = canEditPatientDetails(profile?.role)
-  const visibleTabs = canEditPatient
-    ? TABS
-    : TABS.filter(t => t !== 'Edit Info')
+  const isDoctor = profile?.role === 'doctor'
+  const visibleTabs = isDoctor
+    ? TABS.filter(t => t !== 'Edit Info')
+    : TABS
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
@@ -39,7 +43,6 @@ export default function PatientProfile({ patientId, onClose }){
   const [showPharmModal, setShowPharmModal] = useState(false)
   const [pharmDrug, setPharmDrug] = useState('')
   const [pharmQty, setPharmQty] = useState('')
-  const [pharmDosage, setPharmDosage] = useState('')
   const [pharmNotes, setPharmNotes] = useState('')
   const [pharmSaving, setPharmSaving] = useState(false)
   const [pharmError, setPharmError] = useState('')
@@ -233,7 +236,18 @@ export default function PatientProfile({ patientId, onClose }){
               profile={profile} addInvoice={addInvoice} updateInvoice={updateInvoice} showToast={showToast}
             />
           )}
-          {tab === 'Edit Info' && canEditPatient && (
+          {tab === 'Statement' && (
+            <StatementTab
+              patient={patient}
+              invoices={invoices}
+              payments={allPayments}
+              creditNotes={creditNotes}
+              deposits={deposits}
+              hospital={hospital}
+              profile={profile}
+            />
+          )}
+          {tab === 'Edit Info' && (
             <EditInfoTab patient={patient} updatePatient={updatePatient} showToast={showToast} />
           )}
         </div>
@@ -262,7 +276,6 @@ export default function PatientProfile({ patientId, onClose }){
                   e.preventDefault()
                   setPharmError('')
                   if (!pharmDrug.trim()) { setPharmError('Drug name is required.'); return }
-                  if (!pharmDosage.trim()) { setPharmError('Dosage is required.'); return }
                   if (!pharmQty.trim()) { setPharmError('Quantity is required.'); return }
                   setPharmSaving(true)
                   try {
@@ -270,7 +283,7 @@ export default function PatientProfile({ patientId, onClose }){
                       patient_id: patient.id,
                       patient_name: patient.full_name,
                       drug_name: pharmDrug.trim(),
-                      dosage: pharmDosage.trim(),
+                      dosage: null,
                       route: null,
                       frequency: null,
                       duration: null,
@@ -287,11 +300,11 @@ export default function PatientProfile({ patientId, onClose }){
                       entityType: 'prescription', entityId: null,
                       patientId: patient.id,
                       summary: `Nurse sent ${pharmDrug.trim()} (qty ${pharmQty.trim()}) to pharmacy for ${patient.full_name}`,
-                      metadata: { drug_name: pharmDrug.trim(), dosage: pharmDosage.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
+                      metadata: { drug_name: pharmDrug.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
                     })
                     showToast(`"${pharmDrug}" sent to Pharmacy for ${patient.full_name}`)
                     setShowPharmModal(false)
-                    setPharmDrug(''); setPharmDosage(''); setPharmQty(''); setPharmNotes('')
+                    setPharmDrug(''); setPharmQty(''); setPharmNotes('')
                   } catch (err) {
                     setPharmError(err.message || 'Could not send to pharmacy.')
                   } finally {
@@ -301,10 +314,6 @@ export default function PatientProfile({ patientId, onClose }){
                   <div className="field">
                     <label>Drug Name *</label>
                     <input value={pharmDrug} onChange={e => setPharmDrug(e.target.value)} placeholder="e.g. Paracetamol 500mg" autoFocus required />
-                  </div>
-                  <div className="field">
-                    <label>Dosage *</label>
-                    <input value={pharmDosage} onChange={e => setPharmDosage(e.target.value)} placeholder="e.g. 500mg, 2 tablets" required />
                   </div>
                   <div className="field">
                     <label>Quantity *</label>
@@ -613,6 +622,209 @@ function BillingTab({ patient, invoices, outstandingBalance, profile, addInvoice
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+// =====================================================================
+// Phase 2: Account Statement tab — running ledger of all financial
+// activity for this patient. Filterable by date range. Printable.
+// =====================================================================
+function StatementTab({ patient, invoices, payments, creditNotes, deposits, hospital, profile }) {
+  const [periodFrom, setPeriodFrom] = useState('')
+  const [periodTo, setPeriodTo] = useState('')
+  const [generating, setGenerating] = useState(false)
+
+  // Default period: last 90 days
+  useEffect(() => {
+    if (!periodTo) {
+      const today = new Date()
+      const ninetyAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000)
+      setPeriodTo(today.toISOString().slice(0, 10))
+      setPeriodFrom(ninetyAgo.toISOString().slice(0, 10))
+    }
+  }, [])
+
+  const statement = useMemo(() => {
+    return computePatientStatement({
+      invoices, payments, creditNotes, deposits,
+      patientId: patient?.id,
+      periodFrom, periodTo,
+    })
+  }, [invoices, payments, creditNotes, deposits, patient?.id, periodFrom, periodTo])
+
+  const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  function handlePrint() {
+    setGenerating(true)
+    const win = window.open('', '_blank')
+    if (!win) {
+      alert('Please allow popups to print the statement.')
+      setGenerating(false)
+      return
+    }
+    const rows = statement.ledger.map(entry => {
+      const debit = entry.debit ? `<td style="text-align:right">₦${entry.debit.toFixed(2)}</td><td></td>` : `<td></td><td style="text-align:right">₦${entry.credit.toFixed(2)}</td>`
+      return `<tr>
+        <td>${new Date(entry.date).toLocaleDateString('en-NG')}</td>
+        <td>${entry.type}</td>
+        <td>${entry.number || ''}</td>
+        <td>${entry.description}</td>
+        ${debit}
+      </tr>`
+    }).join('')
+
+    const html = `
+      <html><head><title>Statement — ${patient.full_name}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 40px; color: #111; max-width: 800px; margin: auto; }
+        .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
+        .h-name { font-size: 24px; font-weight: bold; text-transform: uppercase; }
+        .h-meta { font-size: 14px; color: #555; margin-top: 5px; }
+        .patient-box, .period-box { background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+        .summary div { padding: 12px; background: #f8f9fa; border-radius: 8px; text-align: center; }
+        .summary .label { font-size: 11px; color: #888; text-transform: uppercase; }
+        .summary .value { font-size: 18px; font-weight: bold; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f8f9fa; }
+        .totals { margin-top: 20px; padding: 15px; background: #f0f9ff; border-radius: 8px; }
+        .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #888; }
+      </style></head><body>
+        <div class="header">
+          ${hospital?.logo_url ? `<img src="${hospital.logo_url}" alt="logo" style="max-width: 120px; max-height: 80px; margin: 0 auto 10px; display: block;" />` : ''}
+          <div class="h-name">${hospital?.name || 'Hospital'}</div>
+          ${hospital?.address ? `<div class="h-meta">${hospital.address}</div>` : ''}
+          ${hospital?.phone ? `<div class="h-meta">Tel: ${hospital.phone}</div>` : ''}
+        </div>
+        <h2 style="text-align:center; margin-bottom: 20px;">PATIENT ACCOUNT STATEMENT</h2>
+        <div style="display: flex; justify-content: space-between; gap: 20px; margin-bottom: 20px;">
+          <div class="patient-box" style="flex:1">
+            <strong>Patient:</strong> ${patient.full_name}<br/>
+            <strong>MRN:</strong> ${patient.patient_id || patient.hospital_number || '—'}<br/>
+            <strong>Phone:</strong> ${patient.phone || '—'}
+          </div>
+          <div class="period-box" style="flex:1">
+            <strong>Statement Period:</strong><br/>
+            ${periodFrom || 'Beginning'} to ${periodTo || 'Today'}<br/>
+            <strong>Generated:</strong> ${new Date().toLocaleString('en-NG')}<br/>
+            <strong>By:</strong> ${profile?.full_name || '—'}
+          </div>
+        </div>
+        <div class="summary">
+          <div><div class="label">Opening Balance</div><div class="value">₦${statement.openingBalance.toFixed(2)}</div></div>
+          <div><div class="label">Closing Balance</div><div class="value" style="color: ${statement.closingBalance > 0 ? '#dc2626' : '#16a34a'}">₦${statement.closingBalance.toFixed(2)}</div></div>
+          <div><div class="label">Invoices in Period</div><div class="value">${statement.invoiceCount}</div></div>
+        </div>
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Description</th><th>Debit</th><th>Credit</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6">No transactions in this period</td></tr>'}</tbody>
+        </table>
+        <div class="totals">
+          <div><strong>Total Invoiced:</strong> ₦${statement.totalInvoiced.toFixed(2)}</div>
+          <div><strong>Total Paid:</strong> ₦${statement.totalPaid.toFixed(2)}</div>
+          <div><strong>Total Refunded (cash):</strong> ₦${statement.totalRefunded.toFixed(2)}</div>
+          <div><strong>Total Adjusted (credits):</strong> ₦${statement.totalAdjusted.toFixed(2)}</div>
+          <div style="margin-top: 8px; font-size: 16px;"><strong>Closing Balance:</strong> ₦${statement.closingBalance.toFixed(2)}</div>
+        </div>
+        <div class="footer">
+          This statement was generated by ${hospital?.name || 'our hospital'} on ${new Date().toLocaleString('en-NG')}.<br/>
+          Please contact our billing office if you have any questions about this statement.
+        </div>
+      </body></html>`
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print(); setGenerating(false) }, 500)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'end' }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>From</label>
+          <input type="date" value={periodFrom} onChange={e => setPeriodFrom(e.target.value)} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6 }} />
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11 }}>To</label>
+          <input type="date" value={periodTo} onChange={e => setPeriodTo(e.target.value)} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6 }} />
+        </div>
+        <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5 }} onClick={handlePrint} disabled={generating}>
+          {generating ? 'Generating…' : '🖨 Print Statement'}
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
+        <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Opening Balance</div>
+          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, fontWeight: 700, marginTop: 4, color: statement.openingBalance > 0 ? 'var(--danger)' : 'var(--teal)' }}>{formatMoney(statement.openingBalance)}</div>
+        </div>
+        <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Invoiced</div>
+          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, fontWeight: 700, marginTop: 4, color: 'var(--ivory)' }}>{formatMoney(statement.totalInvoiced)}</div>
+        </div>
+        <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Paid</div>
+          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, fontWeight: 700, marginTop: 4, color: 'var(--teal)' }}>{formatMoney(statement.totalPaid)}</div>
+        </div>
+        <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Closing Balance</div>
+          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 18, fontWeight: 700, marginTop: 4, color: statement.closingBalance > 0 ? 'var(--danger)' : 'var(--teal)' }}>{formatMoney(statement.closingBalance)}</div>
+        </div>
+      </div>
+
+      {/* Ledger table */}
+      <div className="dash-panel" style={{ padding: 0 }}>
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line-soft)' }}>
+          <div className="dash-panel-title" style={{ fontSize: 14 }}>Transaction Ledger</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{statement.ledger.length} entries · {statement.invoiceCount} invoices, {statement.paymentCount} payments, {statement.creditNoteCount} credit notes</div>
+        </div>
+        {statement.ledger.length === 0 ? (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>No transactions in this period.</div>
+        ) : (
+          <div className="dash-table-wrap">
+            <table className="dash-full-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Number</th>
+                  <th>Description</th>
+                  <th>Debit</th>
+                  <th>Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statement.ledger.map((entry, i) => (
+                  <tr key={i}>
+                    <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{new Date(entry.date).toLocaleDateString('en-NG')}</td>
+                    <td>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                        background: entry.type === 'invoice' ? 'rgba(225,104,94,0.14)' :
+                                    entry.type === 'payment' ? 'rgba(0,199,199,0.14)' :
+                                    'rgba(118,87,232,0.14)',
+                        color: entry.type === 'invoice' ? 'var(--danger)' :
+                               entry.type === 'payment' ? 'var(--teal)' :
+                               'var(--violet)',
+                        textTransform: 'uppercase', letterSpacing: 0.5,
+                      }}>
+                        {entry.type}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}>{entry.number || '—'}</td>
+                    <td style={{ fontSize: 12 }}>{entry.description}</td>
+                    <td style={{ fontFamily: 'var(--font-mono, monospace)', color: 'var(--danger)', fontWeight: 700 }}>{entry.debit ? formatMoney(entry.debit) : '—'}</td>
+                    <td style={{ fontFamily: 'var(--font-mono, monospace)', color: 'var(--teal)', fontWeight: 700 }}>{entry.credit ? formatMoney(entry.credit) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

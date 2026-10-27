@@ -4,6 +4,11 @@ import { supabase } from '../../lib/supabaseClient'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { writeAudit } from '../../lib/audit'
 import AppIcon from '../../components/icons'
+import ServiceCatalogManager from '../../components/ServiceCatalogManager'
+import PriceListManager from '../../components/PriceListManager'
+import HmoContractManager from '../../components/HmoContractManager'
+import PaymentMethodManager from '../../components/PaymentMethodManager'
+import ExpenseVendorManager from '../../components/ExpenseVendorManager'
 import {
   DEFAULT_REGISTRATION_FEES,
   FOLDER_CATEGORY_LABELS,
@@ -736,6 +741,105 @@ export default function Settings(){
               patient has a wallet balance) or the receptionist can waive it with a reason.
             </div>
           </form>
+        )}
+      </div>
+
+      {/* ---- Service Catalog (admin / owner / billing only) ---------------
+          Master list of billable services. Every charge created downstream
+          (in Pharmacy, Lab, Reception, CashierWorkspace) references a
+          catalog row by code, so prices are always sourced from a price
+          list — never typed ad-hoc. Migration 040 seeds ~30 common services. */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Service Catalog</div>
+            <div className="dash-panel-sub">Master list of billable services & items — consultations, labs, procedures, drugs, bed charges, ANC packages</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can edit the catalog.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <ServiceCatalogManager />
+          </div>
+        )}
+      </div>
+
+      {/* ---- Price Lists / Tariffs (admin / owner / billing only) -------- */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Price Lists / Tariffs</div>
+            <div className="dash-panel-sub">Multiple tariffs for walk-in, HMO, staff, corporate patients — each with custom pricing & coverage rules</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can edit price lists.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <PriceListManager />
+          </div>
+        )}
+      </div>
+
+      {/* ---- HMO Contracts (admin / owner / billing only) ---------------- */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">HMO / Payer Contracts</div>
+            <div className="dash-panel-sub">Payer contracts with coverage %, pre-auth rules, and linked price lists</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can edit contracts.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <HmoContractManager />
+          </div>
+        )}
+      </div>
+
+      {/* ---- Payment Methods (admin / owner / billing only) -------------- */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Payment Methods</div>
+            <div className="dash-panel-sub">Configure which payment methods appear in dropdowns — cash, POS, transfer, cheque, etc.</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can edit payment methods.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <PaymentMethodManager />
+          </div>
+        )}
+      </div>
+
+      {/* ---- Expense Vendors (admin / owner / billing only) --------------- */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Expense Vendors</div>
+            <div className="dash-panel-sub">Suppliers, utility companies, contractors — link expenses to vendors for tracking</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can edit vendors.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <ExpenseVendorManager />
+          </div>
         )}
       </div>
 

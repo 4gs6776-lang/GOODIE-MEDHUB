@@ -6,6 +6,7 @@ import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import Autocomplete from '../../components/common/Autocomplete'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import Timestamp from '../../components/common/Timestamp'
 import useMediaQuery from '../../lib/useMediaQuery'
 import { writeAudit } from '../../lib/audit'
@@ -473,6 +474,7 @@ export default function Appointments({ initialSearch = '' }){
             <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
               <AppIcon name="plus" size={15} /> New Appointment
             </button>
+            <ModuleHistoryButton moduleKey="appointments" />
           </div>
 
           {loading ? (

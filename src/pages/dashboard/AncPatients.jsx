@@ -5,6 +5,7 @@ import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import PatientProfile from '../../components/PatientProfile'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 
 // =====================================================================
 // GOODIE-MEDHUB — ANC Patients module
@@ -191,6 +192,7 @@ export default function AncPatients() {
             <div className="dash-panel-sub">{hospital?.name || 'your hospital'} · antenatal care register</div>
           </div>
           <SearchInput value={search} onChange={setSearch} placeholder="Search name, husband, indication, phone…" style={{ minWidth: 260, maxWidth: 420 }} />
+          <ModuleHistoryButton moduleKey="anc" />
         </div>
 
         {loading ? (

@@ -8,12 +8,11 @@ import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import WalkInSaleModal from '../../components/pharmacy/WalkInSaleModal'
 import useMediaQuery from '../../lib/useMediaQuery'
 import { getTimezone, formatDate as formatDateTz, formatDateTime } from '../../lib/datetime'
 import { writeAudit } from '../../lib/audit'
-import { ROLE_LABELS } from '../../lib/permissions'
-import { effectiveQty, parseRxQuantity, rxSummary } from '../../lib/pharmacyRequests'
 
 export default function Pharmacy() {
   const { profile, hospital } = useAuth()
@@ -28,8 +27,6 @@ export default function Pharmacy() {
   
   // NEW: Fetch prescriptions to receive doctor's orders
   const { records: prescriptions, updateRecord: updatePrescription, syncFromServer: syncPrescriptions } = useOfflineTable('prescriptions', hospital?.id)
-  // Requests staff have sent from patient profiles / the nursing station
-  const { records: pharmRequests, updateRecord: updateRequest, syncFromServer: syncRequests } = useOfflineTable('pharmacy_requests', hospital?.id)
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [showDispenseModal, setShowDispenseModal] = useState(false)
@@ -56,15 +53,6 @@ export default function Pharmacy() {
     }
   })
   
-  // Live alert when a nurse / staff member sends a request
-  useRealtimeAlert('pharmacy_requests', hospital?.id, (row) => {
-    if (row.status === 'requested') {
-      showToast(`${row.requested_by_name || 'Staff'} requested ${row.quantity} × ${row.drug_name} for ${row.patient_name || 'a patient'}`)
-      if (syncRequests) syncRequests()
-    }
-  })
-  const openRequests = pharmRequests.filter(r => r.status === 'requested').sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-
   // Doctor's Prescription Queue
   const pendingRx = prescriptions.filter(p => p.status === 'active').sort((a,b) => new Date(a.prescribed_at) - new Date(b.prescribed_at))
   
@@ -164,7 +152,7 @@ export default function Pharmacy() {
 
   // Manual Dispense (Over the counter)
   const openDispense = (item) => { 
-    setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null); setActiveReq(null); setShowDispenseModal(true) 
+    setDispensingItem(item); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null); setShowDispenseModal(true) 
   }
 
   // NEW: Cancel Prescription from Doctor's Queue
@@ -225,48 +213,9 @@ export default function Pharmacy() {
     setShowDispenseModal(true)
   }
 
-  // Dispense a staff request (pre-filled with who asked for what)
-  const openDispenseRequest = (req) => {
-    const wanted = String(req.drug_name || '').toLowerCase()
-    const matchedDrug = inventoryItems.find(it =>
-      String(it.name || '').toLowerCase() === wanted || String(it.generic_name || '').toLowerCase() === wanted
-    )
-    const matchedPatient = patients.find(p => p.id === req.patient_id)
-    if (!matchedPatient) return showToast('Patient record not found.')
-    if (!matchedDrug) {
-      setDispensingItem({ id: null, name: req.drug_name, quantity: 9999, unit: 'units', selling_price: 0, expiry_date: null })
-      showToast(`"${req.drug_name}" is not in inventory. Please enter price manually.`)
-    } else {
-      setDispensingItem(matchedDrug)
-    }
-    setDispenseQuantity(String(req.quantity))
-    setDispenseError('')
-    setSelectedPatient(matchedPatient)
-    setActiveRx(prescriptions.find(p => p.id === req.prescription_id) || null)
-    setActiveReq(req)
-    setShowDispenseModal(true)
-  }
-
-  async function handleRejectRequest(req) {
-    if (!confirm(`Reject the request for ${req.quantity} × ${req.drug_name}? The quantity goes back to the prescription.`)) return
-    try {
-      await updateRequest(req.id, { status: 'cancelled', cancelled_by_name: profile?.full_name || null, cancelled_at: new Date().toISOString() })
-      writeAudit({
-        hospitalId: hospital?.id, actor: profile,
-        action: 'pharmacy.request_rejected',
-        entityType: 'prescription', entityId: req.prescription_id || null, patientId: req.patient_id || null,
-        summary: `Rejected request for ${req.quantity} × ${req.drug_name} (${req.patient_name || 'patient'}), asked by ${req.requested_by_name || 'staff'}`,
-        metadata: { request_id: req.id, drug_name: req.drug_name, quantity: req.quantity, requested_by_name: req.requested_by_name || null },
-      })
-      showToast('Request rejected')
-    } catch (err) {
-      showToast(err.message || 'Failed to reject')
-    }
-  }
-
   const closeDispense = () => { 
     if (dispensing) return
-    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null); setActiveReq(null) 
+    setShowDispenseModal(false); setDispensingItem(null); setDispenseQuantity(''); setDispenseError(''); setSelectedPatient(null); setActiveRx(null) 
   }
 
   const handleDispense = async (e) => {
@@ -316,24 +265,7 @@ export default function Pharmacy() {
       })
 
       // 4. If this was from a Doctor's Order, mark prescription as dispensed
-      if (activeReq) {
-        // Mark this staff request as given...
-        await updateRequest(activeReq.id, {
-          status: 'dispensed', dispensed_quantity: qty,
-          dispensed_by: profile?.id || null, dispensed_by_name: profile?.full_name || null,
-          dispensed_at: new Date().toISOString(),
-        })
-        // ...and finish the prescription only when everything prescribed has been given.
-        if (activeRx) {
-          const total = parseRxQuantity(activeRx.quantity)
-          const givenBefore = pharmRequests
-            .filter(r => r.prescription_id === activeRx.id && r.id !== activeReq.id && r.status === 'dispensed')
-            .reduce((sum, r) => sum + effectiveQty(r), 0)
-          if (total == null || givenBefore + qty >= total) {
-            await updatePrescription(activeRx.id, { status: 'dispensed' })
-          }
-        }
-      } else if (activeRx) {
+      if (activeRx) {
         await updatePrescription(activeRx.id, { status: 'dispensed' })
       }
 
@@ -356,8 +288,6 @@ export default function Pharmacy() {
           unit_price: unitPrice,
           total_price: totalPrice,
           from_prescription: Boolean(activeRx),
-          request_id: activeReq?.id || null,
-          requested_by_name: activeReq?.requested_by_name || null,
           prescription_id: activeRx?.id || null,
           doctor_name: activeRx?.doctor_name || null,
           stock_before: dispensingItem.id ? currQty : null,
@@ -415,6 +345,11 @@ export default function Pharmacy() {
         </div>
       </div>
 
+      {/* DOCTOR'S PRESCRIPTION QUEUE — an actionable work queue, not a
+          browsable record list, so it is intentionally left unpaginated
+          per the "don't apply pagination where it hurts the workflow"
+          rule. If this queue starts running into the hundreds in
+          practice, it should get pagination too — flag it if so. */}
       {/* ---- Tab switcher: Queue / Walk-in Sale / Inventory / Sales History ---- */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
@@ -544,6 +479,7 @@ export default function Pharmacy() {
         <div className="dash-panel-head">
           <div><div className="dash-panel-title">Pharmacy Inventory</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><ConnectionState isOnline={isOnline} pendingCount={pendingCount} />{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search drug..." style={{ minWidth: 260, maxWidth: 420 }} />
+          <ModuleHistoryButton moduleKey="pharmacy" />
         </div>
         {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading...</div> : visibleItems.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No drugs found.</div> : (
           <>

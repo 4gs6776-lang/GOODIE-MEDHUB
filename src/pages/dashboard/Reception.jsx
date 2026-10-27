@@ -5,6 +5,7 @@ import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
 import HmoProviderSelect from '../../components/common/HmoProviderSelect'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 import {
   getTimezone,
@@ -800,6 +801,8 @@ export default function Reception() {
               maxWidth: 420,
             }}
           />
+
+          <ModuleHistoryButton moduleKey="reception" />
 
           <button
             className="btn btn-primary"

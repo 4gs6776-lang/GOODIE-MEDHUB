@@ -5,12 +5,24 @@ import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import { supabase } from '../../lib/supabaseClient'
 import CashierWorkspace from '../../components/CashierWorkspace'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
+import CreditNoteModal from '../../components/CreditNoteModal'
+import MultiInvoicePaymentModal from '../../components/MultiInvoicePaymentModal'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import { writeAudit } from '../../lib/audit'
 import { formatDateTimeSec, getTimezone } from '../../lib/datetime'
+import {
+  finalizeDraftInvoice,
+  cancelDraftInvoice,
+  writeOffInvoice,
+  createCreditNote,
+  DRAFT_STATUSES,
+  CREDIT_NOTE_REASONS,
+} from '../../lib/billingService'
+import { nextDocumentNumber } from '../../lib/billingService'
 
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -44,6 +56,24 @@ export default function Billing({ initialSearch = '' }) {
   const { records: patients, loading: patientsLoading } = useOfflineTable('patients', hospital?.id)
   // Staff — to resolve "received_by" and "reversed_by" names
   const { records: staff } = useOfflineTable('profiles', hospital?.id)
+  // ---- Hospital expenses (Expenses tab) -----------------------------
+  // Admin + owner + billing can record expenses. Everyone else with
+  // access to Billing can view them.
+  const { records: expenses, addRecord: addExpense, updateRecord: updateExpense, deleteRecord: deleteExpense } = useOfflineTable('hospital_expenses', hospital?.id)
+
+  // ---- Credit notes (Credit Notes tab — Phase 2) -------------------
+  // Each credit note references an original invoice + records the
+  // reason and refund method. Posted credit notes reduce the invoice
+  // balance or trigger a cash/wallet refund.
+  const { records: creditNotes, addRecord: addCreditNote, updateRecord: updateCreditNote } = useOfflineTable('credit_notes', hospital?.id)
+  const { addRecord: addAllocation } = useOfflineTable('payment_allocations', hospital?.id)
+
+  // ---- Phase 2 modal state -----------------------------------------
+  const [showCreditNoteModal, setShowCreditNoteModal] = useState(false)
+  const [creditNoteInvoice, setCreditNoteInvoice] = useState(null)  // the invoice being credited
+  const [showMultiPayModal, setShowMultiPayModal] = useState(false)
+  const [multiPayPatient, setMultiPayPatient] = useState(null)
+  const [cnSearch, setCnSearch] = useState('')  // credit notes tab search
 
   const [toast, setToast] = useState(null)
   const [search, setSearch] = useState(initialSearch)
@@ -56,12 +86,21 @@ export default function Billing({ initialSearch = '' }) {
   // manual charges (consultation, procedure, etc.) directly.
   const [showCreateInvoice, setShowCreateInvoice] = useState(false)
 
-  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'transactions' | 'payments'
+  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'drafts' | 'transactions' | 'payments' | 'expenses' | 'credit_notes'
   const [txnTypeFilter, setTxnTypeFilter] = useState('all')  // 'all' | 'deposit' | 'charge' | 'refund' | 'adjustment'
   const [txnSearch, setTxnSearch] = useState('')
   const [payMethodFilter, setPayMethodFilter] = useState('all')
   const [paySearch, setPaySearch] = useState('')
   const [payStatusFilter, setPayStatusFilter] = useState('active')  // 'active' | 'reversed' | 'all'
+
+  // ---- Expense tab state -------------------------------------------
+  const canManageExpenses = profile && ['admin', 'owner', 'billing'].includes(profile.role)
+  const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all')
+  const [expenseSearch, setExpenseSearch] = useState('')
+  const [expenseDateFrom, setExpenseDateFrom] = useState('')
+  const [expenseDateTo, setExpenseDateTo] = useState('')
+  const [editingExpenseId, setEditingExpenseId] = useState(null)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
   const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -202,6 +241,184 @@ export default function Billing({ initialSearch = '' }) {
     totalPages: payTotalPages, totalItems: payTotalItems, startIndex: payStart, endIndex: payEnd,
   } = usePagination(filteredPayments, { pageSize: 20, resetKey: `${payStatusFilter}|${payMethodFilter}|${paySearch}` })
 
+  // ---- Expenses filter + pagination ---------------------------------
+  const EXPENSE_CATEGORIES = [
+    'Salaries & Wages', 'Rent', 'Utilities', 'Medical Supplies', 'Office Supplies',
+    'Equipment Purchase', 'Equipment Maintenance', 'Cleaning & Hygiene',
+    'Transport / Fuel', 'Bank Charges', 'Marketing', 'Miscellaneous',
+  ]
+  const EXPENSE_METHODS = ['Cash', 'Bank Transfer', 'POS', 'Cheque', 'Other']
+
+  const filteredExpenses = useMemo(() => {
+    let arr = [...expenses].sort((a, b) => new Date(b.paid_at || b.created_at) - new Date(a.paid_at || a.created_at))
+    if (expenseCategoryFilter !== 'all') {
+      arr = arr.filter(e => e.category === expenseCategoryFilter)
+    }
+    if (expenseDateFrom) {
+      arr = arr.filter(e => e.paid_at && new Date(e.paid_at) >= new Date(expenseDateFrom))
+    }
+    if (expenseDateTo) {
+      const end = new Date(expenseDateTo); end.setHours(23, 59, 59, 999)
+      arr = arr.filter(e => e.paid_at && new Date(e.paid_at) <= end)
+    }
+    if (expenseSearch.trim()) {
+      const q = expenseSearch.trim().toLowerCase()
+      arr = arr.filter(e =>
+        (e.description || '').toLowerCase().includes(q) ||
+        (e.category || '').toLowerCase().includes(q) ||
+        (e.reference_number || '').toLowerCase().includes(q) ||
+        (e.recorded_by_name || '').toLowerCase().includes(q)
+      )
+    }
+    return arr
+  }, [expenses, expenseCategoryFilter, expenseDateFrom, expenseDateTo, expenseSearch])
+
+  const expenseStats = useMemo(() => {
+    const todayStr = new Date().toDateString()
+    const today = expenses.filter(e => new Date(e.paid_at || e.created_at).toDateString() === todayStr)
+    const todayTotal = today.reduce((s, e) => s + Number(e.amount || 0), 0)
+    // This week (last 7 days)
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const weekTotal = expenses
+      .filter(e => new Date(e.paid_at || e.created_at).getTime() >= weekAgo)
+      .reduce((s, e) => s + Number(e.amount || 0), 0)
+    // This month
+    const now = new Date()
+    const monthTotal = expenses
+      .filter(e => {
+        const d = new Date(e.paid_at || e.created_at)
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+      })
+      .reduce((s, e) => s + Number(e.amount || 0), 0)
+    // By category breakdown (this month)
+    const byCategory = {}
+    expenses.forEach(e => {
+      const d = new Date(e.paid_at || e.created_at)
+      if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
+        byCategory[e.category] = (byCategory[e.category] || 0) + Number(e.amount || 0)
+      }
+    })
+    return { todayCount: today.length, todayTotal, weekTotal, monthTotal, byCategory }
+  }, [expenses])
+
+  const {
+    pageItems: pagedExpenses, currentPage: expPage, setCurrentPage: setExpPage, pageSize: expPageSize, setPageSize: setExpPageSize,
+    totalPages: expTotalPages, totalItems: expTotalItems, startIndex: expStart, endIndex: expEnd,
+  } = usePagination(filteredExpenses, { pageSize: 20, resetKey: `${expenseCategoryFilter}|${expenseSearch}|${expenseDateFrom}|${expenseDateTo}` })
+
+  // ---- Expense form state (used by the modal) -----------------------
+  const [expCategory, setExpCategory] = useState(EXPENSE_CATEGORIES[0])
+  const [expDescription, setExpDescription] = useState('')
+  const [expAmount, setExpAmount] = useState('')
+  const [expMethod, setExpMethod] = useState('Cash')
+  const [expReference, setExpReference] = useState('')
+  const [expPaidAt, setExpPaidAt] = useState('')
+  const [expSaving, setExpSaving] = useState(false)
+  const [expError, setExpError] = useState('')
+
+  function resetExpenseForm() {
+    setEditingExpenseId(null)
+    setExpCategory(EXPENSE_CATEGORIES[0])
+    setExpDescription('')
+    setExpAmount('')
+    setExpMethod('Cash')
+    setExpReference('')
+    setExpPaidAt('')
+    setExpError('')
+  }
+
+  function openExpenseModal(expense = null) {
+    if (expense) {
+      setEditingExpenseId(expense.id)
+      setExpCategory(expense.category || EXPENSE_CATEGORIES[0])
+      setExpDescription(expense.description || '')
+      setExpAmount(String(expense.amount || ''))
+      setExpMethod(expense.payment_method || 'Cash')
+      setExpReference(expense.reference_number || '')
+      // Format paid_at to yyyy-MM-dd for the date input
+      try {
+        const d = new Date(expense.paid_at || expense.created_at)
+        if (!isNaN(d.getTime())) {
+          const yyyy = d.getFullYear()
+          const mm = String(d.getMonth() + 1).padStart(2, '0')
+          const dd = String(d.getDate()).padStart(2, '0')
+          setExpPaidAt(`${yyyy}-${mm}-${dd}`)
+        }
+      } catch { setExpPaidAt('') }
+    } else {
+      resetExpenseForm()
+    }
+    setShowExpenseModal(true)
+  }
+
+  async function handleSaveExpense(e) {
+    e?.preventDefault?.()
+    setExpError('')
+    const amount = parseFloat(expAmount)
+    if (isNaN(amount) || amount <= 0) { setExpError('Enter a valid amount (greater than 0).'); return }
+    if (!expDescription.trim()) { setExpError('Description is required.'); return }
+    setExpSaving(true)
+    try {
+      const paidAtIso = expPaidAt ? new Date(expPaidAt + 'T12:00:00').toISOString() : new Date().toISOString()
+      const payload = {
+        hospital_id: hospital.id,
+        category: expCategory,
+        description: expDescription.trim(),
+        amount,
+        payment_method: expMethod,
+        reference_number: expReference.trim() || null,
+        paid_at: paidAtIso,
+        recorded_by: profile?.id || null,
+        recorded_by_name: profile?.full_name || null,
+      }
+      let saved
+      if (editingExpenseId) {
+        saved = await updateExpense(editingExpenseId, payload)
+        writeAudit({
+          hospitalId: hospital.id, actor: profile,
+          action: 'hospital_expense.updated',
+          entityType: 'hospital_expense', entityId: editingExpenseId,
+          summary: `Updated expense "${expDescription.trim()}" (${expCategory}) — ${formatMoney(amount)} (${expMethod})`,
+          metadata: { ...payload, expense_id: editingExpenseId },
+        })
+        showToast(`Expense updated`)
+      } else {
+        saved = await addExpense(payload)
+        writeAudit({
+          hospitalId: hospital.id, actor: profile,
+          action: 'hospital_expense.created',
+          entityType: 'hospital_expense', entityId: saved?.id || null,
+          summary: `Recorded expense "${expDescription.trim()}" (${expCategory}) — ${formatMoney(amount)} (${expMethod})`,
+          metadata: { ...payload, expense_id: saved?.id || null },
+        })
+        showToast(`Expense of ${formatMoney(amount)} recorded`)
+      }
+      setShowExpenseModal(false)
+      resetExpenseForm()
+    } catch (err) {
+      setExpError(err.message || 'Could not save the expense.')
+    } finally {
+      setExpSaving(false)
+    }
+  }
+
+  async function handleDeleteExpense(expense) {
+    if (!confirm(`Delete this expense?\n\n${expense.description} (${expense.category})\n${formatMoney(expense.amount)}\n\nThis cannot be undone.`)) return
+    try {
+      await deleteExpense(expense.id)
+      writeAudit({
+        hospitalId: hospital.id, actor: profile,
+        action: 'hospital_expense.deleted',
+        entityType: 'hospital_expense', entityId: expense.id,
+        summary: `Deleted expense "${expense.description}" (${expense.category}) — ${formatMoney(expense.amount)}`,
+        metadata: { expense_id: expense.id, category: expense.category, amount: expense.amount },
+      })
+      showToast(`Expense deleted`)
+    } catch (err) {
+      showToast(err.message || 'Could not delete the expense.')
+    }
+  }
+
   // ---- Reverse a payment ----------------------------------------------
   // Q1=a: void the payment (status = 'reversed'), keep the row for audit.
   // Q2=b: any billing-role user (billing + admin + owner) can reverse.
@@ -309,12 +526,15 @@ export default function Billing({ initialSearch = '' }) {
         </div>
       </div>
 
-      {/* ---- Tab switcher: Queue / Wallet Transactions / Payments ---- */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      {/* ---- Tab switcher: Queue / Drafts / Wallet Transactions / Payments / Expenses / Credit Notes ---- */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
           { key: 'queue', label: 'Patient Queue', icon: 'users' },
+          { key: 'drafts', label: 'Drafts', icon: 'billing' },
           { key: 'transactions', label: 'Wallet Transactions', icon: 'billing' },
           { key: 'payments', label: 'Payments', icon: 'billing' },
+          { key: 'expenses', label: 'Expenses', icon: 'billing' },
+          { key: 'credit_notes', label: 'Credit Notes', icon: 'billing' },
         ].map(t => (
           <button
             key={t.key}
@@ -326,6 +546,9 @@ export default function Billing({ initialSearch = '' }) {
             {t.label}
           </button>
         ))}
+        <div style={{ marginLeft: 'auto' }}>
+          <ModuleHistoryButton moduleKey="billing" />
+        </div>
       </div>
 
       {/* KPI stats — same premium system as the main dashboard */}
@@ -755,6 +978,529 @@ export default function Billing({ initialSearch = '' }) {
             )}
           </div>
         </>
+      )}
+
+      {/* ---- Expenses tab ---- */}
+      {activeTab === 'expenses' && (
+        <>
+          {/* Mini-stats */}
+          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="arrowDown" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Today's Expenses</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(expenseStats.todayTotal)}</div>
+                <div className="dash-stat-delta">{expenseStats.todayCount} expense{expenseStats.todayCount === 1 ? '' : 's'} today</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(232,184,46,0.14)', color: 'var(--gold)' }}><AppIcon name="billing" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">This Week</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(expenseStats.weekTotal)}</div>
+                <div className="dash-stat-delta">Last 7 days</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(118,87,232,0.14)', color: 'var(--violet)' }}><AppIcon name="billing" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">This Month</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(expenseStats.monthTotal)}</div>
+                <div className="dash-stat-delta">{new Date().toLocaleString('en-NG', { month: 'long' })}</div>
+              </div>
+            </div>
+            <div className="dash-stat-card">
+              <div className="dash-stat-icon" style={{ background: 'rgba(0,199,199,0.14)', color: 'var(--teal)' }}><AppIcon name="users" size={18} /></div>
+              <div>
+                <div className="dash-stat-label">Total Records</div>
+                <div className="dash-stat-value" style={{ fontSize: 16 }}>{expenses.length}</div>
+                <div className="dash-stat-delta">All expenses</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dash-panel">
+            <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div className="dash-panel-title">Hospital Expenses</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Salaries, rent, utilities, supplies, equipment, and other outgoing payments.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <select value={expenseCategoryFilter} onChange={e => setExpenseCategoryFilter(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }}>
+                  <option value="all">All categories</option>
+                  {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input type="date" value={expenseDateFrom} onChange={e => setExpenseDateFrom(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }} title="From date" />
+                <input type="date" value={expenseDateTo} onChange={e => setExpenseDateTo(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', fontSize: 12.5 }} title="To date" />
+                <SearchInput value={expenseSearch} onChange={setExpenseSearch} placeholder="Search description, ref, recorded by…" style={{ minWidth: 200, maxWidth: 320 }} />
+                {canManageExpenses && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    onClick={() => openExpenseModal(null)}
+                  >
+                    <AppIcon name="plus" size={14} /> Record Expense
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {filteredExpenses.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>
+                {expenseSearch || expenseCategoryFilter !== 'all' || expenseDateFrom || expenseDateTo ? 'No expenses match these filters.' : 'No expenses recorded yet. Click "Record Expense" to add the first one.'}
+              </div>
+            ) : (
+              <>
+                <div className="dash-table-wrap">
+                  <table className="dash-full-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Recorded By</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedExpenses.map(e => (
+                        <tr key={e.id}>
+                          <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTimeSec(e.paid_at || e.created_at, timezone)}</td>
+                          <td>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                              background: 'rgba(118,87,232,0.14)', color: 'var(--violet)',
+                              textTransform: 'uppercase', letterSpacing: 0.5,
+                            }}>
+                              {e.category}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.description}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--danger)' }}>{formatMoney(e.amount)}</td>
+                          <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.payment_method || 'Cash'}</td>
+                          <td style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono, monospace)' }}>{e.reference_number || '—'}</td>
+                          <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.recorded_by_name || '—'}</td>
+                          <td>
+                            {canManageExpenses && (
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}
+                                  onClick={() => openExpenseModal(e)}
+                                  title="Edit expense"
+                                >
+                                  Edit
+                                </button>
+                                {profile && ['admin', 'owner'].includes(profile.role) && (
+                                  <button
+                                    className="btn btn-ghost"
+                                    style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                    onClick={() => handleDeleteExpense(e)}
+                                    title="Delete expense"
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <Pagination
+                  currentPage={expPage}
+                  totalPages={expTotalPages}
+                  totalItems={expTotalItems}
+                  startIndex={expStart}
+                  endIndex={expEnd}
+                  pageSize={expPageSize}
+                  onPageChange={setExpPage}
+                  onPageSizeChange={setExpPageSize}
+                  itemLabel="expenses"
+                />
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ---- Expense modal ---- */}
+      {showExpenseModal && (
+        <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) { setShowExpenseModal(false); resetExpenseForm() } }}>
+          <div className="card dash-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14 }}>
+              <div className="dash-modal-title" style={{ paddingBottom: 0 }}>{editingExpenseId ? 'Edit Expense' : 'Record Expense'}</div>
+              <button className="dash-icon-btn" onClick={() => { setShowExpenseModal(false); resetExpenseForm() }} aria-label="Close"><AppIcon name="close" size={18} /></button>
+            </div>
+            <div className="dash-modal-body">
+              <form id="expense-form" onSubmit={handleSaveExpense}>
+                {expError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{expError}</div>}
+                <div className="field">
+                  <label>Category *</label>
+                  <select value={expCategory} onChange={e => setExpCategory(e.target.value)}>
+                    {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Description *</label>
+                  <input value={expDescription} onChange={e => setExpDescription(e.target.value)} placeholder="e.g. April staff salaries, NEPA bill, surgical gloves restock" autoFocus required />
+                </div>
+                <div className="dash-field-grid">
+                  <div className="field">
+                    <label>Amount (₦) *</label>
+                    <input type="number" min="0.01" step="0.01" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="e.g. 50000" required style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }} />
+                  </div>
+                  <div className="field">
+                    <label>Payment Method</label>
+                    <select value={expMethod} onChange={e => setExpMethod(e.target.value)}>
+                      {EXPENSE_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="dash-field-grid">
+                  <div className="field">
+                    <label>Date Paid</label>
+                    <input type="date" value={expPaidAt} onChange={e => setExpPaidAt(e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Reference (optional)</label>
+                    <input value={expReference} onChange={e => setExpReference(e.target.value)} placeholder="transfer ref, cheque no., receipt no." />
+                  </div>
+                </div>
+              </form>
+            </div>
+            <div className="dash-modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => { setShowExpenseModal(false); resetExpenseForm() }} disabled={expSaving}>Cancel</button>
+              <button type="submit" form="expense-form" className="btn btn-primary" disabled={expSaving}>{expSaving ? 'Saving…' : (editingExpenseId ? 'Save Changes' : 'Record Expense')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Drafts tab (Phase 2) ---- */}
+      {activeTab === 'drafts' && (
+        <>
+          <div className="dash-panel">
+            <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div className="dash-panel-title">Draft Invoices</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                  Invoices saved as drafts — review and finalize to assign sequential invoice numbers (INV-000001, INV-000002, …).
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => setShowMultiPayModal(true)}
+                  title="Record one payment and split it across multiple invoices"
+                >
+                  <AppIcon name="billing" size={14} /> Multi-Invoice Payment
+                </button>
+              </div>
+            </div>
+
+            {(() => {
+              const draftInvoices = invoices.filter(i => i.draft_status === 'draft')
+              if (draftInvoices.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>
+                    No draft invoices. When you click "Save as Draft" in the billing workspace, the invoice will appear here for review.
+                  </div>
+                )
+              }
+              return (
+                <div className="dash-table-wrap">
+                  <table className="dash-full-table">
+                    <thead>
+                      <tr>
+                        <th>Draft #</th>
+                        <th>Patient</th>
+                        <th>Created</th>
+                        <th>Total</th>
+                        <th>Type</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {draftInvoices.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(inv => (
+                        <tr key={inv.id}>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, color: 'var(--gold)' }}>{inv.invoice_number}</td>
+                          <td style={{ fontWeight: 600 }}>{inv.patient_name}</td>
+                          <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDateTimeSec(inv.created_at, timezone)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--ivory)' }}>{formatMoney(inv.grand_total || inv.amount)}</td>
+                          <td>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: 'rgba(232,184,46,0.14)', color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              {inv.invoice_type || 'outpatient'}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button
+                                className="btn btn-primary"
+                                style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}
+                                onClick={async () => {
+                                  const result = await finalizeDraftInvoice({
+                                    hospital, profile, invoice: inv, updateInvoice, writeAudit,
+                                  })
+                                  if (result.success) {
+                                    showToast(`Finalized → ${result.invoiceNumber}`)
+                                  } else {
+                                    showToast(result.error || 'Could not finalize')
+                                  }
+                                }}
+                                title="Assign sequential invoice number and mark as finalized"
+                              >
+                                Finalize
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                onClick={async () => {
+                                  if (!confirm(`Cancel draft ${inv.invoice_number} for ${inv.patient_name}?`)) return
+                                  const result = await cancelDraftInvoice({ hospital, profile, invoice: inv, updateInvoice, writeAudit })
+                                  if (result.success) showToast('Draft cancelled')
+                                  else showToast(result.error || 'Could not cancel')
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
+
+          {/* Also show finalized invoices with balances (for write-off + credit notes) */}
+          <div className="dash-panel" style={{ marginTop: 20 }}>
+            <div className="dash-panel-head">
+              <div>
+                <div className="dash-panel-title">Outstanding Invoices</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                  Finalized invoices with outstanding balances — apply credit notes or write off bad debt.
+                </div>
+              </div>
+            </div>
+
+            {(() => {
+              const outstanding = invoices.filter(i =>
+                i.draft_status === 'finalized' &&
+                Number(i.balance || 0) > 0.001
+              ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+              if (outstanding.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)', fontSize: 12.5 }}>
+                    No outstanding invoices.
+                  </div>
+                )
+              }
+              return (
+                <div className="dash-table-wrap">
+                  <table className="dash-full-table">
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Patient</th>
+                        <th>Created</th>
+                        <th>Total</th>
+                        <th>Paid</th>
+                        <th>Balance</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outstanding.slice(0, 20).map(inv => (
+                        <tr key={inv.id}>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}>{inv.invoice_number}</td>
+                          <td style={{ fontWeight: 600 }}>{inv.patient_name}</td>
+                          <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDateTimeSec(inv.created_at, timezone)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)' }}>{formatMoney(inv.grand_total || inv.amount)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', color: 'var(--teal)' }}>{formatMoney(inv.amount_paid)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--danger)' }}>{formatMoney(inv.balance)}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--violet)', borderColor: 'var(--violet)' }}
+                                onClick={() => { setCreditNoteInvoice(inv); setShowCreditNoteModal(true) }}
+                                title="Issue a credit note against this invoice"
+                              >
+                                Credit Note
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                onClick={async () => {
+                                  const reason = prompt(`Write off invoice ${inv.invoice_number}?\n\nBalance: ${formatMoney(inv.balance)}\n\nEnter a reason (required):`)
+                                  if (!reason?.trim()) return
+                                  const result = await writeOffInvoice({ hospital, profile, invoice: inv, reason, updateInvoice, writeAudit })
+                                  if (result.success) showToast(`Invoice ${inv.invoice_number} written off`)
+                                  else showToast(result.error || 'Could not write off')
+                                }}
+                                title="Mark as bad debt — requires reason"
+                              >
+                                Write Off
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* ---- Credit Notes tab (Phase 2) ---- */}
+      {activeTab === 'credit_notes' && (
+        <>
+          <div className="dash-panel">
+            <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div className="dash-panel-title">Credit Notes</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                  Formal credit notes issued against finalized invoices. Each reduces the invoice balance or triggers a refund.
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <SearchInput
+                  value={cnSearch}
+                  onChange={setCnSearch}
+                  placeholder="Search by number, patient, reason…"
+                  style={{ minWidth: 220 }}
+                />
+              </div>
+            </div>
+
+            {(() => {
+              const filtered = (creditNotes || [])
+                .filter(cn => {
+                  if (!cnSearch.trim()) return true
+                  const q = cnSearch.trim().toLowerCase()
+                  const inv = invoices.find(i => i.id === cn.original_invoice_id)
+                  return (
+                    (cn.credit_note_number || '').toLowerCase().includes(q) ||
+                    (cn.reason_code || '').toLowerCase().includes(q) ||
+                    (cn.reason_text || '').toLowerCase().includes(q) ||
+                    (inv?.patient_name || '').toLowerCase().includes(q)
+                  )
+                })
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+              if (filtered.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)', fontSize: 12.5 }}>
+                    No credit notes issued yet. Click "Credit Note" on an outstanding invoice in the Drafts tab to issue one.
+                  </div>
+                )
+              }
+              return (
+                <div className="dash-table-wrap">
+                  <table className="dash-full-table">
+                    <thead>
+                      <tr>
+                        <th>CN #</th>
+                        <th>Original Invoice</th>
+                        <th>Patient</th>
+                        <th>Amount</th>
+                        <th>Reason</th>
+                        <th>Refund Method</th>
+                        <th>Posted At</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(cn => {
+                        const inv = invoices.find(i => i.id === cn.original_invoice_id)
+                        const reasonLabel = CREDIT_NOTE_REASONS.find(r => r.value === cn.reason_code)?.label || cn.reason_code
+                        return (
+                          <tr key={cn.id}>
+                            <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, color: 'var(--violet)' }}>{cn.credit_note_number}</td>
+                            <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}>{inv?.invoice_number || '—'}</td>
+                            <td style={{ fontWeight: 600 }}>{inv?.patient_name || '—'}</td>
+                            <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--danger)' }}>{formatMoney(cn.amount)}</td>
+                            <td style={{ fontSize: 11.5 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{reasonLabel}</span>
+                              {cn.reason_text && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cn.reason_text}</div>}
+                            </td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{cn.refund_method || 'none'}{cn.refund_reference ? ` · ${cn.refund_reference}` : ''}</td>
+                            <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{cn.posted_at ? formatDateTimeSec(cn.posted_at, timezone) : '—'}</td>
+                            <td>
+                              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                                background: cn.status === 'posted' ? 'rgba(0,199,199,0.14)' : cn.status === 'reversed' ? 'rgba(154,170,183,0.14)' : 'rgba(232,184,46,0.14)',
+                                color: cn.status === 'posted' ? 'var(--teal)' : cn.status === 'reversed' ? 'var(--muted)' : 'var(--gold)',
+                                textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                {cn.status}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* ---- Credit Note modal ---- */}
+      {showCreditNoteModal && creditNoteInvoice && (
+        <CreditNoteModal
+          invoice={creditNoteInvoice}
+          hospital={hospital}
+          profile={profile}
+          onIssue={async ({ amount, reasonCode, reasonText, refundMethod, refundReference }) => {
+            const result = await createCreditNote({
+              hospital, profile,
+              invoice: creditNoteInvoice,
+              amount, reasonCode, reasonText,
+              refundMethod, refundReference,
+              addCreditNote, updateInvoice, writeAudit,
+            })
+            if (result.success) {
+              showToast(`Credit note ${result.creditNote?.credit_note_number} posted`)
+              setShowCreditNoteModal(false)
+              setCreditNoteInvoice(null)
+            } else {
+              alert(result.error || 'Could not issue credit note')
+            }
+          }}
+          onClose={() => { setShowCreditNoteModal(false); setCreditNoteInvoice(null) }}
+        />
+      )}
+
+      {/* ---- Multi-Invoice Payment modal ---- */}
+      {showMultiPayModal && (
+        <MultiInvoicePaymentModal
+          hospital={hospital}
+          profile={profile}
+          invoices={invoices}
+          patients={patients}
+          addPayment={undefined}
+          addAllocation={addAllocation}
+          updateInvoice={updateInvoice}
+          writeAudit={writeAudit}
+          onClose={() => setShowMultiPayModal(false)}
+          onAllocated={() => { setShowMultiPayModal(false); showToast('Payment allocated across invoices') }}
+        />
       )}
 
       {selectedPatient && (
