@@ -46,11 +46,11 @@ const EMPTY_MED = {
 export default function DoctorWorkbench() {
   const { profile, hospital } = useAuth()
   const timezone = getTimezone(hospital)
-  const { records: patients, loading: loadingPatients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
-  const { records: vitals, loading: loadingVitals, updateRecord: updateVitals } = useOfflineTable('patient_vitals', hospital?.id)
+  const { records: patients, loading: loadingPatients, updateRecord: updatePatient, syncFromServer: syncPatients } = useOfflineTable('patients', hospital?.id)
+  const { records: vitals, loading: loadingVitals, updateRecord: updateVitals, syncFromServer: syncVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: labOrders, loading: loadingLabOrders, addRecord: addLabOrder, syncFromServer: syncLabOrders } = useOfflineTable('lab_orders', hospital?.id)
   const { records: labTests, syncFromServer: syncLabTests } = useOfflineTable('lab_tests', hospital?.id)
-  const { records: prescriptions, loading: loadingPrescriptions, addRecord: addPrescription, updateRecord: updatePrescription, deleteRecord: deletePrescription } = useOfflineTable('prescriptions', hospital?.id)
+  const { records: prescriptions, loading: loadingPrescriptions, addRecord: addPrescription, updateRecord: updatePrescription, deleteRecord: deletePrescription, syncFromServer: syncPrescriptions } = useOfflineTable('prescriptions', hospital?.id)
   const { records: inventoryItems } = useOfflineTable('inventory_items', hospital?.id)
   const { records: hospitalTemplates, addRecord: addTemplate } = useOfflineTable('prescription_templates', hospital?.id)
   const { records: admissionRequests, addRecord: addAdmissionRequest } = useOfflineTable('admission_requests', hospital?.id)
@@ -114,11 +114,60 @@ export default function DoctorWorkbench() {
     }
   }, { event: 'UPDATE' })
 
+  // ---- Realtime: nurse just recorded vitals OR sent patient to doctor ----
+  // INSERT fires when nurse saves a new vitals record (new encounter).
+  // UPDATE fires when nurse updates the vitals record (e.g. marks it
+  // "sent to doctor" / changes queue_status). Either way the doctor's
+  // patient list must refresh — previously they had to F5.
+  useRealtimeAlert('patient_vitals', hospital?.id, (row) => {
+    syncVitals()
+    syncPatients()  // queue_status may have changed on the patient row too
+    if (row.patient_name) {
+      showToast(`New vitals ready: ${row.patient_name}`)
+    }
+  }, { event: 'INSERT' })
+  useRealtimeAlert('patient_vitals', hospital?.id, (row) => {
+    syncVitals()
+    syncPatients()
+    // Only toast if the patient was just sent to the doctor queue
+    // (status changed to "sent_to_doctor" or queue_status === "with_doctor")
+    if (row.queue_status === 'with_doctor' || row.status === 'sent_to_doctor') {
+      showToast(`Patient sent to your queue: ${row.patient_name || 'a patient'}`)
+    }
+  }, { event: 'UPDATE' })
+
+  // ---- Realtime: prescription changes (nurse cancelled/added) -----------
+  useRealtimeAlert('prescriptions', hospital?.id, (row) => {
+    syncPrescriptions()
+  }, { event: 'INSERT' })
+  useRealtimeAlert('prescriptions', hospital?.id, (row) => {
+    syncPrescriptions()
+  }, { event: 'UPDATE' })
+
+  // ---- Realtime: patient queue status changes ---------------------------
+  // When nurse moves a patient through the queue (waiting → triaged →
+  // with_doctor), this refreshes the doctor's patient list instantly.
+  useRealtimeAlert('patients', hospital?.id, (row) => {
+    syncPatients()
+  }, { event: 'UPDATE' })
+
   // Safety net when realtime is unavailable (no migration 008 yet,
   // flaky connection): poll quietly while a consultation is open.
+  // Also polls vitals + prescriptions so the doctor's queue refreshes
+  // even if the realtime subscription fails.
   useEffect(() => {
-    if (!activeVitalsId || !hospital?.id) return
-    const id = setInterval(() => { syncLabOrders(); syncLabTests() }, 30000)
+    if (!hospital?.id) return
+    // Always poll the patient + vitals lists while DoctorWorkbench is open
+    const id = setInterval(() => {
+      syncPatients()
+      syncVitals()
+      syncPrescriptions()
+      // Only sync labs while a consultation is active (heavier query)
+      if (activeVitalsId) {
+        syncLabOrders()
+        syncLabTests()
+      }
+    }, 30000)  // 30s — same cadence as before, just expanded scope
     return () => clearInterval(id)
   }, [activeVitalsId, hospital?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -688,7 +737,6 @@ export default function DoctorWorkbench() {
             <div><div className="dash-panel-title">Finish Up</div><div className="dash-panel-sub">Finalizes meds and completes visit</div></div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-ghost" onClick={clearWorkbench}>Cancel</button>
-              <button type="button" className="btn btn-primary" style={{ width: 'auto', background: 'var(--violet)', color: '#fff' }} onClick={() => setShowAiDiagnostics(true)} disabled={!activePatient} title="Get AI-assisted differential diagnosis and recommendations">AI Assist</button>
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleCompleteConsultation} disabled={completing}>{completing ? 'Completing…' : 'Complete Consultation'}</button>
             </div>
           </div>
