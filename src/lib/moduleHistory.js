@@ -24,9 +24,10 @@ export const MODULE_HISTORY_MAP = {
     prefixes: [
       'prescription.',
       'pharmacy.',
+      'pharmacy_request.',    // ← pharmacy_request.dispensed / .rejected (note the underscore — without this, those events would be missed)
     ],
-    entityTypes: ['prescription', 'pharmacy_request'],
-    description: 'Every prescription, dispensing, restock, and pharmacy request sent by nurses.',
+    entityTypes: ['prescription', 'pharmacy_request', 'pharmacy_sale'],
+    description: 'Every prescription, dispensing, restock, walk-in sale, and pharmacy request.',
   },
 
   billing: {
@@ -38,8 +39,9 @@ export const MODULE_HISTORY_MAP = {
       'wallet.',
       'insurance.',
       'hospital_expense.',
+      'credit_note.',
     ],
-    entityTypes: ['invoice', 'payment', 'billable_charge', 'patient_wallet', 'patient_wallet_transaction', 'insurance_claim', 'hospital_expense'],
+    entityTypes: ['invoice', 'payment', 'billable_charge', 'patient_wallet', 'patient_wallet_transaction', 'insurance_claim', 'hospital_expense', 'credit_note'],
     description: 'Every invoice generated, payment recorded, wallet transaction, insurance claim, and expense.',
   },
 
@@ -170,10 +172,16 @@ export const MODULE_HISTORY_MAP = {
       'hospital.',
       'hospital_bank_account.',
       'hospital_registration_fees.',
+      'hospital_payment_method.',
       'user.password_changed',
+      'service_catalog.',
+      'price_list.',
+      'price_list_item.',
+      'hmo_contract.',
+      'expense_vendor.',
     ],
-    entityTypes: ['hospital', 'hospital_bank_account', 'hospital_registration_fees'],
-    description: 'Hospital settings, logo, bank accounts, registration fees, and password changes.',
+    entityTypes: ['hospital', 'hospital_bank_account', 'hospital_registration_fees', 'hospital_payment_methods', 'service_catalog', 'price_lists', 'price_list_items', 'hmo_contracts', 'expense_vendors'],
+    description: 'Hospital settings, logo, bank accounts, registration fees, payment methods, service catalog, price lists, HMO contracts, expense vendors, and password changes.',
   },
 
   messages: {
