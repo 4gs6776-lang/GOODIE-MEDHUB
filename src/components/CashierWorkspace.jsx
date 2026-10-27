@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useOfflineTable } from '../lib/useOfflineTable'
 import InvoiceViewer from './InvoiceViewer'
+import CatalogPicker from './CatalogPicker'
 import AppIcon from './icons'
 import { writeAudit } from '../lib/audit'
+import { useBillingCatalog, formatMoney } from '../lib/billingService'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
@@ -17,6 +19,14 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
   // generation time. HMO patients don't use the wallet (per Q6 = a).
   const { records: wallets, addRecord: addWallet } = useOfflineTable('patient_wallets', hospital?.id)
   const { addRecord: addWalletTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+
+  // ---- Billing catalog hooks (Phase 1) ----
+  // Catalog-driven pricing replaces the old window.prompt() flow.
+  // The cashier opens a CatalogPicker modal, picks a service, the
+  // price resolves automatically based on the patient's HMO contract
+  // (if any) or the hospital's default price list.
+  const { catalog, priceLists, priceListItems, contracts, paymentMethods } = useBillingCatalog()
+  const [showCatalogPicker, setShowCatalogPicker] = useState(false)
 
   const [selectedIds, setSelectedIds] = useState([])
   const [discount, setDiscount] = useState('')
@@ -60,24 +70,108 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
   }
 
   async function addCustomCharge() {
-    const name = window.prompt('Enter custom charge name (e.g. Consultation, Lab Test):')
-    if (!name) return
-    const priceStr = window.prompt('Enter price for this service (₦):', '0')
-    const price = parseFloat(priceStr) || 0
+    // OLD behavior (kept as fallback for hospitals that haven't run
+    // migration 034 yet): prompt() for name + price.
+    if (!catalog || catalog.length === 0) {
+      const name = window.prompt('Enter custom charge name (e.g. Consultation, Lab Test):')
+      if (!name) return
+      const priceStr = window.prompt('Enter price for this service (₦):', '0')
+      const price = parseFloat(priceStr) || 0
+      await addCharge({
+        hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
+        source_module: 'Manual', source_transaction_id: `MANUAL-${Date.now()}`,
+        item_name: name, category: 'Manual', quantity: 1, unit_price: price, total: price,
+        status: 'pending', created_by: profile?.id
+      })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'billing.custom_charge_added',
+        entityType: 'billable_charge', entityId: null,
+        patientId: patientId || null,
+        summary: `Added custom charge "${name}" (₦${price.toFixed(2)}) for ${patientName || 'patient'}`,
+        metadata: { patient_name: patientName, item_name: name, unit_price: price, quantity: 1, total: price, source_module: 'Manual' },
+      })
+      return
+    }
+
+    // NEW behavior: open the CatalogPicker. The picker resolves the
+    // price automatically based on the patient's HMO contract (or the
+    // hospital's default price list). The cashier can override the
+    // price + quantity if needed.
+    setShowCatalogPicker(true)
+  }
+
+  // Called when the cashier picks a service in the CatalogPicker and
+  // clicks "Add Charge". Inserts a billable_charge row with the
+  // resolved price + quantity + HMO split info.
+  async function handleCatalogPick({ service, resolved, total, split }) {
+    const qty = resolved.quantity || 1
+    const unitPrice = resolved.price
+    const patientRecord = patients.find(p => p.id === patientId) || null
+
+    // Use the service's category as the billable_charge category. Map
+    // catalog categories to the existing CashierWorkspace category names
+    // so the existing InvoiceViewer "Medications" grouping still works
+    // (DRUG_CATEGORIES = 'Drug', 'Pharmacy', 'Medication', 'Medications').
+    const categoryMap = {
+      'consultation': 'Consultation',
+      'lab':          'Lab',
+      'procedure':    'Procedure',
+      'drug':         'Drug',          // matches DRUG_CATEGORIES — grouped as "Medications" on printed bill
+      'bed':          'Bed',
+      'service':      'Service',
+      'anc_package':  'ANC',
+      'registration': 'Registration',
+      'other':        'Manual',
+    }
+    const chargeCategory = categoryMap[service.category] || 'Manual'
+
     await addCharge({
-      hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
-      source_module: 'Manual', source_transaction_id: `MANUAL-${Date.now()}`,
-      item_name: name, category: 'Manual', quantity: 1, unit_price: price, total: price,
-      status: 'pending', created_by: profile?.id
+      hospital_id: hospital.id,
+      patient_id: patientId,
+      patient_name: patientName,
+      source_module: 'Catalog',
+      source_transaction_id: `CAT-${service.code}-${Date.now()}`,
+      item_name: service.name,
+      category: chargeCategory,
+      quantity: qty,
+      unit_price: unitPrice,
+      total: total,
+      status: 'pending',
+      created_by: profile?.id,
+      // Phase 2 will store these on the billable_charges row when we
+      // add the catalog_code / price_list_id columns. For now they're
+      // captured in the audit trail.
+      // catalog_code: service.code,
+      // price_list_id: resolved.priceListId,
     })
+
     writeAudit({
       hospitalId: hospital?.id, actor: profile,
-      action: 'billing.custom_charge_added',
+      action: 'billing.catalog_charge_added',
       entityType: 'billable_charge', entityId: null,
       patientId: patientId || null,
-      summary: `Added custom charge "${name}" (₦${price.toFixed(2)}) for ${patientName || 'patient'}`,
-      metadata: { patient_name: patientName, item_name: name, unit_price: price, quantity: 1, total: price, source_module: 'Manual' },
+      summary: `Added catalog charge "${service.name}" (${service.code}) × ${qty} = ${formatMoney(total)} for ${patientName || 'patient'}` +
+        (split.hmoAmount > 0 ? ` — HMO ${formatMoney(split.hmoAmount)}, patient ${formatMoney(split.patientAmount)}` : ''),
+      metadata: {
+        patient_name: patientName,
+        catalog_code: service.code,
+        catalog_id: service.id,
+        category: chargeCategory,
+        item_name: service.name,
+        unit_price: unitPrice,
+        quantity: qty,
+        total,
+        price_list_id: resolved.priceListId,
+        contract_id: resolved.contractId,
+        coverage_percent: resolved.coveragePercent,
+        hmo_amount: split.hmoAmount,
+        patient_amount: split.patientAmount,
+        source_module: 'Catalog',
+      },
     })
+
+    setShowCatalogPicker(false)
   }
 
   const selectedCharges = pendingCharges.filter(c => selectedIds.includes(c.id))
@@ -288,7 +382,7 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Automatic Charges</div>
             <button className="btn btn-ghost" style={{ width: 'auto', fontSize: 11.5, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={addCustomCharge}>
-              <AppIcon name="plus" size={14} /> Add Custom Charge
+              <AppIcon name="plus" size={14} /> Add Charge from Catalog
             </button>
           </div>
 
@@ -395,6 +489,22 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           hospital={hospital}
           profile={profile}
           onClose={() => { setReceiptInvoice(null); onClose() }}
+        />
+      )}
+
+      {/* ---- CatalogPicker modal ----
+          Opens when the cashier clicks "Add Custom Charge". They pick a
+          service from the catalog; the price resolves automatically based
+          on the patient's HMO contract (or the default price list). */}
+      {showCatalogPicker && (
+        <CatalogPicker
+          catalog={catalog}
+          priceLists={priceLists}
+          priceListItems={priceListItems}
+          contracts={contracts}
+          patient={patients.find(p => p.id === patientId) || null}
+          onPick={handleCatalogPick}
+          onClose={() => setShowCatalogPicker(false)}
         />
       )}
     </div>
