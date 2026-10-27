@@ -5,6 +5,7 @@ import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 
 const MODALITIES = ['X-Ray', 'CT Scan', 'MRI', 'Ultrasound', 'Mammography', 'Fluoroscopy']
@@ -213,6 +214,7 @@ export default function Radiology(){
             </div>
           </div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, scan or request number" style={{ minWidth: 260, maxWidth: 420 }} />
+          <ModuleHistoryButton moduleKey="radiology" />
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ New Scan Request</button>
         </div>
 

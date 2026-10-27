@@ -19,8 +19,13 @@ import {
   FULL_ACCESS_ROLES,
   ROLE_LABELS,
   getAccessibleModules,
-  canEditPatientDetails,
 } from '../../lib/permissions'
+import {
+  DEFAULT_REGISTRATION_FEES,
+  FOLDER_CATEGORY_LABELS,
+  getFeeForCategory,
+  formatFee,
+} from '../../lib/registrationFees'
 import Billing from './Billing'
 import Staff from './Staff'
 import Appointments from './Appointments'
@@ -68,11 +73,11 @@ const GENOTYPES = ['AA','AS','SS','AC']
 const MARITAL_STATUSES = ['Single','Married','Widow','Widower','Divorced']
 const RELIGIONS = ['Christianity','Islam','Traditional','Other']
 const CATEGORIES = [
-  { value: 'personal', label: 'Personal Folder' },
-  { value: 'family', label: 'Family Folder' },
-  { value: 'emergency', label: 'Emergency Folder' },
-  { value: 'hmo', label: 'HMO Folder' },
-  { value: 'anc', label: 'ANC Folder' },
+  { value: 'personal',  label: 'Personal Folder',  defaultPrice: DEFAULT_REGISTRATION_FEES.personal },
+  { value: 'family',    label: 'Family Folder',    defaultPrice: DEFAULT_REGISTRATION_FEES.family },
+  { value: 'emergency', label: 'Emergency Folder',  defaultPrice: DEFAULT_REGISTRATION_FEES.emergency },
+  { value: 'hmo',       label: 'HMO Folder',        defaultPrice: DEFAULT_REGISTRATION_FEES.hmo },
+  { value: 'anc',       label: 'ANC Folder',       defaultPrice: DEFAULT_REGISTRATION_FEES.anc },
 ]
 const NIGERIAN_STATES = [
   'Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
@@ -100,6 +105,9 @@ const EMPTY_PATIENT_FORM = {
   ancDateOfBooking: '', ancIndication: '', ancLmp: '', ancEdd: '', ancHusbandName: '',
   ancHusbandOccupation: '', ancEmployer: '', nokName: '', nokRelationship: '',
   nokPhone: '', nokAddress: '',
+  // Folder registration fee waiver — used by the quick-add form.
+  waiveRegistrationFee: false,
+  waiveReason: '',
 }
 
 function calculatePatientAge(dobStr) {
@@ -299,6 +307,16 @@ export default function Dashboard(){
   const { records: labTests } = useOfflineTable('lab_tests', hospital?.id)
   const { records: allMessages } = useOfflineTable('messages', hospital?.id)
 
+  // ---- Registration fees (folder-prices feature) -------------------
+  // Same flow as Reception: when a patient is added via the quick-add
+  // form, push a pending billable_charge for the folder fee to the
+  // cashier's queue (unless waived). Falls back to hard-coded defaults
+  // (DEFAULT_REGISTRATION_FEES) until the admin sets values in Settings.
+  const { records: feeRecords } = useOfflineTable('hospital_registration_fees', hospital?.id)
+  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
+  const selectedCategoryFee = getFeeForCategory(form.category, feeRecords)
+  const hasRegistrationFee = selectedCategoryFee > 0
+
   useEffect(() => computeWeeklyCounts(patients), [patients])
   useEffect(() => subscribeSyncErrors(setSyncErrors), [])
   useEffect(() => {
@@ -484,7 +502,7 @@ export default function Dashboard(){
     setSaving(true)
     try {
       const isAnc = form.category === 'anc'
-      await addRecord({
+      const savedPatient = await addRecord({
         full_name: fullName,
         surname,
         other_names: otherNames || null,
@@ -520,13 +538,69 @@ export default function Dashboard(){
       setShowModal(false)
       setForm(EMPTY_PATIENT_FORM)
       setStatus('stable')
+
+      // ---- Registration fee → billable_charge ----------------------
+      // Mirror of Reception.jsx's flow: charge the folder fee to the
+      // cashier's queue unless waived. HMO and unselected categories
+      // have fee = 0 and are skipped automatically.
+      const folderFee = getFeeForCategory(form.category, feeRecords)
+      if (form.category && folderFee > 0) {
+        if (form.waiveRegistrationFee) {
+          writeAudit({
+            hospitalId: hospital.id,
+            actor: profile,
+            action: 'patient.registration_fee_waived',
+            entityType: 'patient',
+            entityId: savedPatient?.id || null,
+            patientId: savedPatient?.id || null,
+            summary: `Waived ${FOLDER_CATEGORY_LABELS[form.category] || form.category} registration fee (${formatFee(folderFee)}) for ${fullName} — reason: ${form.waiveReason || '(none given)'}`,
+            metadata: {
+              category: form.category,
+              fee_amount: folderFee,
+              reason: form.waiveReason || null,
+              source: 'dashboard_quick_add',
+            },
+          })
+        } else {
+          await addBillableCharge({
+            hospital_id: hospital.id,
+            patient_id: savedPatient?.id || null,
+            patient_name: fullName,
+            source_module: 'Dashboard',
+            source_transaction_id: `REGFEE-${Date.now()}`,
+            item_name: `${FOLDER_CATEGORY_LABELS[form.category] || form.category} Registration Fee`,
+            category: 'Registration',
+            quantity: 1,
+            unit_price: folderFee,
+            total: folderFee,
+            status: 'pending',
+            created_by: profile?.id || null,
+          })
+          writeAudit({
+            hospitalId: hospital.id,
+            actor: profile,
+            action: 'patient.registration_fee_charged',
+            entityType: 'patient',
+            entityId: savedPatient?.id || null,
+            patientId: savedPatient?.id || null,
+            summary: `Charged ${FOLDER_CATEGORY_LABELS[form.category] || form.category} registration fee (${formatFee(folderFee)}) for ${fullName} (quick add)`,
+            metadata: {
+              category: form.category,
+              fee_amount: folderFee,
+              billable_charge_item: `${FOLDER_CATEGORY_LABELS[form.category] || form.category} Registration Fee`,
+              source: 'dashboard_quick_add',
+            },
+          })
+        }
+      }
+
       // Audit trail: record who registered the patient (Stage 1 req. #16).
       writeAudit({
         hospitalId: hospital.id,
         actor: profile,
         action: 'patient.create',
         entityType: 'patient',
-        entityId: null,
+        entityId: savedPatient?.id || null,
         summary: `Registered patient ${fullName} (quick add)`,
       })
       showToast(isOnline ? `${fullName} added` : `${fullName} added — will sync when back online`)
@@ -538,7 +612,6 @@ export default function Dashboard(){
   }
 
   function handleDelete(patient){
-    if (!canEditPatientDetails(profile?.role)) return
     if (pending) commitPendingDelete(pending.patient)
     let secondsLeft = 5
     setPending({patient,secondsLeft})
@@ -702,15 +775,88 @@ export default function Dashboard(){
   // hospital's own timezone.
   const subBanner = isHospitalAdmin ? getSubscriptionBanner(subAlerts.subscription, todayKeyInZone(hospitalTz)) : null
 
-  const recentMessageCount = useMemo(() => {
+  // ---- TRUE unread message count (per-user read tracking) -----------
+  // Replaces the old "messages from others in the last 24h" heuristic.
+  // Uses the message_channel_reads table (migration 033) which records
+  // when the current user last opened each channel.
+  //
+  // The Messages page computes the actual count (since it already loads
+  // both messages and read states). It broadcasts via a window event so
+  // the Dashboard bell can pick it up without prop drilling. We default
+  // to a re-computed value here using just the messages table as a
+  // fallback — the moment the user opens Messages, the count gets
+  // replaced by the accurate value from the event.
+  const { records: myReadStates } = useOfflineTable('message_channel_reads', hospital?.id)
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0)
+
+  // Recompute the count locally — gives a sensible default before the
+  // user opens the Messages page (or if they never do).
+  const computedUnreadCount = useMemo(() => {
     if (!profile?.id) return 0
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000
-    return (allMessages || []).filter(m =>
-      m.sender_id !== profile.id &&
-      (m.channel_type === 'department' || m.recipient_id === profile.id) &&
-      new Date(m.created_at).getTime() >= cutoff
-    ).length
-  }, [allMessages, profile?.id])
+    const myReads = new Map()
+    for (const r of myReadStates) {
+      if (r.user_id === profile.id) {
+        myReads.set(`${r.channel_type}|${r.channel_key}`, new Date(r.last_read_at).getTime())
+      }
+    }
+    let count = 0
+    for (const m of allMessages || []) {
+      if (m.sender_id === profile.id) continue
+      if (m.channel_type !== 'department' && m.channel_type !== 'dm') continue
+      if (m.channel_type === 'dm') {
+        const ids = (m.channel_key || '').split('__')
+        if (!ids.includes(profile.id)) continue
+      }
+      const lastRead = myReads.get(`${m.channel_type}|${m.channel_key}`) || 0
+      if (new Date(m.created_at).getTime() > lastRead) count++
+    }
+    return count
+  }, [allMessages, myReadStates, profile?.id])
+
+  // Listen for the live update event from the Messages page. When it
+  // fires, replace the local computed value with the accurate one.
+  useEffect(() => {
+    function onUnreadUpdate(e) {
+      if (e?.detail && typeof e.detail.count === 'number') {
+        setUnreadMessageCount(e.detail.count)
+      }
+    }
+    window.addEventListener('gmed:messages-unread', onUnreadUpdate)
+    return () => window.removeEventListener('gmed:messages-unread', onUnreadUpdate)
+  }, [])
+
+  // Use the event-sourced value if it's been set (> 0 OR if we've
+  // ever received an event); otherwise fall back to the locally computed
+  // value. We use a ref-style approach: track whether the event has
+  // ever fired.
+  const unreadMessageCountRef = useRef(false)
+  useEffect(() => {
+    if (computedUnreadCount !== null) {
+      // The event hasn't fired yet — use the locally computed value.
+      if (!unreadMessageCountRef.current) {
+        setUnreadMessageCount(computedUnreadCount)
+      }
+    }
+  }, [computedUnreadCount])
+  useEffect(() => {
+    function markFired() { unreadMessageCountRef.current = true }
+    window.addEventListener('gmed:messages-unread', markFired, { once: true })
+    return () => window.removeEventListener('gmed:messages-unread', markFired)
+  }, [])
+
+  // Final value: prefer the event-sourced count once the event has
+  // fired, otherwise the locally-computed default.
+  const recentMessageCount = unreadMessageCountRef.current ? unreadMessageCount : computedUnreadCount
+
+  // ---- TRUE unread count for the bell badge ------------------------
+  // Only counts: (1) unread subscription alerts + (2) unread messages.
+  // Status info like low stock, ready labs, today's appointments stay
+  // in the popover (so users still see them when they click the bell),
+  // but they no longer inflate the badge count.
+  const trueUnreadCount = useMemo(() => {
+    const subUnread = (subAlerts.notifications || []).length
+    return subUnread + recentMessageCount
+  }, [subAlerts.notifications, recentMessageCount])
 
   const upcoming = appointments
     .filter(a => {
@@ -1097,19 +1243,12 @@ export default function Dashboard(){
             <LiveClock hospital={hospital} />
 
             {/* 1. Theme Toggle */}
-            <button
-              type="button"
-              className="hd-theme"
-              data-mode={theme}
-              role="switch"
-              aria-checked={theme === 'dark'}
-              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            <button 
+              className="dash-icon-btn" 
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               onClick={toggleTheme}
             >
-              <span className="hd-theme-thumb" aria-hidden="true" />
-              <span className="hd-theme-ico" aria-hidden="true"><AppIcon name="sun" size={14}/></span>
-              <span className="hd-theme-ico" aria-hidden="true"><AppIcon name="moon" size={14}/></span>
+              <AppIcon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
             </button>
 
             {/* 2. Notifications Bell Popover */}
@@ -1120,12 +1259,14 @@ export default function Dashboard(){
                 onClick={() => setActiveMenu(activeMenu === 'notifs' ? null : 'notifs')}
               >
                 <AppIcon name="bell" size={18}/>
-                {notificationItems.length > 0 && <span>{notificationItems.length}</span>}
+                {trueUnreadCount > 0 && <span>{trueUnreadCount > 9 ? '9+' : trueUnreadCount}</span>}
               </button>
 
               {activeMenu === 'notifs' && (
                 <div className="dash-popover-menu">
-                  <div className="dash-popover-header">Notifications ({notificationItems.length})</div>
+                  <div className="dash-popover-header">
+                    Notifications {trueUnreadCount > 0 ? `(${trueUnreadCount} unread)` : ''}
+                  </div>
                   {(subAlerts.notifications || []).length > 0 && (
                     <button className="dash-view-all" style={{ margin: '4px 14px 0' }} onClick={subAlerts.markAllRead}>
                       Mark subscription alerts as read
@@ -1281,7 +1422,7 @@ export default function Dashboard(){
                                 <td>{p.age}</td>
                                 <td><span className={`dash-status ${p.status === 'review' ? 'review' : 'stable'}`}>{p.status === 'review' ? 'In Review' : 'Stable'}</span></td>
                                 <td style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(p.created_at, hospitalTz)}</td>
-                                <td>{canEditPatientDetails(profile?.role) ? <button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button> : null}</td>
+                                <td>{profile?.role !== 'doctor' ? <button className="dash-delete" onClick={() => handleDelete(p)} title="Delete"><TrashIcon size={13}/></button> : null}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1408,8 +1549,53 @@ export default function Dashboard(){
                     <label>Category / Folder</label>
                     <select value={form.category} onChange={e => setField('category', e.target.value)}>
                       <option value="">—</option>
-                      {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                      {CATEGORIES.map(c => {
+                        const fee = getFeeForCategory(c.value, feeRecords)
+                        return <option key={c.value} value={c.value}>{c.label} — {formatFee(fee)}</option>
+                      })}
                     </select>
+                    {hasRegistrationFee && !form.waiveRegistrationFee && (
+                      <div style={{
+                        marginTop: 8, padding: '8px 10px', borderRadius: 6,
+                        background: 'rgba(0,199,199,0.06)', border: '1px solid var(--line-soft)',
+                        fontSize: 11.5, color: 'var(--ivory)', lineHeight: 1.5,
+                      }}>
+                        <strong style={{ color: 'var(--teal)' }}>Registration fee:</strong>{' '}
+                        {formatFee(selectedCategoryFee)} will be auto-charged to the cashier's queue
+                        when this patient is saved.
+                      </div>
+                    )}
+                    {form.category && !hasRegistrationFee && (
+                      <div style={{
+                        marginTop: 8, padding: '8px 10px', borderRadius: 6,
+                        background: 'rgba(0,199,199,0.04)', border: '1px solid var(--line-soft)',
+                        fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5,
+                      }}>
+                        No registration fee for this folder category.
+                      </div>
+                    )}
+                    {hasRegistrationFee && (
+                      <div style={{ marginTop: 10 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ivory)', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={form.waiveRegistrationFee}
+                            onChange={e => setField('waiveRegistrationFee', e.target.checked)}
+                            style={{ width: 16, height: 16, accentColor: 'var(--teal)' }}
+                          />
+                          Waive registration fee
+                        </label>
+                        {form.waiveRegistrationFee && (
+                          <input
+                            value={form.waiveReason}
+                            onChange={e => setField('waiveReason', e.target.value)}
+                            placeholder="Reason for waiver (required) — e.g. staff family, charity case"
+                            style={{ marginTop: 8, fontSize: 12.5 }}
+                            required
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="field">
                     <label>Status</label>

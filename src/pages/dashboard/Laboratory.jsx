@@ -9,6 +9,7 @@ import ConnectionState from '../../components/common/ConnectionState'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import Autocomplete from '../../components/common/Autocomplete'
 import LabResultViewer from '../../components/LabResultViewer'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 import { escapeHtml } from '../../lib/escapeHtml'
 import { getTimezone, formatDateTimeSec, formatDate } from '../../lib/datetime'
@@ -543,6 +544,7 @@ export default function Laboratory(){
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%', maxWidth: 600 }}>
             <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, test..." style={{ flex: 1, minWidth: 150 }} />
+            <ModuleHistoryButton moduleKey="laboratory" />
             {!isNurseReadOnly && (
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
                 <AppIcon name="plus" size={14} /> New Request

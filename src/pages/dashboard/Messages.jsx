@@ -6,6 +6,7 @@ import AppIcon from '../../components/icons'
 import SearchInput from '../../components/common/SearchInput'
 import { formatTime, formatDate, dayKeyInZone, getTimezone } from '../../lib/datetime'
 import { writeAudit } from '../../lib/audit'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 
 // Fixed department channels every staff member can see and post in.
 const DEPARTMENT_CHANNELS = [
@@ -40,6 +41,13 @@ export default function Messages() {
   const { profile, hospital } = useAuth()
   const timezone = getTimezone(hospital)
   const { records: messages, addRecord, syncFromServer, isOnline } = useOfflineTable('messages', hospital?.id)
+  // ---- Per-user channel read tracking (proper unread counts) --------
+  // Each row records when the current user last opened a given channel.
+  // A message is "unread" for the current user when:
+  //   - They are not the sender
+  //   - The message's created_at is AFTER their last_read_at for that
+  //     channel (or they have no last_read_at row at all)
+  const { records: readStates, addRecord: addReadState, updateRecord: updateReadState, syncFromServer: syncReadStates } = useOfflineTable('message_channel_reads', hospital?.id)
 
   const [staff, setStaff] = useState([])
   const [loadingStaff, setLoadingStaff] = useState(true)
@@ -68,11 +76,13 @@ export default function Messages() {
   }, [hospital?.id, profile?.id])
 
   // Refresh-based inbox: check for new messages every 20s while this
-  // screen is open, plus once immediately on mount.
+  // screen is open, plus once immediately on mount. Also re-sync read
+  // states so badges update the moment another device marks something read.
   useEffect(() => {
     if (!hospital?.id) return
     syncFromServer()
-    const id = setInterval(() => syncFromServer(), 20000)
+    syncReadStates()
+    const id = setInterval(() => { syncFromServer(); syncReadStates() }, 20000)
     return () => clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hospital?.id])
@@ -93,18 +103,60 @@ export default function Messages() {
     threadEndRef.current?.scrollIntoView({ block: 'end' })
   }, [threadMessages.length, activeChannel])
 
-  // Lightweight "recent activity" badge per channel — messages from
-  // someone else in the last 24 hours. Not a strict unread count
-  // (that would need read-receipt tracking), just a helpful signal.
-  function recentCount(type, key) {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  // ---- TRUE unread count for a channel -----------------------------
+  // Replaces the old "messages from others in the last 24h" heuristic.
+  // A message is unread for the current user when:
+  //   - They are not the sender
+  //   - created_at > their last_read_at for this channel (or no row)
+  function unreadCount(type, key) {
+    const readRow = readStates.find(r =>
+      r.channel_type === type &&
+      r.channel_key === key &&
+      r.user_id === profile?.id
+    )
+    const lastReadAt = readRow?.last_read_at ? new Date(readRow.last_read_at).getTime() : 0
     return messages.filter(m =>
       m.channel_type === type &&
       m.channel_key === key &&
       m.sender_id !== profile?.id &&
-      new Date(m.created_at).getTime() >= cutoff
+      new Date(m.created_at).getTime() > lastReadAt
     ).length
   }
+
+  // ---- Mark a channel as read when the user opens it ----------------
+  // Upserts a row in message_channel_reads with last_read_at = now.
+  // Called whenever activeChannel changes (i.e. user opens a thread).
+  async function markChannelAsRead(channel) {
+    if (!channel || !profile?.id || !hospital?.id) return
+    const existing = readStates.find(r =>
+      r.channel_type === channel.type &&
+      r.channel_key === channel.key &&
+      r.user_id === profile.id
+    )
+    const now = new Date().toISOString()
+    try {
+      if (existing) {
+        await updateReadState(existing.id, { last_read_at: now })
+      } else {
+        await addReadState({
+          hospital_id: hospital.id,
+          user_id: profile.id,
+          channel_type: channel.type,
+          channel_key: channel.key,
+          last_read_at: now,
+        })
+      }
+    } catch (err) {
+      // Non-fatal — the badge will simply remain until next refresh.
+      console.warn('Could not mark channel as read:', err?.message || err)
+    }
+  }
+
+  // When the user opens a thread, mark it as read.
+  useEffect(() => {
+    if (activeChannel) markChannelAsRead(activeChannel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChannel?.type, activeChannel?.key, threadMessages.length])
 
   // Staff DM directory filter (global staff-search rule) — match on
   // name or role so long staff lists stay navigable.
@@ -113,6 +165,46 @@ export default function Messages() {
     if (!q) return staff
     return staff.filter(s => `${s.full_name || ''} ${s.role || ''}`.toLowerCase().includes(q))
   }, [staff, staffFilter])
+
+  // ---- Total unread count across ALL channels (for Dashboard badge) --
+  // Recomputed here and exposed via a callback so the dashboard bell
+  // can show a TRUE unread count instead of the old "last 24h" heuristic.
+  const totalUnread = useMemo(() => {
+    if (!profile?.id) return 0
+    // Build a quick lookup of last_read_at per channel for this user
+    const myReads = new Map()
+    for (const r of readStates) {
+      if (r.user_id === profile.id) {
+        myReads.set(`${r.channel_type}|${r.channel_key}`, new Date(r.last_read_at).getTime())
+      }
+    }
+    // Count messages NOT sent by me that are newer than my last_read_at
+    // for their channel (or I have no last_read_at row at all).
+    let count = 0
+    for (const m of messages) {
+      if (m.sender_id === profile.id) continue
+      // Only count messages addressed to me (DM) or in a department channel.
+      // (Both DMs and department messages have channel_type set.)
+      if (m.channel_type !== 'department' && m.channel_type !== 'dm') continue
+      // For DMs, only count if I'm the recipient (otherId == me) OR
+      // the dmKey includes me. dmKey is built from sorted ids joined by __.
+      if (m.channel_type === 'dm') {
+        const ids = (m.channel_key || '').split('__')
+        if (!ids.includes(profile.id)) continue
+      }
+      const lastRead = myReads.get(`${m.channel_type}|${m.channel_key}`) || 0
+      if (new Date(m.created_at).getTime() > lastRead) count++
+    }
+    return count
+  }, [messages, readStates, profile?.id])
+
+  // Expose the total unread count via a window event so the Dashboard
+  // bell can pick it up without prop drilling. The Dashboard listens
+  // for 'gmed:messages-unread' events and updates its badge.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(new CustomEvent('gmed:messages-unread', { detail: { count: totalUnread } }))
+  }, [totalUnread])
 
   async function handleSend(e) {
     e.preventDefault()
@@ -160,12 +252,13 @@ export default function Messages() {
               <div className="dash-panel-title">Messages</div>
               <div className="dash-panel-sub">Department channels and direct messages</div>
             </div>
+            <ModuleHistoryButton moduleKey="messages" />
           </div>
 
           <div style={{ padding: '10px 8px 18px' }}>
             <div style={{ fontSize: 10.5, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--muted-dim)', fontWeight: 700, padding: '10px 10px 6px' }}>Department Channels</div>
             {DEPARTMENT_CHANNELS.map(ch => {
-              const count = recentCount('department', ch.key)
+              const count = unreadCount('department', ch.key)
               return (
                 <button
                   key={ch.key}
@@ -193,7 +286,7 @@ export default function Messages() {
               <div className="dash-empty-state">No staff match “{staffFilter}”.</div>
             ) : visibleStaff.map(s => {
               const key = dmKey(profile?.id, s.id)
-              const count = recentCount('dm', key)
+              const count = unreadCount('dm', key)
               return (
                 <button
                   key={s.id}

@@ -9,6 +9,7 @@ import SearchInput from '../../components/common/SearchInput'
 import TrashIcon from '../../components/icons/TrashIcon'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import AppIcon from '../../components/icons'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 
 const CATEGORIES = ['Consumables', 'Equipment', 'PPE', 'Drug', 'Office Supplies', 'Cleaning & Hygiene', 'Other']
@@ -201,7 +202,11 @@ export default function Inventory() {
         <div className="dash-panel-head">
           <div><div className="dash-panel-title">Inventory & Supplies</div><div className="dash-panel-sub" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: isOnline ? 'var(--teal)' : 'var(--danger)' }} />{isOnline ? 'Online' : 'Offline'}{pendingCount > 0 ? ` · ${pendingCount} syncing` : ''}{' · Auto-sends charges to Billing'}</div></div>
           <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search item..." style={{ minWidth: 260, maxWidth: 420 }} />
-          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setIsImportModalOpen(true)}><AppIcon name="import" size={14} /> Import Excel</button><button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => { resetForm(); setShowModal(true) }}>+ New Item</button></div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <ModuleHistoryButton moduleKey="inventory" />
+            <button className="btn btn-primary" style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setIsImportModalOpen(true)}><AppIcon name="import" size={14} /> Import Excel</button>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => { resetForm(); setShowModal(true) }}>+ New Item</button>
+          </div>
         </div>
         {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div> : sorted.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No items found.</div> : (
           <>

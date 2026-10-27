@@ -5,6 +5,7 @@ import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
 import PatientProfile from '../../components/PatientProfile'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 
 // =====================================================================
@@ -152,6 +153,7 @@ export default function HmoPatients() {
             <div className="dash-panel-sub">{hospital?.name || 'your hospital'} · {summary.inQueue} in queue</div>
           </div>
           <SearchInput value={search} onChange={setSearch} placeholder="Search name, ID code, policy no., phone…" style={{ minWidth: 260, maxWidth: 420 }} />
+          <ModuleHistoryButton moduleKey="hmo" />
         </div>
 
         {loading ? (

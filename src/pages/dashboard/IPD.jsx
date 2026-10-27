@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
+import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 
 const SECTIONS = [
@@ -155,6 +156,7 @@ export default function IPD({ onGoToAdmissions }){
             </div>
           </div>
           <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowAddBed(true)}>+ Add Bed</button>
+          <ModuleHistoryButton moduleKey="ipd" />
         </div>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4, fontSize: 11.5 }}>
           {Object.entries(STATUS_COLOR).map(([key, s]) => (
