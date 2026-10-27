@@ -13,6 +13,13 @@ import {
   relativeShort,
   calculateAge,
 } from '../../lib/datetime'
+import {
+  DEFAULT_REGISTRATION_FEES,
+  FOLDER_CATEGORY_LABELS,
+  FOLDER_CATEGORY_ORDER,
+  getFeeForCategory,
+  formatFee,
+} from '../../lib/registrationFees'
 
 const BLOOD_GROUPS = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Unknown']
 const GENOTYPES = ['AA','AS','SS','AC']
@@ -20,11 +27,11 @@ const MARITAL_STATUSES = ['Single','Married','Widow','Widower','Divorced']
 const RELIGIONS = ['Christianity','Islam','Traditional','Other']
 
 const CATEGORIES = [
-  { value: 'personal', label: 'Personal Folder' },
-  { value: 'family', label: 'Family Folder' },
-  { value: 'emergency', label: 'Emergency Folder' },
-  { value: 'anc', label: 'ANC Folder' },
-  { value: 'hmo', label: 'HMO Folder' },
+  { value: 'personal',  label: 'Personal Folder',  defaultPrice: DEFAULT_REGISTRATION_FEES.personal },
+  { value: 'family',    label: 'Family Folder',    defaultPrice: DEFAULT_REGISTRATION_FEES.family },
+  { value: 'emergency', label: 'Emergency Folder',  defaultPrice: DEFAULT_REGISTRATION_FEES.emergency },
+  { value: 'anc',       label: 'ANC Folder',       defaultPrice: DEFAULT_REGISTRATION_FEES.anc },
+  { value: 'hmo',       label: 'HMO Folder',        defaultPrice: DEFAULT_REGISTRATION_FEES.hmo },
 ]
 
 const NIGERIAN_STATES = [
@@ -108,6 +115,14 @@ const EMPTY_FORM = {
   nokAddress: '',
 
   genotype: '',
+
+  // ---- Registration fee waiver ---------------------------------------
+  // When `waiveRegistrationFee` is true, no billable_charge is created
+  // for the folder fee at patient registration time. A reason is required
+  // so the audit trail explains WHY the fee was waived (e.g. "staff family",
+  // "charity case", "VIP").
+  waiveRegistrationFee: false,
+  waiveReason: '',
 
   hmoProvider: 'Self-Pay (No HMO)',
   hmoIdCode: '',
@@ -243,6 +258,22 @@ export default function Reception() {
   // record a deposit without leaving the Reception page.
   const { records: walletRecords, addRecord: addWalletRow } = useOfflineTable('patient_wallets', hospital?.id)
   const { addRecord: addWalletTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+
+  // ---- Registration fee hooks ---------------------------------------
+  // Fetches this hospital's per-folder-category registration fees (set
+  // in Settings → Registration Fees). Falls back to DEFAULT_REGISTRATION_FEES
+  // (in src/lib/registrationFees.js) when no row exists.
+  // `billableCharges.addRecord` is used to push the fee to the cashier's
+  // queue (Billing → Patient Queue) so it flows through the normal
+  // invoice + wallet-deduction pipeline.
+  const { records: feeRecords } = useOfflineTable('hospital_registration_fees', hospital?.id)
+  const { addRecord: addBillableCharge } = useOfflineTable('billable_charges', hospital?.id)
+
+  // Resolve the fee for the currently-selected folder category — used
+  // to display the price next to the dropdown and to show/hide the
+  // waiver checkbox.
+  const selectedCategoryFee = getFeeForCategory(form.category, feeRecords)
+  const hasRegistrationFee = selectedCategoryFee > 0
   const [depositTargetPatient, setDepositTargetPatient] = useState(null)
   const [depositAmount, setDepositAmount] = useState('')
   const [depositMethod, setDepositMethod] = useState('Cash')
@@ -549,7 +580,70 @@ export default function Reception() {
         )
       }
 
-      await addRecord(patientData)
+      const savedPatient = await addRecord(patientData)
+
+      // ---- Registration fee → billable_charge ----------------------
+      // Per the folder-prices feature: when a patient is registered,
+      // automatically push a pending charge for the folder fee to the
+      // cashier's queue. The cashier then either collects it (with
+      // wallet auto-deduction if the patient has a wallet balance) or
+      // the receptionist can waive it (handled below).
+      //
+      // Skip when:
+      //   - Waived (with a reason) — audit the waiver but don't charge.
+      //   - No fee for this category (e.g., HMO = ₦0) — nothing to charge.
+      //   - No category selected — nothing to charge.
+      const folderFee = getFeeForCategory(form.category, feeRecords)
+      if (form.category && folderFee > 0) {
+        if (form.waiveRegistrationFee) {
+          // Waived — record the reason in the audit trail only.
+          // No billable_charge is created.
+          writeAudit({
+            hospitalId: hospital?.id,
+            actor: profile,
+            action: 'patient.registration_fee_waived',
+            entityType: 'patient',
+            entityId: savedPatient?.id || null,
+            patientId: savedPatient?.id || null,
+            summary: `Waived ${FOLDER_CATEGORY_LABELS[form.category] || form.category} registration fee (${formatFee(folderFee)}) for ${fullName} — reason: ${form.waiveReason || '(none given)'}`,
+            metadata: {
+              category: form.category,
+              fee_amount: folderFee,
+              reason: form.waiveReason || null,
+            },
+          })
+        } else {
+          // Charge the fee — push it as a pending billable_charge.
+          await addBillableCharge({
+            hospital_id: hospital.id,
+            patient_id: savedPatient?.id || null,
+            patient_name: fullName,
+            source_module: 'Reception',
+            source_transaction_id: `REGFEE-${Date.now()}`,
+            item_name: `${FOLDER_CATEGORY_LABELS[form.category] || form.category} Registration Fee`,
+            category: 'Registration',
+            quantity: 1,
+            unit_price: folderFee,
+            total: folderFee,
+            status: 'pending',
+            created_by: profile?.id || null,
+          })
+          writeAudit({
+            hospitalId: hospital?.id,
+            actor: profile,
+            action: 'patient.registration_fee_charged',
+            entityType: 'patient',
+            entityId: savedPatient?.id || null,
+            patientId: savedPatient?.id || null,
+            summary: `Charged ${FOLDER_CATEGORY_LABELS[form.category] || form.category} registration fee (${formatFee(folderFee)}) for ${fullName}`,
+            metadata: {
+              category: form.category,
+              fee_amount: folderFee,
+              billable_charge_item: `${FOLDER_CATEGORY_LABELS[form.category] || form.category} Registration Fee`,
+            },
+          })
+        }
+      }
 
       // Audit trail: who registered this patient and when (req. #16).
       writeAudit({
@@ -557,6 +651,7 @@ export default function Reception() {
         actor: profile,
         action: 'patient.create',
         entityType: 'patient',
+        entityId: savedPatient?.id || null,
         summary: `Registered patient ${fullName}${form.category ? ` (${form.category} folder)` : ''} and checked in`,
         metadata: { category: form.category || null, hmo_provider: patientData.hmo_provider },
       })
@@ -1488,20 +1583,71 @@ export default function Reception() {
                     </option>
 
                     {CATEGORIES.map(
-                      category => (
-                        <option
-                          key={
-                            category.value
-                          }
-                          value={
-                            category.value
-                          }
-                        >
-                          {category.label}
-                        </option>
-                      )
+                      category => {
+                        const fee = getFeeForCategory(category.value, feeRecords)
+                        return (
+                          <option
+                            key={
+                              category.value
+                            }
+                            value={
+                              category.value
+                            }
+                          >
+                            {category.label} — {formatFee(fee)}
+                          </option>
+                        )
+                      }
                     )}
                   </select>
+
+                  {/* ---- Registration fee banner -----------------------
+                      Shows the fee that will be auto-charged to the
+                      cashier's queue when this patient is saved. */}
+                  {hasRegistrationFee && !form.waiveRegistrationFee && (
+                    <div style={{
+                      marginTop: 8, padding: '8px 10px', borderRadius: 6,
+                      background: 'rgba(0,199,199,0.06)', border: '1px solid var(--line-soft)',
+                      fontSize: 11.5, color: 'var(--ivory)', lineHeight: 1.5,
+                    }}>
+                      <strong style={{ color: 'var(--teal)' }}>Registration fee:</strong>{' '}
+                      {formatFee(selectedCategoryFee)} will be auto-charged to the cashier's queue
+                      when this patient is saved.
+                    </div>
+                  )}
+                  {form.category && !hasRegistrationFee && (
+                    <div style={{
+                      marginTop: 8, padding: '8px 10px', borderRadius: 6,
+                      background: 'rgba(0,199,199,0.04)', border: '1px solid var(--line-soft)',
+                      fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5,
+                    }}>
+                      No registration fee for this folder category.
+                    </div>
+                  )}
+
+                  {/* ---- Waiver checkbox + reason ---------------------- */}
+                  {hasRegistrationFee && (
+                    <div style={{ marginTop: 10 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ivory)', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.waiveRegistrationFee}
+                          onChange={e => set('waiveRegistrationFee', e.target.checked)}
+                          style={{ width: 16, height: 16, accentColor: 'var(--teal)' }}
+                        />
+                        Waive registration fee
+                      </label>
+                      {form.waiveRegistrationFee && (
+                        <input
+                          value={form.waiveReason}
+                          onChange={e => set('waiveReason', e.target.value)}
+                          placeholder="Reason for waiver (required) — e.g. staff family, charity case"
+                          style={{ marginTop: 8, fontSize: 12.5 }}
+                          required
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
 
               </div>
