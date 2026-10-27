@@ -40,9 +40,10 @@ export const MODULE_HISTORY_MAP = {
       'insurance.',
       'hospital_expense.',
       'credit_note.',
+      'approval.',
     ],
-    entityTypes: ['invoice', 'payment', 'billable_charge', 'patient_wallet', 'patient_wallet_transaction', 'insurance_claim', 'hospital_expense', 'credit_note'],
-    description: 'Every invoice generated, payment recorded, wallet transaction, insurance claim, and expense.',
+    entityTypes: ['invoice', 'payment', 'billable_charge', 'patient_wallet', 'patient_wallet_transaction', 'insurance_claim', 'hospital_expense', 'credit_note', 'approval_request'],
+    description: 'Every invoice generated, payment recorded, wallet transaction, insurance claim, expense, credit note, and approval request.',
   },
 
   inventory: {
@@ -180,9 +181,11 @@ export const MODULE_HISTORY_MAP = {
       'price_list_item.',
       'hmo_contract.',
       'expense_vendor.',
+      'recurring_expense.',
+      'credit_control_rule.',
     ],
-    entityTypes: ['hospital', 'hospital_bank_account', 'hospital_registration_fees', 'hospital_payment_methods', 'service_catalog', 'price_lists', 'price_list_items', 'hmo_contracts', 'expense_vendors'],
-    description: 'Hospital settings, logo, bank accounts, registration fees, payment methods, service catalog, price lists, HMO contracts, expense vendors, and password changes.',
+    entityTypes: ['hospital', 'hospital_bank_account', 'hospital_registration_fees', 'hospital_payment_methods', 'service_catalog', 'price_lists', 'price_list_items', 'hmo_contracts', 'expense_vendors', 'recurring_expense', 'hospital_credit_control_rules'],
+    description: 'Hospital settings, logo, bank accounts, registration fees, payment methods, service catalog, price lists, HMO contracts, expense vendors, recurring expenses, credit control rules, and password changes.',
   },
 
   messages: {
