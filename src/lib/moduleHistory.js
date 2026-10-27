@@ -121,10 +121,11 @@ export const MODULE_HISTORY_MAP = {
     title: 'HMO / Insurance History',
     prefixes: [
       'insurance.',
+      'claim.',
       'patient.registration_fee_',
     ],
-    entityTypes: ['insurance_claim', 'patient'],
-    description: 'Every HMO claim auto-filed, insurance action, and HMO patient registration.',
+    entityTypes: ['insurance_claim', 'claim_status_history', 'patient'],
+    description: 'Every HMO claim filed, status change (queried/approved/paid/rejected), shortfall handling, and HMO patient registration.',
   },
 
   anc: {
