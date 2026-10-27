@@ -294,7 +294,11 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
       // Auto-file the HMO's portion as a claim, so it shows up in
       // Insurance/HMO Claims without anyone re-typing it by hand.
       if (hasHmo && hmoAmount > 0) {
-        await addInsuranceClaim({
+        // Phase 3 — generate a sequential claim number + capture the
+        // patient's pre-auth code (if any) + build the clinical summary
+        // so the claim form PDF can be generated later without re-querying.
+        const claimNumber = await nextDocumentNumber(hospital.id, 'claim', new Date().getFullYear())
+        const claim = await addInsuranceClaim({
           hospital_id: hospital.id,
           patient_id: patientId,
           patient_name: patientName,
@@ -305,6 +309,11 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           status: 'submitted',
           submitted_at: new Date().toISOString(),
           created_by: profile?.id,
+          // Phase 3 fields:
+          claim_number: claimNumber,
+          authorization_code: patientRecord?.hmo_authorization_code || null,
+          authorization_date: patientRecord?.hmo_authorization_date || null,
+          attending_physician: null,  // Phase 3+ could pull from the consultation that generated the charges
         })
         writeAudit({
           hospitalId: hospital?.id, actor: profile,
