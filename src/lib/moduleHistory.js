@@ -81,10 +81,11 @@ export const MODULE_HISTORY_MAP = {
       'patient.archive',
       'patient.profile_updated',
       'patient.registration_fee_',
+      'patient.folder_renewed',
       'appointment.',
     ],
     entityTypes: ['patient', 'appointment'],
-    description: 'Every patient registered, archived, profile updated, and appointment action.',
+    description: 'Every patient registered, archived, profile updated, folder renewed, and appointment action.',
   },
 
   nursing: {
