@@ -4,7 +4,7 @@ import InvoiceViewer from './InvoiceViewer'
 import CatalogPicker from './CatalogPicker'
 import AppIcon from './icons'
 import { writeAudit } from '../lib/audit'
-import { useBillingCatalog, formatMoney } from '../lib/billingService'
+import { useBillingCatalog, formatMoney, nextDocumentNumber } from '../lib/billingService'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
@@ -34,9 +34,11 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
   const [paymentMethod, setPaymentMethod] = useState('Cash')
   const [amountPaid, setAmountPaid] = useState('')
   const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState(null)
   // The receipt of the invoice just generated — shown through the shared
   // InvoiceViewer (Batch 3 wiring: this component was previously dead code).
   const [receiptInvoice, setReceiptInvoice] = useState(null)
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500) }
 
   // The patient list here only has {id, name}, so look up the full
   // record ourselves to get their HMO details for the split calc.
@@ -209,9 +211,23 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
       const bal = Math.max(0, amountOwedByPatient - totalPaid)
       const status = totalPaid >= amountOwedByPatient - 0.001 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid')
 
+      // ---- Phase 2: sequential invoice_number via the next_document_number RPC ----
+      // Old behavior: `INV-${Date.now().toString().slice(-8)}` (timestamp-based, non-sequential)
+      // New behavior: 'INV-000001', 'INV-000002', ... (sequential per hospital per year)
+      // Falls back to timestamp format if the RPC isn't deployed (migration 039 not run).
+      const invoiceNumber = await nextDocumentNumber(hospital.id, 'invoice', new Date().getFullYear())
+      const receiptNumber = (totalPaid > 0)
+        ? await nextDocumentNumber(hospital.id, 'receipt', new Date().getFullYear())
+        : null
+
       const newInv = await addInvoice({
   hospital_id: hospital.id, patient_id: patientId, patient_name: patientName,
-  invoice_number: `INV-${Date.now().toString().slice(-8)}`, subtotal,
+  invoice_number: invoiceNumber,  // Phase 2: sequential
+  invoice_type: 'outpatient',     // Phase 2: invoice type
+  draft_status: 'finalized',      // Phase 2: lifecycle state
+  finalized_at: new Date().toISOString(),
+  receipt_number: receiptNumber,  // Phase 2: separate receipt number
+  subtotal,
   amount: grandTotal,
   discount: discountAmt, tax: taxAmt, grand_total: grandTotal,
   hmo_provider: hasHmo ? hmoProvider : null,
@@ -335,6 +351,73 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
 
     } catch (err) {
       alert(err.message || 'Failed to generate invoice')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ---- Phase 2: Save as Draft -----------------------------------------
+  // Saves the invoice with draft_status = 'draft' (no invoice_number
+  // assigned yet — gets one at finalize time). The cashier can review
+  // drafts in Billing → Drafts tab, then finalize them later.
+  //
+  // Drafts do NOT consume an invoice_number sequence — that only
+  // happens at finalize time. So if you create 5 drafts and only
+  // finalize 3, the invoice numbers are INV-000001, INV-000002,
+  // INV-000003 (no gaps from cancelled drafts).
+  async function handleSaveAsDraft() {
+    if (selectedCharges.length === 0) return alert('No charges selected.')
+    setSaving(true)
+    try {
+      const draftInvoiceNumber = `DRAFT-${Date.now().toString().slice(-8)}`
+      const newInv = await addInvoice({
+        hospital_id: hospital.id,
+        patient_id: patientId,
+        patient_name: patientName,
+        invoice_number: draftInvoiceNumber,  // temporary — replaced at finalize time
+        invoice_type: 'outpatient',
+        draft_status: 'draft',               // ← key Phase 2 field
+        subtotal,
+        amount: grandTotal,
+        discount: discountAmt,
+        tax: taxAmt,
+        grand_total: grandTotal,
+        hmo_provider: hasHmo ? hmoProvider : null,
+        hmo_coverage_percent: hasHmo ? hmoCoveragePercent : null,
+        hmo_amount: hasHmo ? hmoAmount : 0,
+        patient_amount: amountOwedByPatient,
+        amount_paid: 0,                       // drafts have no payments
+        balance: amountOwedByPatient,
+        status: 'unpaid',
+        created_by: profile?.id,
+      })
+
+      for (const charge of selectedCharges) {
+        await addInvoiceItem({
+          hospital_id: hospital.id, invoice_id: newInv.id, item_name: charge.item_name,
+          quantity: charge.quantity, unit_price: charge.unit_price, total: charge.total,
+          source_module: charge.source_module || null,
+          category: charge.category || null,
+        })
+        await updateCharge(charge.id, { status: 'invoiced' })
+      }
+
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'invoice.draft_created',
+        entityType: 'invoice', entityId: newInv.id,
+        patientId: patientId,
+        summary: `Created draft invoice for ${patientName} — ${formatMoney(grandTotal)} (draft #${draftInvoiceNumber})`,
+        metadata: {
+          patient_name: patientName, subtotal, discount: discountAmt, tax: taxAmt,
+          grand_total: grandTotal, item_count: selectedCharges.length,
+        },
+      })
+
+      showToast(`Draft invoice saved — review and finalize it in Billing → Drafts`)
+      onClose()
+    } catch (err) {
+      alert(err.message || 'Failed to save draft')
     } finally {
       setSaving(false)
     }
@@ -477,6 +560,16 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
 
         <div className="dash-modal-actions">
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          {/* Phase 2: Save as Draft (no payment captured, no invoice_number assigned) */}
+          <button
+            className="btn btn-ghost"
+            style={{ color: 'var(--gold)', borderColor: 'var(--gold)' }}
+            onClick={handleSaveAsDraft}
+            disabled={saving || selectedCharges.length === 0}
+            title="Save as a draft — review and finalize later in Billing → Drafts. No invoice number is consumed until finalization."
+          >
+            {saving ? 'Saving…' : 'Save as Draft'}
+          </button>
           <button className="btn btn-primary" onClick={handleGenerateInvoice} disabled={saving || selectedCharges.length === 0}>
             {saving ? 'Generating…' : 'Generate Invoice'}
           </button>
@@ -490,6 +583,17 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           profile={profile}
           onClose={() => { setReceiptInvoice(null); onClose() }}
         />
+      )}
+
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--bg-elevated)', border: '1px solid var(--teal)', color: 'var(--teal)',
+          padding: '10px 18px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, zIndex: 100,
+          maxWidth: '85vw', textAlign: 'center',
+        }}>
+          {toast}
+        </div>
       )}
 
       {/* ---- CatalogPicker modal ----
