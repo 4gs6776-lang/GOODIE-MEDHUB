@@ -4,6 +4,12 @@ import { supabase } from '../../lib/supabaseClient'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { writeAudit } from '../../lib/audit'
 import AppIcon from '../../components/icons'
+import {
+  DEFAULT_REGISTRATION_FEES,
+  FOLDER_CATEGORY_LABELS,
+  FOLDER_CATEGORY_ORDER,
+  formatFee,
+} from '../../lib/registrationFees'
 
 // Compress the image before uploading to storage. Same pattern as the
 // patient photo compression in Reception.jsx — uses a canvas to resize
@@ -49,6 +55,16 @@ export default function Settings(){
   const { records: bankAccounts, addRecord: addBankAccount, updateRecord: updateBankAccount, deleteRecord: deleteBankAccount } = useOfflineTable('hospital_bank_accounts', hospital?.id)
 
   const canManageBank = profile?.role === 'admin' || profile?.role === 'owner'
+
+  // ---- Registration fees (admin / owner only) -----------------------
+  // Per-hospital, per-folder-category fees charged when a patient is
+  // registered. Defaults: personal 5k, family 10k, emergency 8k,
+  // anc 30k, hmo free. Stored in hospital_registration_fees.
+  const { records: feeRecords, addRecord: addFeeRecord, updateRecord: updateFeeRecord } = useOfflineTable('hospital_registration_fees', hospital?.id)
+  const canManageFees = profile?.role === 'admin' || profile?.role === 'owner'
+  const [feeDraft, setFeeDraft] = useState({})      // category → string amount being edited
+  const [feeSaving, setFeeSaving] = useState(false)
+  const [feeError, setFeeError] = useState('')
 
   // ---- Hospital logo (admin / owner only) ---------------------------
   const [logoUploading, setLogoUploading] = useState(false)
@@ -250,6 +266,85 @@ export default function Settings(){
     } catch (err) {
       showToast(err.message)
     }
+  }
+
+  // ---- Registration fee handlers ------------------------------------
+  // Reads the current draft value for a category (or falls back to the
+  // saved amount). Used to pre-fill the input as the user types.
+  function getFeeDraftValue(category) {
+    if (feeDraft[category] != null) return feeDraft[category]
+    const row = feeRecords.find(f => f.category === category)
+    if (row) return String(row.amount)
+    return String(DEFAULT_REGISTRATION_FEES[category] || 0)
+  }
+
+  function setFeeDraftValue(category, value) {
+    setFeeDraft(prev => ({ ...prev, [category]: value }))
+  }
+
+  // Save ALL edited fees in one go. For each category we either INSERT
+  // a new row or UPDATE the existing row.
+  async function handleSaveFees(e) {
+    e?.preventDefault?.()
+    setFeeError('')
+    setFeeSaving(true)
+    try {
+      const changes = []
+      for (const category of FOLDER_CATEGORY_ORDER) {
+        const raw = feeDraft[category]
+        if (raw == null) continue  // not edited
+        const num = Number(raw)
+        if (isNaN(num) || num < 0) {
+          setFeeError(`Invalid amount for ${FOLDER_CATEGORY_LABELS[category]}.`)
+          setFeeSaving(false)
+          return
+        }
+        const row = feeRecords.find(f => f.category === category)
+        if (row) {
+          if (Number(row.amount) !== num) {
+            await updateFeeRecord(row.id, {
+              amount: num,
+              is_active: true,
+              updated_by: profile?.id || null,
+            })
+            changes.push({ category, amount: num, op: 'updated' })
+          }
+        } else {
+          await addFeeRecord({
+            hospital_id: hospital.id,
+            category,
+            amount: num,
+            is_active: true,
+            updated_by: profile?.id || null,
+          })
+          changes.push({ category, amount: num, op: 'created' })
+        }
+      }
+      if (changes.length > 0) {
+        writeAudit({
+          hospitalId: hospital.id, actor: profile,
+          action: 'hospital_registration_fees.updated',
+          entityType: 'hospital_registration_fees', entityId: null,
+          summary: `Updated ${changes.length} registration fee${changes.length === 1 ? '' : 's'}`,
+          metadata: { changes },
+        })
+        showToast(`Saved ${changes.length} fee change${changes.length === 1 ? '' : 's'}`)
+        setFeeDraft({})
+      } else {
+        showToast('No changes to save')
+      }
+    } catch (err) {
+      setFeeError(err.message || 'Could not save the fees.')
+    } finally {
+      setFeeSaving(false)
+    }
+  }
+
+  async function handleResetFee(category) {
+    // Reset to the migration default
+    const defaultValue = DEFAULT_REGISTRATION_FEES[category] || 0
+    setFeeDraft(prev => ({ ...prev, [category]: String(defaultValue) }))
+    showToast(`${FOLDER_CATEGORY_LABELS[category]} reset to default (${formatFee(defaultValue)})`)
   }
 
   async function handlePasswordChange(e){
@@ -542,6 +637,105 @@ export default function Settings(){
           <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 6, background: 'rgba(232,184,46,0.06)', border: '1px solid rgba(232,184,46,0.25)', fontSize: 12, color: 'var(--gold)', lineHeight: 1.5 }}>
             <strong>Heads up:</strong> Until you add a bank account, the printed bill will not include any bank transfer details — only the standard totals.
           </div>
+        )}
+      </div>
+
+      {/* ---- Registration Fees (admin / owner only) ------------------------
+          Per-hospital fees charged when a patient is registered.
+          Default amounts are seeded by migration 031. Admins can edit
+          them here; the new amounts take effect immediately for every
+          new patient registered at Reception or via the Dashboard
+          quick-add form. */}
+      <div className="dash-panel" style={{ marginTop: 20, maxWidth: 720 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Registration Fees</div>
+            <div className="dash-panel-sub">Folder fees auto-charged when a patient is registered at Reception</div>
+          </div>
+        </div>
+
+        {!canManageFees ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can edit registration fees. Ask your admin to set them up.
+          </div>
+        ) : (
+          <form onSubmit={handleSaveFees}>
+            {feeError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{feeError}</div>}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+              {FOLDER_CATEGORY_ORDER.map(category => {
+                const row = feeRecords.find(f => f.category === category)
+                const savedAmount = row ? Number(row.amount) : Number(DEFAULT_REGISTRATION_FEES[category] || 0)
+                const draftValue = getFeeDraftValue(category)
+                const isEdited = feeDraft[category] != null && Number(feeDraft[category]) !== savedAmount
+                return (
+                  <div
+                    key={category}
+                    style={{
+                      padding: 14, borderRadius: 10,
+                      background: 'var(--bg-elevated)',
+                      border: `1px solid ${isEdited ? 'var(--teal-border)' : 'var(--line-soft)'}`,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <strong style={{ fontSize: 13.5 }}>{FOLDER_CATEGORY_LABELS[category]}</strong>
+                      {isEdited && (
+                        <span style={{
+                          fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                          background: 'rgba(0,199,199,0.14)', color: 'var(--teal)',
+                          textTransform: 'uppercase', letterSpacing: 0.5,
+                        }}>
+                          edited
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>₦</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="100"
+                        value={draftValue}
+                        onChange={e => setFeeDraftValue(category, e.target.value)}
+                        placeholder="0"
+                        style={{ flex: 1, fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ width: 'auto', padding: '6px 10px', fontSize: 11, color: 'var(--muted)' }}
+                        onClick={() => handleResetFee(category)}
+                        title="Reset to default"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                      Default: {formatFee(DEFAULT_REGISTRATION_FEES[category])}
+                      {Number(draftValue) === 0 ? ' · Free (no charge)' : ''}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="submit" className="btn btn-primary" disabled={feeSaving}>
+                {feeSaving ? 'Saving…' : 'Save Fee Changes'}
+              </button>
+            </div>
+
+            <div style={{
+              marginTop: 14, padding: '10px 12px', borderRadius: 6,
+              background: 'rgba(0,199,199,0.06)', border: '1px solid var(--line-soft)',
+              fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6,
+            }}>
+              <strong style={{ color: 'var(--teal)' }}>How it works:</strong> When a patient is registered at
+              Reception (or via the Dashboard quick-add), a pending charge for the folder fee is automatically
+              sent to the cashier's queue. The cashier can then collect it (with wallet auto-deduction if the
+              patient has a wallet balance) or the receptionist can waive it with a reason.
+            </div>
+          </form>
         )}
       </div>
 
