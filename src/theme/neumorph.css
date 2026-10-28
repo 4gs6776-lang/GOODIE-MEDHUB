@@ -1,0 +1,394 @@
+/* ============================================================
+   GOODIE-MEDHUB — Neumorphic KPI card enhancement (Phase 1)
+   ------------------------------------------------------------
+   DESIGN GOAL
+   Add a subtle, premium Neumorphic appearance to the existing
+   KPI cards WITHOUT replacing their existing CSS, colours,
+   layouts, sizes, or typography.
+
+   HOW IT WORKS
+   The existing classes (.hd-kpi in hospital-dash.css and
+   .dash-stat-card / .premium-stat in dashboard.css) continue to
+   drive the card's background, border, layout, icon, label, value,
+   and delta. This file only ADDS neumorphic shadow, surface depth,
+   and restrained hover/pressed transitions on top.
+
+   The effect is implemented with CSS variables so the dark and
+   light themes get their own carefully-tuned shadow values —
+   the same `--neu-shadow` token resolves to different values in
+   dark vs. light mode.
+
+   SCOPING — CRITICAL
+   To guarantee ONLY the Phase-1 modules get the neumorphic
+   treatment (and every other module stays on its existing
+   styling until Phase 2), the module-card rules are scoped
+   under a `.neu-scope` wrapper class. Each Phase-1 module
+   page adds `neu-scope` to its KPI grid's className — a
+   single-word, non-breaking addition.
+
+   The .hd-kpi rules are NOT scoped under .neu-scope because
+   .hd-kpi only ever appears inside .hd-root (the hospital
+   overview root), which is itself unique to the main Dashboard.
+
+   COVERAGE (Phase 1)
+   - Dashboard:           .hd-kpi cards (hospital overview)
+   - Module 1 (Pharmacy): .dash-stat-card cards (.neu-scope wrapper)
+   - Module 2 (ShiftHandover): .dash-stat-card.premium-stat cards (.neu-scope wrapper)
+
+   All other modules remain untouched until Phase 2 approval.
+   ============================================================ */
+
+/* ---- Tailwind directives (utilities only — Preflight is OFF) ---- */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   1. NEUMORPHIC DESIGN TOKENS
+   The shadow values below were chosen specifically for each
+   theme. Dark theme uses subtle light-from-top + dark-from-bottom
+   to create depth against the #070F14 background. Light theme
+   uses soft cool-grey shadows that read as physical elevation.
+   ============================================================ */
+
+:root {
+  /* ---- Dark theme (default) ----
+     Background #070F14, card surface #0C151D.
+     - top-left highlight is a faint white (3% opacity) — barely
+       visible, just enough to suggest a light source above-left.
+     - bottom-right shadow is a deepened version of the bg, not
+       pure black, so the card feels pressed into the surface
+       rather than floating in space. */
+  --neu-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.18) inset,
+    6px 6px 14px -4px rgba(0, 0, 0, 0.55),
+    -4px -4px 12px -6px rgba(255, 255, 255, 0.018);
+
+  /* Hover — slightly lifted, highlight intensifies, shadow softens */
+  --neu-shadow-hover:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.20) inset,
+    9px 9px 20px -5px rgba(0, 0, 0, 0.62),
+    -5px -5px 14px -6px rgba(255, 255, 255, 0.028);
+
+  /* Pressed — the card appears to sink into the surface */
+  --neu-shadow-pressed:
+    0 1px 2px rgba(0, 0, 0, 0.35) inset,
+    0 -1px 0 rgba(255, 255, 255, 0.018) inset,
+    3px 3px 8px -3px rgba(0, 0, 0, 0.55),
+    -2px -2px 6px -4px rgba(255, 255, 255, 0.012);
+
+  /* Surface gradient — VERY subtle. Adds depth without changing
+     the perceived colour. The card still reads as #0C151D. */
+  --neu-surface-gradient:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.018) 0%,
+      rgba(0, 0, 0, 0.04) 100%
+    );
+
+  /* Tone accent glow — the left edge bar / icon area picks up a
+     faint top-left radial of the card's tone colour. Subtle by
+     design: only 8% opacity in dark mode. */
+  --neu-tone-glow-opacity: 0.08;
+
+  /* Hover lift — restrained, never exaggerated */
+  --neu-hover-lift: -2px;
+  --neu-hover-transition:
+    transform 0.22s cubic-bezier(.2,.7,.2,1),
+    box-shadow 0.22s cubic-bezier(.2,.7,.2,1),
+    border-color 0.22s ease;
+}
+
+html.light-mode {
+  /* ---- Light theme ----
+     Background #F3F6F8, card surface #FFFFFF.
+     - top-left highlight is a soft white highlight (no inset needed
+       since the card is already white — we use a faint inner top
+       highlight to suggest light from above).
+     - bottom-right shadow is a cool grey-blue, low opacity, so the
+       card reads as floating just above the background. */
+  --neu-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.9) inset,
+    0 -1px 0 rgba(15, 23, 42, 0.025) inset,
+    6px 6px 14px -4px rgba(15, 23, 42, 0.10),
+    -4px -4px 12px -6px rgba(255, 255, 255, 0.85);
+
+  /* Hover — lifted, shadows intensify slightly */
+  --neu-shadow-hover:
+    0 1px 1px rgba(255, 255, 255, 0.95) inset,
+    0 -1px 0 rgba(15, 23, 42, 0.035) inset,
+    9px 9px 20px -5px rgba(15, 23, 42, 0.14),
+    -5px -5px 14px -6px rgba(255, 255, 255, 0.95);
+
+  /* Pressed — sinks into surface */
+  --neu-shadow-pressed:
+    0 1px 2px rgba(15, 23, 42, 0.08) inset,
+    0 -1px 0 rgba(255, 255, 255, 0.6) inset,
+    3px 3px 8px -3px rgba(15, 23, 42, 0.10),
+    -2px -2px 6px -4px rgba(255, 255, 255, 0.7);
+
+  /* Light-mode surface gradient — same idea, scaled for white card.
+     The 2% darkening at the bottom-right is what gives the card its
+     "physical" feel without changing the perceived background colour. */
+  --neu-surface-gradient:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.6) 0%,
+      rgba(15, 23, 42, 0.018) 100%
+    );
+
+  /* Light mode tone glow is slightly more visible (10%) so the
+     accent reads on the brighter surface. */
+  --neu-tone-glow-opacity: 0.10;
+}
+
+/* ============================================================
+   2. NEUMORPHIC LAYER — applied to existing KPI cards
+   ------------------------------------------------------------
+   The selectors below target the EXISTING KPI card classes:
+     - .hd-kpi        (hospital overview dashboard cards — already
+                       scoped to .hd-root, no further scoping needed)
+     - .neu-scope .dash-stat-card        (Pharmacy + any bare dash-stat-card)
+     - .neu-scope .premium-stat          (ShiftHandover premium-stat cards)
+
+   These rules ONLY add neumorphic shadow, surface depth, and
+   hover/pressed transitions. They do NOT override:
+     - background colour
+     - border colour (except a subtle tone tint on hover)
+     - layout (padding, margin, grid)
+     - typography (font-size, font-weight, letter-spacing)
+     - icon size or colour
+     - value/label/delta text colour
+
+   SCOPING NOTE
+   The .neu-scope wrapper ensures ONLY Phase-1 module pages
+   (Pharmacy, ShiftHandover) get the neumorphic treatment on
+   their .dash-stat-card / .premium-stat cards. Every other
+   module's .dash-stat-card cards continue to render with
+   their existing styling from premium-global.css.
+   ============================================================ */
+
+/* ---- Hospital overview dashboard (.hd-kpi) -------------------
+   These cards already have their own --hd-shadow token; we layer
+   the neumorphic shadow on top using box-shadow's multi-value
+   support, preserving the original hd accent bar (::before) and
+   the radial tone gradient already applied via .hd-kpi background.
+   No .neu-scope wrapper needed — .hd-kpi only appears inside
+   .hd-root (the hospital overview root). */
+
+.hd-kpi {
+  /* Surface gradient + existing background (radial tone glow from
+     hospital-dash.css). We compose: the original radial gradient
+     is preserved because we layer our gradient underneath using
+     background-image, while the solid var(--hd-card) remains the
+     base via the existing background-color rule. */
+  background-image: var(--neu-surface-gradient);
+  /* Override the original --hd-shadow with the neumorphic shadow.
+     We DO NOT touch border-radius (still 14px from .hd-card) or
+     padding (still 13px 14px from .hd-kpi). */
+  box-shadow: var(--neu-shadow) !important;
+  transition: var(--neu-hover-transition);
+}
+
+@media (hover: hover) {
+  .hd-kpi:hover {
+    transform: translateY(var(--neu-hover-lift));
+    box-shadow: var(--neu-shadow-hover) !important;
+  }
+  /* Active/pressed state — only on cards that are clickable
+     (is-link class is set by KpiCard when onClick is provided) */
+  .hd-kpi.is-link:active {
+    transform: translateY(0);
+    box-shadow: var(--neu-shadow-pressed) !important;
+    transition-duration: 0.08s;
+  }
+}
+
+/* Focus-visible — keyboard users still get a clear focus ring.
+   We ADD a focus ring on top of the neumorphic shadow (not
+   replacing it) so the card stays neumorphic while focused. */
+.hd-kpi:focus-visible {
+  outline: 2px solid var(--hd-blue, var(--blue));
+  outline-offset: 2px;
+}
+
+/* ---- Module cards — scoped under .neu-scope ----------------- */
+
+/* Base neumorphic treatment for ALL .dash-stat-card cards inside
+   a .neu-scope wrapper. This catches BOTH bare .dash-stat-card
+   (Pharmacy's pattern) AND .dash-stat-card.premium-stat
+   (ShiftHandover's pattern — the .premium-stat class adds tone
+   modifiers but the base .dash-stat-card still applies). */
+
+.neu-scope .dash-stat-card {
+  /* Layer the neumorphic surface gradient ABOVE the existing
+     linear-gradient background. CSS composites multiple
+     background-image values, so the existing gradient still
+     shows through. */
+  background-image:
+    var(--neu-surface-gradient),
+    linear-gradient(165deg, var(--card-grad-a) 0%, var(--card-grad-b) 100%);
+  box-shadow: var(--neu-shadow) !important;
+  transition: var(--neu-hover-transition);
+  /* The card needs position:relative for the ::after tone glow
+     to anchor correctly. The existing dashboard.css doesn't set
+     it explicitly on .dash-stat-card, so we add it here. This
+     does NOT change layout because position:relative keeps the
+     card in normal flow. */
+  position: relative;
+}
+
+@media (hover: hover) {
+  .neu-scope .dash-stat-card:hover {
+    transform: translateY(var(--neu-hover-lift));
+    box-shadow: var(--neu-shadow-hover) !important;
+    /* Subtle tone tint on hover — picks up the brand accent (teal)
+       without changing the border width or radius. */
+    border-color: color-mix(in srgb, var(--teal) 22%, var(--line));
+  }
+  /* Pressed state for interactive stat cards
+     (e.g. any .dash-stat-card with cursor:pointer or role=button) */
+  .neu-scope .dash-stat-card[role="button"]:active,
+  .neu-scope .dash-stat-card[style*="cursor: pointer"]:active,
+  .neu-scope .dash-stat-card[style*="cursor:pointer"]:active {
+    transform: translateY(0);
+    box-shadow: var(--neu-shadow-pressed) !important;
+    transition-duration: 0.08s;
+  }
+}
+
+/* Focus-visible for clickable stat cards */
+.neu-scope .dash-stat-card:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   3. TONE ACCENT GLOW (subtle, premium touch)
+   ------------------------------------------------------------
+   Each KPI card has a "tone" colour. We add a faint radial glow
+   in the top-left corner of the card using the tone colour. This
+   is what gives the cards their "premium" feel without changing
+   the icon or value styling.
+
+   In dark mode the glow is 8% opacity; in light mode 10%.
+   The glow sits BEHIND the content (z-index: 0) so it never
+   reduces text contrast.
+
+   TONE RESOLUTION
+   - .hd-kpi cards: use the existing --tone variable set by
+     [data-tone] in hospital-dash.css (blue/cyan/purple/pink/amber/green/red)
+   - .premium-stat cards (ShiftHandover): use tone-specific ::after
+     rules based on the .*-stat modifier class
+     (.teal-stat / .gold-stat / .violet-stat / .red-stat)
+   - Bare .dash-stat-card cards (Pharmacy): the tone is set via
+     inline style on the .dash-stat-icon, NOT on the card itself.
+     There's no card-level tone class, so we fall back to the
+     brand accent (teal) for the radial glow. This still looks
+     premium and consistent with the rest of the app.
+   ============================================================ */
+
+/* Tone glow for .hd-kpi cards — uses the existing --tone variable
+   set by [data-tone] in hospital-dash.css */
+.hd-kpi::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    120% 80% at 0% 0%,
+    color-mix(in srgb, var(--tone, var(--hd-blue)) var(--neu-tone-glow-opacity), transparent) 0%,
+    transparent 55%
+  );
+  opacity: 0.85;
+  transition: opacity 0.22s ease;
+}
+
+/* On hover, the tone glow brightens slightly — a subtle "warming up"
+   effect that draws the eye without being flashy. */
+@media (hover: hover) {
+  .hd-kpi:hover::after { opacity: 1; }
+}
+
+/* Tone glow for .dash-stat-card cards inside .neu-scope.
+   - For bare .dash-stat-card (Pharmacy): default teal glow (brand accent).
+   - For .premium-stat.*-stat (ShiftHandover): tone-specific glow that
+     overrides the default. The cascade resolves this naturally because
+     the .premium-stat.*-stat rule is more specific than the base
+     .neu-scope .dash-stat-card rule. */
+.neu-scope .dash-stat-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+  transition: opacity 0.22s ease;
+  /* Default tone glow — teal (brand accent). Overridden by the
+     .premium-stat.*-stat rules below for cards that have a tone class. */
+  background: radial-gradient(
+    120% 80% at 0% 0%,
+    color-mix(in srgb, var(--teal) var(--neu-tone-glow-opacity), transparent) 0%,
+    transparent 55%
+  );
+}
+
+/* Tone-specific glow overrides for .premium-stat variants
+   (used by ShiftHandover). These are more specific than the base
+   .neu-scope .dash-stat-card::after rule, so they win the cascade. */
+.neu-scope .premium-stat.teal-stat::after {
+  background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--teal)   var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
+}
+.neu-scope .premium-stat.gold-stat::after {
+  background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--gold)   var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
+}
+.neu-scope .premium-stat.violet-stat::after {
+  background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--violet) var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
+}
+.neu-scope .premium-stat.red-stat::after {
+  background: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--danger) var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
+}
+
+/* Ensure card content sits above the ::after glow. The existing
+   dashboard.css doesn't set z-index on .dash-stat-top / .dash-stat-label
+   etc., so a single z-index:1 on direct children keeps everything
+   above the glow. */
+.neu-scope .dash-stat-card > * { position: relative; z-index: 1; }
+.hd-kpi > * { position: relative; z-index: 1; }
+
+@media (hover: hover) {
+  .neu-scope .dash-stat-card:hover::after { opacity: 1; }
+}
+
+/* ============================================================
+   4. REDUCED MOTION — respect the user's preference
+   ------------------------------------------------------------
+   If the user has prefers-reduced-motion enabled, we disable the
+   hover lift and the transition. The neumorphic shadow itself
+   is still applied (it's a static visual, not a motion).
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .hd-kpi,
+  .neu-scope .dash-stat-card {
+    transition: none !important;
+  }
+  .hd-kpi:hover,
+  .neu-scope .dash-stat-card:hover {
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   5. SHIFTHANDOVER SPECIFIC NOTES (Module 2)
+   ------------------------------------------------------------
+   The .ho-stats wrapper sets its own grid + gap. We do NOT touch
+   it. The .neu-scope class is added alongside .ho-stats on the
+   same wrapper element — both classes coexist without conflict.
+   The cards inside (.dash-stat-card.premium-stat) inherit the
+   neumorphic treatment from the rules above automatically.
+   ============================================================ */
