@@ -1,27 +1,10 @@
 import { useState, useMemo } from 'react'
+import { useRealtimeAlert } from '../lib/useRealtimeAlert'
 import { useAuth } from '../context/AuthContext'
 import { useOfflineTable } from '../lib/useOfflineTable'
 import AppIcon from './icons'
 import { writeAudit } from '../lib/audit'
 import { formatDateTimeSec, getTimezone } from '../lib/datetime'
-
-// =====================================================================
-// GOODIE-MEDHUB — PatientWallet
-//
-// Shown on the patient profile. Three things:
-//   1. Big balance display + a "wallet actions" row (Add Deposit,
-//      Refund, Adjust)
-//   2. Recent transactions (last 10) — clickable to expand details
-//   3. Modals for each action type
-//
-// The wallet balance is the patient_wallets.balance column, which is
-// kept in sync by a trigger whenever a transaction is inserted. App
-// code can also write transactions directly (the cashier workspace
-// does this at invoice-generation time) and the trigger keeps the
-// balance correct.
-//
-// RLS guards every access. hospital-scoped via current_hospital_id().
-// =====================================================================
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Other']
 
@@ -29,8 +12,11 @@ export default function PatientWallet({ patient }) {
   const { profile, hospital } = useAuth()
   const timezone = getTimezone(hospital)
 
-  const { records: wallets, addRecord: addWallet, updateRecord: updateWallet } = useOfflineTable('patient_wallets', hospital?.id)
-  const { records: allTxns, addRecord: addTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+  const { records: wallets, addRecord: addWallet, updateRecord: updateWallet, syncFromServer: syncWallets } = useOfflineTable('patient_wallets', hospital?.id)
+  const { records: allTxns, addRecord: addTxn, syncFromServer: syncTxns } = useOfflineTable('patient_wallet_transactions', hospital?.id)
+
+  useRealtimeAlert('patient_wallets', hospital?.id, () => { syncWallets() }, { event: 'UPDATE' })
+  useRealtimeAlert('patient_wallet_transactions', hospital?.id, () => { syncTxns() })
 
   const [showAddDeposit, setShowAddDeposit] = useState(false)
   const [showRefund, setShowRefund] = useState(false)
@@ -40,14 +26,12 @@ export default function PatientWallet({ patient }) {
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // ---- Find this patient's wallet (if any) --------------------------
   const wallet = useMemo(() => {
     return wallets.find(w => w.patient_id === patient?.id) || null
   }, [wallets, patient?.id])
 
   const balance = Number(wallet?.balance || 0)
 
-  // ---- Find this patient's transactions (newest first) --------------
   const patientTxns = useMemo(() => {
     return allTxns
       .filter(t => t.patient_id === patient?.id)
@@ -66,19 +50,12 @@ export default function PatientWallet({ patient }) {
     return sign + '₦' + Math.abs(v).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
-  // ---- HMO patients don't use the wallet (per Q6 = a) ----------------
   const isHmoPatient = patient?.hmo_provider && patient?.hmo_provider !== 'Self-Pay (No HMO)' && patient?.category === 'hmo'
 
-  // ---- Role check — who can act on the wallet? ----------------------
   const canDeposit = profile && ['admin', 'owner', 'doctor', 'nurse', 'front_desk', 'billing'].includes(profile.role)
   const canRefund = profile && ['admin', 'owner'].includes(profile.role)
   const canAdjust = profile && ['admin', 'owner'].includes(profile.role)
 
-  // ---- Ensure wallet row exists before recording a txn ---------------
-  // The wallets table has UNIQUE(patient_id) — but we still need to
-  // handle the race where two staff both click "Add Deposit" at the
-  // same moment. The wallet is fetched via useOfflineTable's records,
-  // so we check the local cache first.
   async function ensureWallet() {
     if (wallet) return wallet
     const newWallet = await addWallet({
@@ -90,7 +67,6 @@ export default function PatientWallet({ patient }) {
     return newWallet
   }
 
-  // ---- Add Deposit ---------------------------------------------------
   async function handleDeposit(e) {
     e.preventDefault()
     setFormError('')
@@ -108,7 +84,8 @@ export default function PatientWallet({ patient }) {
     setSaving(true)
     try {
       const w = await ensureWallet()
-      const balanceAfter = balance + amount
+      const currentBal = Number(w.balance ?? balance ?? 0)
+      const balanceAfter = currentBal + amount
       await addTxn({
         hospital_id: hospital.id,
         patient_id: patient.id,
@@ -122,6 +99,11 @@ export default function PatientWallet({ patient }) {
         performed_by_name: profile.full_name,
         notes: depositNotes.trim() || null,
       })
+      try {
+        await updateWallet(w.id, { balance: balanceAfter })
+      } catch (e) {
+        console.warn('Local wallet balance update failed:', e)
+      }
       writeAudit({
         hospitalId: hospital.id, actor: profile,
         action: 'wallet.deposit',
@@ -140,7 +122,6 @@ export default function PatientWallet({ patient }) {
     }
   }
 
-  // ---- Refund ---------------------------------------------------------
   async function handleRefund(e) {
     e.preventDefault()
     setFormError('')
@@ -162,7 +143,8 @@ export default function PatientWallet({ patient }) {
     setSaving(true)
     try {
       const w = await ensureWallet()
-      const balanceAfter = balance - amount
+      const currentBal = Number(w.balance ?? balance ?? 0)
+      const balanceAfter = currentBal - amount
       await addTxn({
         hospital_id: hospital.id,
         patient_id: patient.id,
@@ -175,6 +157,11 @@ export default function PatientWallet({ patient }) {
         performed_by_name: profile.full_name,
         notes: refundReason.trim(),
       })
+      try {
+        await updateWallet(w.id, { balance: balanceAfter })
+      } catch (e) {
+        console.warn('Local wallet balance update failed:', e)
+      }
       writeAudit({
         hospitalId: hospital.id, actor: profile,
         action: 'wallet.refund',
@@ -193,7 +180,6 @@ export default function PatientWallet({ patient }) {
     }
   }
 
-  // ---- Adjustment (admin correction) --------------------------------
   async function handleAdjust(e) {
     e.preventDefault()
     setFormError('')
@@ -216,24 +202,36 @@ export default function PatientWallet({ patient }) {
     setSaving(true)
     try {
       const w = await ensureWallet()
+      const currentBal = Number(w.balance ?? balance ?? 0)
+      const balanceAfter = currentBal + amount
+      if (balanceAfter < -0.001) {
+        setFormError(`Adjustment would put the wallet negative (new balance would be ${formatMoney(balanceAfter)}).`)
+        setSaving(false)
+        return
+      }
       await addTxn({
         hospital_id: hospital.id,
         patient_id: patient.id,
         wallet_id: w.id,
         type: 'adjustment',
         amount: amount,
-        balance_after: newBalance,
+        balance_after: balanceAfter,
         performed_by: profile.id,
         performed_by_name: profile.full_name,
         notes: adjustReason.trim(),
       })
+      try {
+        await updateWallet(w.id, { balance: balanceAfter })
+      } catch (e) {
+        console.warn('Local wallet balance update failed:', e)
+      }
       writeAudit({
         hospitalId: hospital.id, actor: profile,
         action: 'wallet.adjustment',
         entityType: 'patient_wallet', entityId: w.id,
         patientId: patient.id,
         summary: `Wallet adjustment of ${formatMoney(amount)} for ${patient.full_name}`,
-        metadata: { amount, reason: adjustReason, balance_after: newBalance },
+        metadata: { amount, reason: adjustReason, balance_after: balanceAfter },
       })
       showToast(`Adjustment of ${formatMoney(amount)} recorded`)
       setShowAdjust(false)
@@ -245,7 +243,6 @@ export default function PatientWallet({ patient }) {
     }
   }
 
-  // ---- Form state (declared here to keep the handlers above simple) -
   const [depositAmount, setDepositAmount] = useState('')
   const [depositMethod, setDepositMethod] = useState('Cash')
   const [depositRef, setDepositRef] = useState('')
@@ -257,8 +254,6 @@ export default function PatientWallet({ patient }) {
 
   const [adjustAmount, setAdjustAmount] = useState('')
   const [adjustReason, setAdjustReason] = useState('')
-
-  // ---- Render --------------------------------------------------------
 
   if (isHmoPatient) {
     return (
@@ -276,7 +271,6 @@ export default function PatientWallet({ patient }) {
 
   return (
     <>
-      {/* ---- Balance card ---- */}
       <div style={{
         padding: 18, borderRadius: 12,
         background: balance > 0 ? 'linear-gradient(135deg, rgba(0,199,199,0.10), rgba(0,199,199,0.04))' : 'var(--bg-elevated)',
@@ -319,7 +313,6 @@ export default function PatientWallet({ patient }) {
         </div>
       </div>
 
-      {/* ---- Recent transactions ---- */}
       <div style={{
         padding: 14, borderRadius: 10,
         background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
@@ -353,7 +346,6 @@ export default function PatientWallet({ patient }) {
                     background: expanded ? 'var(--bg-card)' : 'transparent',
                     border: `1px solid ${expanded ? 'var(--line)' : 'transparent'}`,
                     cursor: 'pointer',
-                    transition: 'background 0.1s',
                   }}
                   onClick={() => setExpandedTxn(expanded ? null : t.id)}
                 >
@@ -402,7 +394,6 @@ export default function PatientWallet({ patient }) {
         )}
       </div>
 
-      {/* ---- Add Deposit modal ---- */}
       {showAddDeposit && (
         <ModalShell title="Add Deposit" onClose={() => setShowAddDeposit(false)}>
           <form onSubmit={handleDeposit}>
@@ -433,7 +424,6 @@ export default function PatientWallet({ patient }) {
         </ModalShell>
       )}
 
-      {/* ---- Refund modal ---- */}
       {showRefund && (
         <ModalShell title="Issue Refund" onClose={() => setShowRefund(false)}>
           <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 6, background: 'rgba(232,184,46,0.08)', border: '1px solid rgba(232,184,46,0.25)', fontSize: 12, color: 'var(--gold)' }}>
@@ -463,7 +453,6 @@ export default function PatientWallet({ patient }) {
         </ModalShell>
       )}
 
-      {/* ---- Adjustment modal ---- */}
       {showAdjust && (
         <ModalShell title="Manual Adjustment" onClose={() => setShowAdjust(false)}>
           <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 6, background: 'rgba(118,87,232,0.08)', border: '1px solid rgba(118,87,232,0.25)', fontSize: 12, color: 'var(--violet)' }}>
@@ -500,10 +489,6 @@ export default function PatientWallet({ patient }) {
     </>
   )
 }
-
-// ---------------------------------------------------------------------
-// ModalShell — shared chrome for the three modals
-// ---------------------------------------------------------------------
 
 function ModalShell({ title, onClose, children }) {
   return (
