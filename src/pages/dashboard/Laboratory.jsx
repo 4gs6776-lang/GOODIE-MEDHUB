@@ -286,7 +286,18 @@ export default function Laboratory(){
   }
 
   // Pipeline advance: collect the sample / start processing.
+  // Phase 5: blocks sample collection when payment_status is 'unpaid'
+  // (walk-in tests that haven't been paid for yet).
   async function handleAdvance(test, toStage){
+    // Payment gate: if advancing to sample_collected and the test has
+    // payment_status='unpaid', block collection until payment is confirmed.
+    if (toStage === 'sample_collected') {
+      const rawRow = test.raw || test
+      if (rawRow?.payment_status === 'unpaid') {
+        showToast(`Payment required before sample collection. Record payment in Billing first.`)
+        return
+      }
+    }
     const payload = { status: stageStatus(toStage, test.origin), updated_at: new Date().toISOString() }
     if (toStage === 'sample_collected') { payload.collected_at = new Date().toISOString(); payload.collected_by = profile?.full_name || null }
     try {
@@ -299,28 +310,89 @@ export default function Laboratory(){
   }
 
   async function handleCancel(test){
-    if (!confirm(`Cancel this request for ${test.test_name} (${test.patient_name})? The record is kept for the audit trail.`)) return
+    const rawRow = test.raw || test
+    const stage = labStage(test.status)
+    // Determine cancel type based on current stage
+    const collected = stage !== 'ordered' && !!rawRow?.collected_at
+    const cancelTypeOptions = collected
+      ? ['after_collection', 'sample_rejected', 'refund']
+      : ['before_collection', 'refund']
+    const cancelTypeLabels = {
+      before_collection: 'Cancel before collection (no sample taken)',
+      after_collection: 'Cancel after collection (sample already taken)',
+      sample_rejected: 'Sample rejected / unsuitable',
+      refund: 'Process refund',
+    }
+    const options = cancelTypeOptions.map((t, i) => `${i + 1}. ${cancelTypeLabels[t]}`).join('\n')
+    const choice = prompt(`Cancel this request for ${test.test_name} (${test.patient_name})?\n\n${options}\n\nEnter 1-${cancelTypeOptions.length}:`)
+    if (!choice) return
+    const idx = parseInt(choice, 10) - 1
+    if (isNaN(idx) || idx < 0 || idx >= cancelTypeOptions.length) { showToast('Invalid choice'); return }
+    const cancelType = cancelTypeOptions[idx]
+    const reason = prompt(`Reason for cancellation (${cancelTypeLabels[cancelType]}):`) || ''
     try {
       await updateLabRow(test, {
         status: 'cancelled',
         cancelled_at: new Date().toISOString(),
-        cancel_reason: `Cancelled by ${profile?.full_name || 'staff'}`,
+        cancel_reason: `${cancelType}: ${reason.trim() || 'No reason given'} — by ${profile?.full_name || 'staff'}`,
+        cancel_type: cancelType,
         updated_at: new Date().toISOString(),
       })
-      auditLab('lab.cancelled', test, `${test.test_name} for ${test.patient_name}: request cancelled`)
-      showToast('Request cancelled')
+      auditLab('lab.cancelled', test, `${test.test_name} for ${test.patient_name}: cancelled (${cancelType}) — ${reason.trim() || 'no reason'}`, { cancel_type: cancelType, reason: reason.trim() })
+      showToast(`Request cancelled — ${cancelTypeLabels[cancelType]}`)
     } catch (err) {
       showToast(err.message || 'Could not cancel the request')
     }
   }
 
   async function handleReopen(test){
+    const rawRow = test.raw || test
+    const reason = prompt(`Reopen ${test.test_name} for ${test.patient_name}?\n\nThis will save the current result as "previous_result" for the audit trail and allow a new result to be entered.\n\nReason for correction (required):`)
+    if (!reason?.trim()) return
     try {
-      await updateLabRow(test, { status: stageStatus('ordered', test.origin), resulted_at: null, verified_by: null, updated_at: new Date().toISOString() })
-      auditLab('lab.reopened', test, `${test.test_name} for ${test.patient_name}: reopened as Ordered`)
-      showToast(isOnline ? 'Marked pending' : 'Marked pending — will sync when back online')
+      // Phase 5: Preserve the old result + record who corrected it + why.
+      // Do NOT silently clear result/verified_by — keep them so the
+      // audit trail shows what was changed.
+      const nowIso = new Date().toISOString()
+      const payload = {
+        status: stageStatus('ordered', test.origin),
+        updated_at: nowIso,
+        // Preserve the previous result for audit
+        previous_result: rawRow?.result || test.result || null,
+        correction_reason: reason.trim(),
+        corrected_by: profile?.full_name || null,
+        // Clear verification (needs re-verification) but keep the result
+        // visible until the new one is entered. The UI shows "previous_result"
+        // when reopening for corrections.
+        verified_by: null,
+        verified_at: null,
+      }
+      await updateLabRow(test, payload)
+      auditLab('lab.reopened', test, `${test.test_name} for ${test.patient_name}: reopened for correction — previous result preserved. Reason: ${reason.trim()}`, { previous_result: rawRow?.result || test.result, correction_reason: reason.trim(), corrected_by: profile?.full_name })
+      showToast(`Reopened — previous result preserved for audit`)
     } catch (err) {
       showToast(err.message || 'Could not reopen the request')
+    }
+  }
+
+  // Phase 5: Verify & Release — separate from result entry.
+  // Only authorized lab users (admin/owner/lab role) can verify.
+  // Nurses CANNOT verify (isNurseReadOnly check).
+  async function handleVerifyAndRelease(test){
+    if (isNurseReadOnly) { showToast('Nurses cannot verify results'); return }
+    if (!confirm(`Verify and release result for ${test.test_name} (${test.patient_name})?\n\nThis action confirms the result is correct and releases it to the patient record. It cannot be undone without reopening for correction.`)) return
+    try {
+      const nowIso = new Date().toISOString()
+      await updateLabRow(test, {
+        status: 'completed',
+        verified_by: profile?.full_name || null,
+        verified_at: nowIso,
+        updated_at: nowIso,
+      })
+      auditLab('lab.verified_released', test, `${test.test_name} for ${test.patient_name}: result verified and released by ${profile?.full_name || 'lab staff'}`, { verified_by: profile?.full_name, verified_at: nowIso })
+      showToast(`Result verified and released`)
+    } catch (err) {
+      showToast(err.message || 'Could not verify the result')
     }
   }
 
@@ -380,12 +452,19 @@ export default function Laboratory(){
       try {
         const price = parseFloat(resData.price) || 0
         const nowIso = new Date().toISOString()
+        // Phase 5: Split result entry from verification.
+        // Result entry sets resulted_by + status 'awaiting_verification'.
+        // A SEPARATE "Verify & Release" step (handleVerifyAndRelease) sets
+        // verified_by + verified_at + status 'completed'.
         const payload = {
-          status: 'completed',
+          status: 'awaiting_verification',
           result: resData.result,
           result_file: resData.result_file || null,
           resulted_at: nowIso,
-          verified_by: profile?.full_name || null,
+          resulted_by: profile?.full_name || null,
+          // Do NOT set verified_by/verified_at here — that's the separate
+          // verification step. The old code set verified_by = result enterer,
+          // which skipped the required verification safeguard.
           result_unit: resData.result_unit || null,
           reference_range: resData.reference_range || null,
           abnormal_flag: ABNORMAL_FLAGS.includes(resData.abnormal_flag) ? resData.abnormal_flag : null,
@@ -418,8 +497,8 @@ export default function Laboratory(){
           })
         }
         auditLab('lab_result.recorded', t,
-          `Result recorded for ${t.test_name} — ${t.patient_name}${resData.abnormal_flag && resData.abnormal_flag !== 'normal' ? ` (${resData.abnormal_flag})` : ''}`,
-          { abnormal_flag: resData.abnormal_flag || null, unit: resData.result_unit || null })
+          `Result recorded for ${t.test_name} — ${t.patient_name}${resData.abnormal_flag && resData.abnormal_flag !== 'normal' ? ` (${resData.abnormal_flag})` : ''} — awaiting verification`,
+          { abnormal_flag: resData.abnormal_flag || null, unit: resData.result_unit || null, resulted_by: profile?.full_name || null })
       } catch (err) {
         console.error(`Failed to save result for ${t.test_name}:`, err)
         failed.push(t)
@@ -623,11 +702,13 @@ export default function Laboratory(){
   } = usePagination(groupedRows, { pageSize: 10, resetKey: labSearch })
 
   // Stage-aware primary action per row (pipeline, global lab rule).
+  // Phase 5: Added 'awaiting_verification' stage with "Verify & Release" action.
   function stageAction(test){
     const stage = labStage(test.status)
     if (stage === 'ordered') return { label: 'Collect Sample', run: () => handleAdvance(test, 'sample_collected'), aria: `Mark sample collected for ${test.test_name} for ${test.patient_name}` }
     if (stage === 'sample_collected') return { label: 'Start Processing', run: () => handleAdvance(test, 'processing'), aria: `Start processing ${test.test_name} for ${test.patient_name}` }
     if (stage === 'processing') return { label: 'Enter Results', run: () => openResultForm(test), aria: `Enter results for ${test.test_name} for ${test.patient_name}` }
+    if (stage === 'awaiting_verification') return { label: 'Verify & Release', run: () => handleVerifyAndRelease(test), aria: `Verify and release result for ${test.test_name} for ${test.patient_name}` }
     if (stage === 'completed') return { label: 'View Result', run: () => openViewer(test), aria: `View result for ${test.test_name} for ${test.patient_name}` }
     return null
   }
@@ -711,6 +792,26 @@ export default function Laboratory(){
                         {test.origin === 'doctor' && (
                           <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(139,124,246,0.14)', color: 'var(--violet)', verticalAlign: 'middle' }}>
                             DOCTOR
+                          </span>
+                        )}
+                        {test.origin === 'lab' && (test.raw?.request_origin === 'walk_in' || test.requestOrigin === 'walk_in') && (
+                          <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(0,199,199,0.14)', color: 'var(--teal)', verticalAlign: 'middle' }}>
+                            WALK-IN
+                          </span>
+                        )}
+                        {test.raw?.request_number && (
+                          <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--blue)', fontFamily: 'var(--font-mono, monospace)' }}>
+                            {test.raw.request_number}
+                          </span>
+                        )}
+                        {test.raw?.payment_status === 'unpaid' && (
+                          <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(225,104,94,0.14)', color: 'var(--danger)', verticalAlign: 'middle' }}>
+                            UNPAID
+                          </span>
+                        )}
+                        {test.raw?.payment_status === 'paid' && (
+                          <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(0,199,199,0.14)', color: 'var(--teal)', verticalAlign: 'middle' }}>
+                            PAID
                           </span>
                         )}
                         {(test.priority === 'urgent' || test.priority === 'stat') && (
@@ -996,7 +1097,7 @@ export default function Laboratory(){
               </button>
               {!isNurseReadOnly && (
                 <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleSaveAllResults} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save All Results & Send to Billing'}
+                  {saving ? 'Saving...' : 'Save Results (awaiting verification)'}
                 </button>
               )}
             </div>
