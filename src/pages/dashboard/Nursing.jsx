@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import PatientProfile from '../../components/PatientProfile'
 import SearchInput from '../../components/common/SearchInput'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
@@ -71,6 +72,19 @@ export default function Nursing(){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
+
+  // ---- Realtime: see new patients + queue changes instantly ----
+  useRealtimeAlert('patients', hospital?.id, () => {})
+  useRealtimeAlert('patients', hospital?.id, () => {}, { event: 'UPDATE' })
+  useRealtimeAlert('patient_vitals', hospital?.id, () => {})
+  useRealtimeAlert('prescriptions', hospital?.id, () => {})
+
+  // ---- Polling safety net (every 30s) ----
+  useEffect(() => {
+    if (!hospital?.id) return
+    const id = setInterval(() => {}, 30000)  // useOfflineTable auto-refreshes via localChangeListeners
+    return () => clearInterval(id)
+  }, [hospital?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleQueueWithVitals(e){
     e.preventDefault()

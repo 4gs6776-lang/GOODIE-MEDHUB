@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
@@ -27,6 +28,10 @@ export default function Radiology(){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
+
+  // ---- Realtime ----
+  useRealtimeAlert('radiology_scans', hospital?.id, () => {})
+  useRealtimeAlert('radiology_scans', hospital?.id, () => {}, { event: 'UPDATE' })
 
   function auditScan(action, scan, summary){
     writeAudit({

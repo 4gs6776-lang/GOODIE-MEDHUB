@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { usePagination } from '../../lib/usePagination'
@@ -53,6 +54,14 @@ export default function Insurance(){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
+
+  // ---- Realtime ----
+  useRealtimeAlert('insurance_claims', hospital?.id, () => {
+    showToast(`Claim status updated`)
+  }, { event: 'UPDATE' })
+  useRealtimeAlert('insurance_claims', hospital?.id, () => {
+    showToast(`New claim filed`)
+  })
 
   function formatMoney(n){
     return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2 })

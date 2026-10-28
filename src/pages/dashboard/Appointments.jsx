@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import Autocomplete from '../../components/common/Autocomplete'
@@ -124,6 +125,12 @@ export default function Appointments({ initialSearch = '' }){
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
+
+  // ---- Realtime ----
+  useRealtimeAlert('appointments', hospital?.id, () => {
+    syncFromServer && syncFromServer()
+  })
+  useRealtimeAlert('appointments', hospital?.id, () => {}, { event: 'UPDATE' })
 
   function findConflict(doctor, startISO, durationMins){
     if (!doctor) return null

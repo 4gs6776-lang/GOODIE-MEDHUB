@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
@@ -344,11 +345,29 @@ export default function Reception() {
 
   function showToast(message) {
     setToast(message)
-
     setTimeout(() => {
       setToast(null)
     }, 3000)
   }
+
+  // ---- Realtime: refresh when patients are created/updated anywhere ----
+  // Previously Reception required a manual refresh to see new patients
+  // registered from the Dashboard quick-add or from another device.
+  const { syncFromServer: syncPatients } = useOfflineTable('patients', hospital?.id)
+  useRealtimeAlert('patients', hospital?.id, () => {
+    syncPatients()
+  })
+  useRealtimeAlert('patients', hospital?.id, () => {
+    syncPatients()
+  }, { event: 'UPDATE' })
+
+  // ---- Polling safety net (every 30s) ----
+  // If realtime fails (network, cold start), the poll catches up.
+  useEffect(() => {
+    if (!hospital?.id) return
+    const id = setInterval(() => { syncPatients() }, 30000)
+    return () => clearInterval(id)
+  }, [hospital?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handlePhotoSelect(event) {
     const file = event.target.files?.[0]
