@@ -22,38 +22,48 @@ import Pagination from '../../components/common/Pagination'
 // Common lab tests power the test-name autocomplete (global rule: no
 // free-typing a value the system already knows). Anything unmatched can
 // still be added as a custom test via the autocomplete's free-text row.
+// Priced lab catalogue — each test has a default price, sample type,
+// and whether a clinician order is required (cannot be walk-in).
+// Admins can override prices via Settings → Service Catalog (Phase 1);
+// these are the fallback defaults when no catalog entry exists.
 const COMMON_LAB_TESTS = [
-  'Full Blood Count (FBC)',
-  'Malaria Parasite Test',
-  'Widal Test',
-  'Urinalysis',
-  'Stool Routine Examination',
-  'Lipid Profile',
-  'Liver Function Test (LFT)',
-  'Renal Function Test (RFT)',
-  'Random Blood Glucose',
-  'Fasting Blood Glucose',
-  'HbA1c',
-  'HIV Screening',
-  'Hepatitis B Surface Antigen',
-  'Hepatitis C Antibody',
-  'Thyroid Profile',
-  'Pregnancy Test (UPT)',
-  'Blood Grouping & Rh',
-  'Genotype (Hb Electrophoresis)',
-  'ESR (Erythrocyte Sedimentation Rate)',
-  'CRP (C-Reactive Protein)',
-  'Electrolytes & Urea',
-  'Semen Analysis',
-  'Pap Smear',
-  'X-Ray Chest',
-  'Ultrasound Scan',
-  'CT Scan',
-  'MRI Scan',
-  'ECG',
+  { name: 'Full Blood Count (FBC)',           price: 3500,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Malaria Parasite Test',             price: 1500,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Widal Test',                        price: 3000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Urinalysis',                        price: 2000,  sample_type: 'urine',  requires_clinician_order: false },
+  { name: 'Stool Routine Examination',          price: 2000,  sample_type: 'stool',  requires_clinician_order: false },
+  { name: 'Lipid Profile',                      price: 5500,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Liver Function Test (LFT)',          price: 6000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Renal Function Test (RFT)',          price: 6000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Random Blood Glucose',               price: 1500,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Fasting Blood Glucose',              price: 2000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'HbA1c',                              price: 5000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'HIV Screening',                      price: 2000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Hepatitis B Surface Antigen',        price: 2500,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Hepatitis C Antibody',               price: 3000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Thyroid Profile',                    price: 7000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Pregnancy Test (UPT)',               price: 1500,  sample_type: 'urine',  requires_clinician_order: false },
+  { name: 'Blood Grouping & Rh',                price: 2000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Genotype (Hb Electrophoresis)',      price: 3000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'ESR (Erythrocyte Sedimentation Rate)', price: 2500, sample_type: 'blood', requires_clinician_order: false },
+  { name: 'CRP (C-Reactive Protein)',           price: 3000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Electrolytes & Urea',                price: 4000,  sample_type: 'blood',  requires_clinician_order: false },
+  { name: 'Semen Analysis',                    price: 5000,  sample_type: 'semen',  requires_clinician_order: true },
+  { name: 'Pap Smear',                          price: 4000,  sample_type: 'swab',   requires_clinician_order: true },
+  { name: 'X-Ray Chest',                        price: 5000,  sample_type: 'imaging', requires_clinician_order: true },
+  { name: 'Ultrasound Scan',                    price: 10000, sample_type: 'imaging', requires_clinician_order: true },
+  { name: 'CT Scan',                            price: 25000, sample_type: 'imaging', requires_clinician_order: true },
+  { name: 'MRI Scan',                           price: 50000, sample_type: 'imaging', requires_clinician_order: true },
+  { name: 'ECG',                                price: 5000,  sample_type: 'other',  requires_clinician_order: true },
 ]
 
-const TEST_OPTIONS = COMMON_LAB_TESTS.map(t => ({ id: t, label: t }))
+// For the existing "New Request" (single test) — includes ALL tests
+const TEST_OPTIONS = COMMON_LAB_TESTS.map(t => ({ id: t.name, label: t.name }))
+
+// For walk-in — only tests that DON'T require a clinician order
+const WALKIN_TEST_OPTIONS = COMMON_LAB_TESTS.filter(t => !t.requires_clinician_order)
+
+const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export default function Laboratory(){
   const { profile, hospital } = useAuth()
@@ -88,6 +98,15 @@ export default function Laboratory(){
   const [selectedTest, setSelectedTest] = useState(null) // { id, label, freeText? }
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+
+  // Walk-in Lab Request state
+  const [showWalkInModal, setShowWalkInModal] = useState(false)
+  const [walkInPatient, setWalkInPatient] = useState(null)
+  const [walkInCart, setWalkInCart] = useState([])  // [{ name, price, sample_type }]
+  const [walkInSearch, setWalkInSearch] = useState('')
+  const [walkInPaymentMethod, setWalkInPaymentMethod] = useState('Cash')
+  const [walkInAmountPaid, setWalkInAmountPaid] = useState('')
+  const [walkInSaving, setWalkInSaving] = useState(false)
 
   // Professional Result Form State
   const [showResultForm, setShowResultForm] = useState(false)
@@ -159,6 +178,111 @@ export default function Laboratory(){
     } finally {
       setSaving(false)
     }
+  }
+
+  // ---- Walk-in Lab Request handler -------------------------------------
+  // Creates one request_number for the basket, one lab_tests row per
+  // test, AND one billable_charge per test — all at request time (not
+  // at result save time). Uses deterministic source_transaction_id
+  // (LABWLK-{requestNumber}-{testName}) so repeated clicks don't
+  // create duplicates.
+  async function handleWalkInSubmit(e) {
+    e.preventDefault()
+    setFormError('')
+    if (!walkInPatient) { setFormError('Select a patient.'); return }
+    if (walkInCart.length === 0) { setFormError('Add at least one test to the cart.'); return }
+
+    setWalkInSaving(true)
+    try {
+      // 1. Generate a sequential request number
+      const requestNumber = `LABWLK-${Date.now().toString().slice(-8)}`
+      const nowIso = new Date().toISOString()
+      const paymentStatus = walkInAmountPaid && parseFloat(walkInAmountPaid) > 0 ? 'paid' : 'unpaid'
+
+      // 2. Create one lab_tests row per test + one billable_charge per test
+      for (const item of walkInCart) {
+        const stxId = `LABWLK-${requestNumber}-${item.name.replace(/\s+/g, '_').toUpperCase()}`
+
+        // Double-charge guard: check if a charge already exists for this request+test
+        const alreadyCharged = billableCharges.some(c =>
+          c.source_transaction_id === stxId && c._discarded !== true
+        )
+
+        // Create the lab_tests row
+        const newTest = await addRecord({
+          hospital_id: hospital.id,
+          patient_id: walkInPatient.id,
+          patient_name: walkInPatient.full_name,
+          test_name: item.name,
+          status: 'pending',
+          result: null,
+          requested_at: nowIso,
+          created_by: profile?.id,
+          // Phase 5 walk-in fields
+          request_number: requestNumber,
+          request_origin: 'walk_in',
+          payment_status: paymentStatus,
+          sample_type: item.sample_type || null,
+          requires_clinician_order: false,
+        })
+
+        // Create the billable_charge (only if not already billed)
+        if (!alreadyCharged) {
+          await addBillableCharge({
+            hospital_id: hospital.id,
+            patient_id: walkInPatient.id,
+            patient_name: walkInPatient.full_name,
+            source_module: 'Laboratory',
+            source_transaction_id: stxId,
+            item_name: item.name,
+            category: 'Lab Test',
+            quantity: 1,
+            unit_price: item.price,
+            total: item.price,
+            status: 'pending',
+            created_by: profile?.id,
+          })
+        }
+      }
+
+      // 3. Audit
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'lab.walkin_request_created',
+        entityType: 'lab_request', entityId: null,
+        patientId: walkInPatient.id,
+        summary: `Walk-in lab request ${requestNumber} created for ${walkInPatient.full_name} — ${walkInCart.length} test(s), total ${formatMoney(walkInCart.reduce((s, i) => s + i.price, 0))} (${paymentStatus})`,
+        metadata: {
+          request_number: requestNumber,
+          patient_id: walkInPatient.id,
+          patient_name: walkInPatient.full_name,
+          tests: walkInCart.map(t => ({ name: t.name, price: t.price, sample_type: t.sample_type })),
+          total: walkInCart.reduce((s, i) => s + i.price, 0),
+          payment_status: paymentStatus,
+          payment_method: walkInPaymentMethod,
+          amount_paid: parseFloat(walkInAmountPaid) || 0,
+        },
+      })
+
+      showToast(`Walk-in request ${requestNumber} created — ${walkInCart.length} test(s), ${formatMoney(walkInCart.reduce((s, i) => s + i.price, 0))}`)
+      setShowWalkInModal(false)
+      setWalkInPatient(null); setWalkInCart([]); setWalkInSearch(''); setWalkInAmountPaid('')
+    } catch (err) {
+      setFormError(err.message || 'Could not create walk-in request')
+    } finally {
+      setWalkInSaving(false)
+    }
+  }
+
+  function addToWalkInCart(test) {
+    setWalkInCart(prev => {
+      if (prev.some(t => t.name === test.name)) return prev  // no duplicates
+      return [...prev, { name: test.name, price: test.price, sample_type: test.sample_type }]
+    })
+  }
+
+  function removeFromWalkInCart(name) {
+    setWalkInCart(prev => prev.filter(t => t.name !== name))
   }
 
   // Pipeline advance: collect the sample / start processing.
@@ -546,9 +670,14 @@ export default function Laboratory(){
             <SearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Search patient, test..." style={{ flex: 1, minWidth: 150 }} />
             <ModuleHistoryButton moduleKey="laboratory" />
             {!isNurseReadOnly && (
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
-                <AppIcon name="plus" size={14} /> New Request
-              </button>
+              <>
+                <button className="btn btn-primary" style={{ width: 'auto', background: 'var(--teal)' }} onClick={() => setShowWalkInModal(true)}>
+                  <AppIcon name="plus" size={14} /> Walk-in Lab Request
+                </button>
+                <button className="btn btn-ghost" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>
+                  <AppIcon name="plus" size={14} /> New Request
+                </button>
+              </>
             )}
             {isNurseReadOnly && (
               <span style={{ fontSize: 11, color: 'var(--gold)', alignSelf: 'center' }}>Read-only view — nurses can view results but not make changes</span>
@@ -884,6 +1013,131 @@ export default function Laboratory(){
           hospital={hospital}
           onClose={() => { setViewRow(null); setViewHistory([]) }}
         />
+      )}
+
+      {/* ---- Walk-in Lab Request modal ---- */}
+      {showWalkInModal && (
+        <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowWalkInModal(false) }}>
+          <div className="card dash-modal" style={{ maxWidth: 680 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14 }}>
+              <div>
+                <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Walk-in Lab Request</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Select patient + tests — charges are created immediately at request time.</div>
+              </div>
+              <button className="dash-icon-btn" onClick={() => setShowWalkInModal(false)} aria-label="Close"><AppIcon name="close" size={18} /></button>
+            </div>
+            <div className="dash-modal-body">
+              <form id="walkin-lab-form" onSubmit={handleWalkInSubmit}>
+                {formError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{formError}</div>}
+
+                {/* Patient picker */}
+                <div className="field">
+                  <label>Patient *</label>
+                  <PatientAutocomplete
+                    patients={patients}
+                    value={walkInPatient ? { id: walkInPatient.id, label: walkInPatient.full_name, patient: walkInPatient } : null}
+                    onChange={(opt) => setWalkInPatient(opt?.patient || null)}
+                    placeholder="Search patient by name, ID or phone…"
+                    ariaLabel="Patient"
+                  />
+                </div>
+
+                {/* Test search + add */}
+                <div className="field">
+                  <label>Add Tests (only tests not requiring a clinician order)</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="Search test name…"
+                      value={walkInSearch}
+                      onChange={e => setWalkInSearch(e.target.value)}
+                      style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)' }}
+                    />
+                  </div>
+                  {/* Test picker list */}
+                  {walkInSearch.trim() && (
+                    <div style={{ marginTop: 6, border: '1px solid var(--line-soft)', borderRadius: 8, maxHeight: 200, overflowY: 'auto' }}>
+                      {WALKIN_TEST_OPTIONS
+                        .filter(t => t.name.toLowerCase().includes(walkInSearch.trim().toLowerCase()))
+                        .filter(t => !walkInCart.some(c => c.name === t.name))
+                        .map(t => (
+                          <button key={t.name} type="button" onClick={() => { addToWalkInCart(t); setWalkInSearch('') }} style={{ width: '100%', textAlign: 'left', padding: '8px 10px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--line-soft)', cursor: 'pointer', color: 'inherit' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: 12.5, fontWeight: 600 }}>{t.name}</span>
+                              <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--teal)', fontSize: 12 }}>{formatMoney(t.price)}</span>
+                            </div>
+                            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{t.sample_type}</div>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Cart */}
+                {walkInCart.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Selected Tests ({walkInCart.length})</div>
+                    <div style={{ border: '1px solid var(--line)', borderRadius: 8 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead style={{ background: 'var(--bg-card)' }}>
+                          <tr><th style={{ padding: '6px 8px', textAlign: 'left' }}>Test</th><th style={{ padding: '6px 8px' }}>Sample</th><th style={{ padding: '6px 8px', textAlign: 'right' }}>Price</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                          {walkInCart.map(item => (
+                            <tr key={item.name}>
+                              <td style={{ padding: '6px 8px', borderTop: '1px solid var(--line-soft)', fontWeight: 600 }}>{item.name}</td>
+                              <td style={{ padding: '6px 8px', borderTop: '1px solid var(--line-soft)', fontSize: 11, color: 'var(--muted)' }}>{item.sample_type}</td>
+                              <td style={{ padding: '6px 8px', borderTop: '1px solid var(--line-soft)', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--teal)' }}>{formatMoney(item.price)}</td>
+                              <td style={{ padding: '4px 8px', borderTop: '1px solid var(--line-soft)' }}>
+                                <button type="button" onClick={() => removeFromWalkInCart(item.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: 4 }}><TrashIcon size={12} /></button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--bg-card)' }}>
+                            <td colSpan={2} style={{ padding: '8px', fontWeight: 800, textAlign: 'right' }}>Total:</td>
+                            <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 800, color: 'var(--teal)', fontSize: 14 }}>{formatMoney(walkInCart.reduce((s, i) => s + i.price, 0))}</td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment */}
+                <div className="dash-field-grid">
+                  <div className="field">
+                    <label>Payment Method</label>
+                    <select value={walkInPaymentMethod} onChange={e => setWalkInPaymentMethod(e.target.value)} style={{ padding: '8px 10px', fontSize: 12, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)' }}>
+                      <option value="Cash">Cash</option>
+                      <option value="POS">POS</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Wallet">Patient Wallet</option>
+                      <option value="HMO">HMO (authorized)</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Amount Paid (₦) — leave 0 if unpaid</label>
+                    <input type="number" min="0" step="0.01" value={walkInAmountPaid} onChange={e => setWalkInAmountPaid(e.target.value)} placeholder={String(walkInCart.reduce((s, i) => s + i.price, 0))} style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }} />
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  {walkInAmountPaid && parseFloat(walkInAmountPaid) > 0
+                    ? '✓ Payment recorded — sample collection allowed.'
+                    : '⚠ No payment recorded — sample collection will be blocked until payment is confirmed.'}
+                </div>
+              </form>
+            </div>
+            <div className="dash-modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowWalkInModal(false)} disabled={walkInSaving}>Cancel</button>
+              <button type="submit" form="walkin-lab-form" className="btn btn-primary" disabled={walkInSaving || !walkInPatient || walkInCart.length === 0}>
+                {walkInSaving ? 'Creating…' : `Create Request · ${formatMoney(walkInCart.reduce((s, i) => s + i.price, 0))}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (
