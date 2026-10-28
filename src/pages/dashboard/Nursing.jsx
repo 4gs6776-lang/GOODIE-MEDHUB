@@ -7,6 +7,13 @@ import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
 import AiDiagnostics from './AiDiagnostics'
+import {
+  checkVitalsAgainstLimits,
+  buildAlertReason,
+  checkPatientEligibility,
+  hasUnresolvedAlert,
+  isNewBreachWorse,
+} from '../../lib/vitalsAlerts'
 
 const URGENCY_LEVELS = ['Routine', 'Urgent', 'Emergency']
 
@@ -20,6 +27,12 @@ export default function Nursing(){
   records: medicationAdministrations,
   addRecord: addMedicationAdministration
 } = useOfflineTable('medication_administrations', hospital?.id)
+
+  // ---- Early-warning alert hooks ----
+  const { records: vitalsLimits } = useOfflineTable('hospital_vitals_limits', hospital?.id)
+  const { records: existingAlerts, addRecord: addAlert } = useOfflineTable('patient_vitals_alerts', hospital?.id)
+  const { records: admissions } = useOfflineTable('admissions', hospital?.id)
+  const { records: beds } = useOfflineTable('beds', hospital?.id)
 
   const [toast, setToast] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -70,20 +83,92 @@ export default function Nursing(){
     const patientObj = patients.find(p => p.id === selectedPatientId)
     setSaving(true)
     try {
-      await addVitals({
+      const nowIso = new Date().toISOString()
+      const savedVitals = {
         patient_id: patientObj?.id,
         patient_name: patientObj ? patientObj.full_name : 'Unknown Patient',
         assigned_doctor: assignedDoctor,
         urgency,
         status: 'waiting',
-        recorded_at: new Date().toISOString(),
+        recorded_at: nowIso,
         created_by: profile.id,
         ...vitals,
-      })
+      }
+      await addVitals(savedVitals)
 
       // Sync with Reception's board — patient moves from "Waiting" to "In Consultation".
       if (patientObj) {
-        await updatePatient(patientObj.id, { queue_status: 'in_consultation', queue_updated_at: new Date().toISOString() })
+        await updatePatient(patientObj.id, { queue_status: 'in_consultation', queue_updated_at: nowIso })
+      }
+
+      // ---- Early-warning alert check --------------------------------
+      // Only for admitted inpatients who are adults. Walk-in, outpatient,
+      // ANC, pediatric — all excluded. If no limits configured, no alerts.
+      if (vitalsLimits && vitalsLimits.length > 0 && patientObj) {
+        const eligibility = checkPatientEligibility(patientObj, admissions)
+        if (eligibility.eligible) {
+          // Find previous vitals row for comparison
+          const previousVitals = vitalsQueue
+            .filter(v => v.patient_id === patientObj.id && v.recorded_at < nowIso)
+            .sort((a, b) => new Date(b.recorded_at) - new Date(a.recorded_at))[0] || null
+
+          // Find bed info for this patient
+          const bed = (beds || []).find(b => b.patient_name === patientObj.full_name && b.status === 'occupied')
+
+          const breaches = checkVitalsAgainstLimits(savedVitals, vitalsLimits, previousVitals)
+          for (const breach of breaches) {
+            // Check if there's already an unresolved alert for this vital+direction
+            const alreadyAlerted = hasUnresolvedAlert(existingAlerts, patientObj.id, breach.vitalName, breach.limitDirection)
+            if (alreadyAlerted) {
+              // Only create a new alert if the new breach is WORSE
+              if (!isNewBreachWorse(existingAlerts, patientObj.id, breach.vitalName, breach.limitDirection, breach.severity)) {
+                continue  // skip — same or lesser severity, don't duplicate
+              }
+            }
+
+            const reason = buildAlertReason(breach)
+            await addAlert({
+              hospital_id: hospital.id,
+              patient_id: patientObj.id,
+              patient_name: patientObj.full_name,
+              vitals_id: null,  // can't get the ID from addVitals return reliably
+              admission_id: eligibility.admission?.id || null,
+              bed_id: bed?.id || null,
+              ward_section: bed?.section || null,
+              severity: breach.severity,
+              vital_name: breach.vitalName,
+              vital_value: breach.value,
+              vital_unit: breach.unit,
+              limit_value: breach.limitValue,
+              limit_direction: breach.limitDirection,
+              previous_value: breach.previousValue || null,
+              previous_time: breach.previousTime || null,
+              recorded_by: profile.id,
+              recorded_by_name: profile.full_name,
+              recorded_at: breach.recordedAt,
+              status: 'active',
+              reason,
+            })
+
+            writeAudit({
+              hospitalId: hospital.id, actor: profile,
+              action: 'vitals_alert.created',
+              entityType: 'patient_vitals_alert', entityId: null,
+              patientId: patientObj.id,
+              summary: `Early-warning alert: ${reason}`,
+              metadata: {
+                patient_id: patientObj.id,
+                vital_name: breach.vitalName,
+                value: breach.value,
+                limit: breach.limitValue,
+                direction: breach.limitDirection,
+                severity: breach.severity,
+              },
+            })
+
+            showToast(`⚠ Alert: ${reason}`)
+          }
+        }
       }
 
       setSelectedPatientId(''); setAssignedDoctor(''); setUrgency('Routine')
