@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import { writeAudit } from '../../lib/audit'
+import AppIcon from '../../components/icons'
 
 const SECTIONS = [
   { key: 'private', label: 'Private Suites' },
@@ -146,6 +147,9 @@ export default function IPD({ onGoToAdmissions }){
 
   return (
     <>
+      {/* ---- Early-warning alerts banner ---- */}
+      <VitalsAlertsBanner hospitalId={hospital?.id} />
+
       <div className="dash-panel" style={{ marginBottom: 16 }}>
         <div className="dash-panel-head">
           <div>
@@ -323,5 +327,139 @@ export default function IPD({ onGoToAdmissions }){
         </div>
       )}
     </>
+  )
+}
+
+// =====================================================================
+// VitalsAlertsBanner — shows active early-warning alerts for admitted
+// inpatients. Shown at the top of the IPD ward map.
+//
+// Nurses and doctors can acknowledge alerts. Acknowledgement stores
+// who, when, and an optional note. The alert stays in history — it
+// is NOT deleted.
+// =====================================================================
+function VitalsAlertsBanner({ hospitalId }) {
+  const { profile } = useAuth()
+  const { records: alerts, updateRecord } = useOfflineTable('patient_vitals_alerts', hospitalId)
+  const [acknowledgingId, setAcknowledgingId] = useState(null)
+  const [ackNote, setAckNote] = useState('')
+
+  // Realtime: refresh when new alerts are created
+  useRealtimeAlert('patient_vitals_alerts', hospitalId, () => {})
+
+  const activeAlerts = useMemo(() => {
+    return (alerts || [])
+      .filter(a => a.status === 'active')
+      .sort((a, b) => {
+        // Critical first, then warning, then informational
+        const rank = { critical: 0, warning: 1, informational: 2 }
+        const rankDiff = (rank[a.severity] || 3) - (rank[b.severity] || 3)
+        if (rankDiff !== 0) return rankDiff
+        return new Date(b.created_at) - new Date(a.created_at)
+      })
+  }, [alerts])
+
+  const canAcknowledge = profile && ['doctor', 'nurse', 'admin', 'owner'].includes(profile.role)
+
+  async function handleAcknowledge(alert) {
+    if (!canAcknowledge) return
+    try {
+      await updateRecord(alert.id, {
+        status: 'acknowledged',
+        acknowledged_by: profile.id,
+        acknowledged_by_name: profile.full_name,
+        acknowledged_at: new Date().toISOString(),
+        acknowledgement_note: ackNote.trim() || null,
+      })
+      writeAudit({
+        hospitalId, actor: profile,
+        action: 'vitals_alert.acknowledged',
+        entityType: 'patient_vitals_alert', entityId: alert.id,
+        patientId: alert.patient_id,
+        summary: `Acknowledged vitals alert for ${alert.patient_name}: ${alert.reason}${ackNote.trim() ? ` — note: ${ackNote.trim()}` : ''}`,
+        metadata: { alert_id: alert.id, vital_name: alert.vital_name, severity: alert.severity, note: ackNote.trim() || null },
+      })
+      setAcknowledgingId(null)
+      setAckNote('')
+    } catch (err) {
+      // non-fatal
+    }
+  }
+
+  if (activeAlerts.length === 0) return null
+
+  return (
+    <div style={{
+      padding: 14, borderRadius: 12, marginBottom: 16,
+      background: 'rgba(225,104,94,0.06)',
+      border: '1px solid rgba(225,104,94,0.25)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <AppIcon name="alert" size={18} style={{ color: 'var(--danger)' }} />
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--danger)' }}>
+          Early-Warning Alerts ({activeAlerts.length})
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {activeAlerts.map(alert => (
+          <div key={alert.id} style={{
+            padding: '10px 12px', borderRadius: 8,
+            background: 'var(--bg-elevated)',
+            border: `1px solid ${alert.severity === 'critical' ? 'var(--danger)' : alert.severity === 'warning' ? 'var(--gold)' : 'var(--line)'}`,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{
+                    fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                    background: alert.severity === 'critical' ? 'rgba(225,104,94,0.20)' : alert.severity === 'warning' ? 'rgba(201,169,97,0.20)' : 'rgba(59,130,246,0.14)',
+                    color: alert.severity === 'critical' ? 'var(--danger)' : alert.severity === 'warning' ? 'var(--gold)' : 'var(--blue)',
+                    textTransform: 'uppercase', letterSpacing: 0.5,
+                  }}>
+                    {alert.severity}
+                  </span>
+                  <strong style={{ fontSize: 13 }}>{alert.patient_name}</strong>
+                  {alert.ward_section && (
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>{alert.ward_section}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ivory)', lineHeight: 1.5 }}>
+                  {alert.reason}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>
+                  Recorded by {alert.recorded_by_name || '—'} · {new Date(alert.recorded_at).toLocaleString('en-NG')}
+                </div>
+              </div>
+              <div style={{ flexShrink: 0 }}>
+                {canAcknowledge && acknowledgingId !== alert.id && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ width: 'auto', padding: '5px 12px', fontSize: 11, color: 'var(--teal)', borderColor: 'var(--teal)' }}
+                    onClick={() => { setAcknowledgingId(alert.id); setAckNote('') }}
+                  >
+                    Acknowledge
+                  </button>
+                )}
+                {acknowledgingId === alert.id && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <input
+                      value={ackNote}
+                      onChange={e => setAckNote(e.target.value)}
+                      placeholder="Optional note…"
+                      style={{ padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--line)', background: 'var(--bg-card)', color: 'var(--ivory)', width: 200 }}
+                    />
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button type="button" className="btn btn-primary" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }} onClick={() => handleAcknowledge(alert)}>Confirm</button>
+                      <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }} onClick={() => { setAcknowledgingId(null); setAckNote('') }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

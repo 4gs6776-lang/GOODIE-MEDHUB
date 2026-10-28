@@ -9,6 +9,8 @@ import PriceListManager from '../../components/PriceListManager'
 import HmoContractManager from '../../components/HmoContractManager'
 import PaymentMethodManager from '../../components/PaymentMethodManager'
 import ExpenseVendorManager from '../../components/ExpenseVendorManager'
+import RecurringExpenseManager from '../../components/RecurringExpenseManager'
+import CreditControlRulesManager from '../../components/CreditControlRulesManager'
 import {
   DEFAULT_REGISTRATION_FEES,
   FOLDER_CATEGORY_LABELS,
@@ -591,7 +593,7 @@ export default function Settings(){
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
             {(bankAccounts || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(a => (
               <div
                 key={a.id}
@@ -667,7 +669,7 @@ export default function Settings(){
           <form onSubmit={handleSaveFees}>
             {feeError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{feeError}</div>}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
               {FOLDER_CATEGORY_ORDER.map(category => {
                 const row = feeRecords.find(f => f.category === category)
                 const savedAmount = row ? Number(row.amount) : Number(DEFAULT_REGISTRATION_FEES[category] || 0)
@@ -839,6 +841,52 @@ export default function Settings(){
         ) : (
           <div style={{ padding: 14 }}>
             <ExpenseVendorManager />
+          </div>
+        )}
+      </div>
+
+      {/* ---- Recurring Expenses (admin / owner / billing only) -----------
+          Templates for expenses that should be auto-posted on a schedule
+          (weekly, monthly, quarterly, yearly). e.g.:
+            - Staff salaries, monthly, on the 1st
+            - Rent, monthly, on the 1st
+            - NEPA bill, monthly, on the 5th
+            - Annual insurance, yearly, Jan 1st */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Recurring Expenses</div>
+            <div className="dash-panel-sub">Auto-post templates for salaries, rent, utilities, etc. — set up once, posts monthly/quarterly/yearly</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can manage recurring expenses.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <RecurringExpenseManager />
+          </div>
+        )}
+      </div>
+
+      {/* ---- Credit Control Rules (admin / owner only) --------------------
+          Configure rules that block or warn on new services when a patient
+          has an outstanding balance above a threshold for too long. */}
+      <div className="dash-panel" style={{ marginTop: 20 }}>
+        <div className="dash-panel-head dash-panel-head-wrap">
+          <div>
+            <div className="dash-panel-title">Credit Control Rules</div>
+            <div className="dash-panel-sub">Block services for patients with overdue balances — configurable thresholds + actions</div>
+          </div>
+        </div>
+        {!canManageBank ? (
+          <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+            Only hospital administrators can configure credit control rules.
+          </div>
+        ) : (
+          <div style={{ padding: 14 }}>
+            <CreditControlRulesManager />
           </div>
         )}
       </div>

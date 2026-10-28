@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useOfflineTable } from '../../lib/useOfflineTable'
+import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import SearchInput from '../../components/common/SearchInput'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
@@ -127,6 +128,9 @@ const EMPTY_FORM = {
 
   hmoProvider: 'Self-Pay (No HMO)',
   hmoIdCode: '',
+  hmoAuthorizationCode: '',         // Phase 3 — pre-auth code from HMO
+  hmoAuthorizationDate: '',          // Phase 3 — when pre-auth was issued
+  hmoAuthorizationExpires: '',      // Phase 3 — when pre-auth expires (some HMOs require this)
   hmoPlan: '',
   hmoNumber: '',
   hmoCoveragePercent: '',
@@ -341,11 +345,29 @@ export default function Reception() {
 
   function showToast(message) {
     setToast(message)
-
     setTimeout(() => {
       setToast(null)
     }, 3000)
   }
+
+  // ---- Realtime: refresh when patients are created/updated anywhere ----
+  // Previously Reception required a manual refresh to see new patients
+  // registered from the Dashboard quick-add or from another device.
+  const { syncFromServer: syncPatients } = useOfflineTable('patients', hospital?.id)
+  useRealtimeAlert('patients', hospital?.id, () => {
+    syncPatients()
+  })
+  useRealtimeAlert('patients', hospital?.id, () => {
+    syncPatients()
+  }, { event: 'UPDATE' })
+
+  // ---- Polling safety net (every 30s) ----
+  // If realtime fails (network, cold start), the poll catches up.
+  useEffect(() => {
+    if (!hospital?.id) return
+    const id = setInterval(() => { syncPatients() }, 30000)
+    return () => clearInterval(id)
+  }, [hospital?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handlePhotoSelect(event) {
     const file = event.target.files?.[0]
@@ -553,6 +575,24 @@ export default function Reception() {
 
         hmo_coverage_percent:
           form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' ? (parseFloat(form.hmoCoveragePercent) || 0) : null,
+
+        // Phase 3 — pre-authorization code captured at registration.
+        // Copied onto every invoice generated for this patient, and onto
+        // every HMO claim auto-filed against those invoices.
+        hmo_authorization_code:
+          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)'
+            ? (form.hmoAuthorizationCode?.trim() || null)
+            : null,
+        hmo_authorization_date:
+          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' && form.hmoAuthorizationDate
+            ? new Date(form.hmoAuthorizationDate + 'T12:00:00').toISOString()
+            : null,
+        hmo_authorization_expires:
+          form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' && form.hmoAuthorizationExpires
+            ? form.hmoAuthorizationExpires
+            : null,
+        hmo_authorization_captured_by: profile?.id || null,
+        hmo_authorization_captured_at: new Date().toISOString(),
 
         photo_data:
           photoData || null,
@@ -1949,6 +1989,37 @@ export default function Reception() {
                           onChange={event => set('hmoCoveragePercent', event.target.value)}
                           placeholder="e.g. 80"
                         />
+                      </div>
+                      {/* Phase 3 — Pre-Authorization Code Capture
+                          Some HMOs require this before certain services can be billed.
+                          The code is copied onto every invoice + claim for this patient. */}
+                      <div className="field">
+                        <label>Pre-Authorization Code {form.hmoProvider && form.hmoProvider !== 'Self-Pay (No HMO)' && (
+                          <span style={{ color: 'var(--gold)', fontSize: 10, marginLeft: 6 }}>(if required by HMO)</span>
+                        )}</label>
+                        <input
+                          value={form.hmoAuthorizationCode}
+                          onChange={event => set('hmoAuthorizationCode', event.target.value)}
+                          placeholder="e.g. AUTH-2024-12345 (from HMO call center)"
+                        />
+                      </div>
+                      <div className="dash-field-grid">
+                        <div className="field">
+                          <label>Auth Issue Date</label>
+                          <input
+                            type="date"
+                            value={form.hmoAuthorizationDate}
+                            onChange={event => set('hmoAuthorizationDate', event.target.value)}
+                          />
+                        </div>
+                        <div className="field">
+                          <label>Auth Expires (if applicable)</label>
+                          <input
+                            type="date"
+                            value={form.hmoAuthorizationExpires}
+                            onChange={event => set('hmoAuthorizationExpires', event.target.value)}
+                          />
+                        </div>
                       </div>
                     </>
                   )}

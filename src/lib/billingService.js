@@ -788,3 +788,986 @@ export function computePatientStatement({
   }
 }
 
+
+// =====================================================================
+// PHASE 3 — HMO Claims Lifecycle, Pre-Auth Capture, Claim Form PDF,
+// Batch Submission, Shortfall Handling
+// =====================================================================
+
+// ---------------------------------------------------------------------
+// CONSTANTS — Phase 3
+// ---------------------------------------------------------------------
+
+export const CLAIM_STATUSES = [
+  { value: 'submitted', label: 'Submitted',  color: 'var(--blue)',    description: 'Claim sent to HMO, awaiting response' },
+  { value: 'queried',   label: 'Queried',    color: 'var(--gold)',    description: 'HMO has queried the claim for more info' },
+  { value: 'approved',  label: 'Approved',   color: 'var(--teal)',    description: 'HMO has approved the claim (amount may differ)' },
+  { value: 'paid',      label: 'Paid',       color: 'var(--mint)',    description: 'HMO payment received and allocated to claim' },
+  { value: 'rejected',  label: 'Rejected',    color: 'var(--danger)',  description: 'HMO has rejected the claim' },
+  { value: 'disputed',  label: 'Disputed',   color: 'var(--violet)',  description: 'Hospital disputes HMO rejection or shortfall' },
+  { value: 'cancelled', label: 'Cancelled', color: 'var(--muted)',   description: 'Claim cancelled by hospital before HMO response' },
+]
+
+export const SHORTFALL_HANDLING_OPTIONS = [
+  { value: 'patient_balance', label: 'Charge patient the shortfall',  description: 'Patient is billed for the difference' },
+  { value: 'write_off',      label: 'Write off the shortfall',         description: 'Hospital absorbs the loss (with reason)' },
+  { value: 'disputed',       label: 'Dispute / re-submit',             description: 'Hospital disputes the HMO decision' },
+]
+
+// Build a clinical_summary JSONB object suitable for the claim form PDF.
+// Pulls diagnosis, procedures, drugs, attending physician from the
+// invoice + its items + the patient record.
+//
+// Used by the auto-claim-file logic in CashierWorkspace and by the
+// "Generate Claim Form" button in the Insurance module.
+export function buildClinicalSummary({ invoice, invoiceItems = [], patient = null, attendingPhysician = null }) {
+  if (!invoice) return null
+  return {
+    generated_at: new Date().toISOString(),
+    invoice_number: invoice.invoice_number,
+    invoice_total: Number(invoice.grand_total || invoice.amount || 0),
+    hmo_amount: Number(invoice.hmo_amount || 0),
+    patient_amount: Number(invoice.patient_amount || 0),
+    coverage_percent: Number(invoice.hmo_coverage_percent || 0),
+    attending_physician: attendingPhysician || null,
+    patient: patient ? {
+      full_name: patient.full_name,
+      mrn: patient.patient_id || patient.hospital_number || null,
+      phone: patient.phone || null,
+      hmo_number: patient.hmo_number || null,
+      hmo_provider: patient.hmo_provider || null,
+    } : null,
+    // Group items by category — claim form shows them as separate sections
+    items: invoiceItems.map(it => ({
+      name: it.item_name,
+      quantity: Number(it.quantity || 1),
+      unit_price: Number(it.unit_price || 0),
+      total: Number(it.total || 0),
+      category: it.category || null,
+      source_module: it.source_module || null,
+    })),
+    totals: {
+      consultations: invoiceItems
+        .filter(it => ['consultation','Consultation'].includes(it.category))
+        .reduce((s, it) => s + Number(it.total || 0), 0),
+      lab_tests: invoiceItems
+        .filter(it => ['lab','Lab'].includes(it.category))
+        .reduce((s, it) => s + Number(it.total || 0), 0),
+      drugs: invoiceItems
+        .filter(it => ['drug','Drug','Medication','Medications'].includes(it.category))
+        .reduce((s, it) => s + Number(it.total || 0), 0),
+      procedures: invoiceItems
+        .filter(it => ['procedure','Procedure'].includes(it.category))
+        .reduce((s, it) => s + Number(it.total || 0), 0),
+      bed_charges: invoiceItems
+        .filter(it => ['bed','Bed'].includes(it.category))
+        .reduce((s, it) => s + Number(it.total || 0), 0),
+      other: invoiceItems
+        .filter(it => !['consultation','Consultation','lab','Lab','drug','Drug','Medication','Medications','procedure','Procedure','bed','Bed'].includes(it.category))
+        .reduce((s, it) => s + Number(it.total || 0), 0),
+    },
+  }
+}
+
+// ---------------------------------------------------------------------
+// CLAIM STATUS UPDATE — atomic with audit trail
+//
+// Updates the claim's status + relevant timestamp columns, and inserts
+// a row into claim_status_history. Both writes happen client-side;
+// Phase 3+ would wrap this in a server-side RPC for atomicity.
+//
+// Returns: { success, error? }
+// ---------------------------------------------------------------------
+
+export async function updateClaimStatus({
+  hospital, profile,
+  claim,              // the insurance_claims row
+  newStatus,          // 'submitted' | 'queried' | 'approved' | 'paid' | 'rejected' | 'disputed' | 'cancelled'
+  reason = null,      // why the status changed
+  metadata = {},      // structured details (approval_amount, query_reason, etc.)
+  updateClaim,        // mutator from useOfflineTable('insurance_claims')
+  addStatusHistory,   // mutator from useOfflineTable('claim_status_history')
+  writeAudit,         // audit helper
+}) {
+  if (!claim?.id) return { success: false, error: 'No claim provided' }
+  if (!CLAIM_STATUSES.find(s => s.value === newStatus)) {
+    return { success: false, error: `Invalid status: ${newStatus}` }
+  }
+
+  const oldStatus = claim.status
+  if (oldStatus === newStatus) {
+    return { success: true, skipped: 'No status change' }
+  }
+
+  try {
+    // 1. Update the claim with status + relevant timestamp columns
+    const now = new Date().toISOString()
+    const updates = { status: newStatus }
+    if (newStatus === 'queried') {
+      updates.queried_at = now
+      updates.queried_by = profile?.id || null
+      updates.queried_by_name = profile?.full_name || null
+      if (reason) updates.query_reason = reason
+      if (metadata.query_response) updates.query_response = metadata.query_response
+    } else if (newStatus === 'approved') {
+      updates.approved_at = now
+      updates.approved_by = profile?.id || null
+      updates.approved_by_name = profile?.full_name || null
+      if (metadata.approved_amount != null) updates.approved_amount = Number(metadata.approved_amount)
+    } else if (newStatus === 'paid') {
+      updates.paid_at = now
+      if (metadata.paid_amount != null) updates.paid_amount = Number(metadata.paid_amount)
+      if (metadata.payment_reference) updates.payment_reference = metadata.payment_reference
+      if (metadata.payment_date) updates.payment_date = metadata.payment_date
+      // Compute shortfall if approved_amount exists
+      const approved = Number(metadata.approved_amount ?? claim.approved_amount ?? claim.amount ?? 0)
+      const paid = Number(metadata.paid_amount ?? 0)
+      const shortfall = Math.max(0, approved - paid)
+      updates.shortfall_amount = shortfall
+    } else if (newStatus === 'rejected') {
+      updates.rejected_at = now
+      updates.rejected_by = profile?.id || null
+      updates.rejected_by_name = profile?.full_name || null
+      if (reason) updates.rejection_reason = reason
+      if (metadata.rejection_code) updates.rejection_code = metadata.rejection_code
+    }
+
+    await updateClaim(claim.id, updates)
+
+    // 2. Insert a row into claim_status_history
+    await addStatusHistory({
+      hospital_id: hospital.id,
+      claim_id: claim.id,
+      from_status: oldStatus,
+      to_status: newStatus,
+      changed_by: profile?.id || null,
+      changed_by_name: profile?.full_name || null,
+      changed_at: now,
+      reason: reason || null,
+      metadata: {
+        ...metadata,
+        claim_number: claim.claim_number,
+        invoice_id: claim.invoice_id,
+        provider: claim.provider,
+      },
+    })
+
+    // 3. Emit an audit event
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: `claim.${newStatus}`,
+      entityType: 'insurance_claim', entityId: claim.id,
+      patientId: claim.patient_id || null,
+      summary: `Claim ${claim.claim_number || claim.id.slice(0,8)} (${claim.provider || 'HMO'}) ${oldStatus} → ${newStatus}${reason ? ` — ${reason}` : ''}`,
+      metadata: {
+        claim_id: claim.id, claim_number: claim.claim_number,
+        from_status: oldStatus, to_status: newStatus,
+        reason, ...metadata,
+      },
+    })
+
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not update claim status' }
+  }
+}
+
+// ---------------------------------------------------------------------
+// SHORTFALL HANDLING — what to do when HMO pays less than approved
+//
+// Options:
+//   'patient_balance' — create a billable_charge on the patient for the
+//                       shortfall amount (so it shows up in their next invoice)
+//   'write_off'        — record the loss with a reason (no patient balance)
+//   'disputed'         — set claim status back to 'disputed' for follow-up
+//
+// Returns: { success, error? }
+// ---------------------------------------------------------------------
+
+export async function handleClaimShortfall({
+  hospital, profile,
+  claim, shortfallHandling, notes = null,
+  updateClaim, addBillableCharge, addStatusHistory, writeAudit,
+}) {
+  if (!claim?.id) return { success: false, error: 'No claim provided' }
+  if (!SHORTFALL_HANDLING_OPTIONS.find(o => o.value === shortfallHandling)) {
+    return { success: false, error: `Invalid shortfall handling: ${shortfallHandling}` }
+  }
+  const shortfall = Number(claim.shortfall_amount || 0)
+  if (shortfall <= 0) {
+    return { success: false, error: 'No shortfall to handle (shortfall_amount is 0)' }
+  }
+
+  try {
+    const now = new Date().toISOString()
+
+    // 1. Update the claim with shortfall handling info
+    await updateClaim(claim.id, {
+      shortfall_handling: shortfallHandling,
+      shortfall_handled_at: now,
+      shortfall_handled_by: profile?.id || null,
+      shortfall_notes: notes || null,
+      // If disputed, also change the claim status back to 'disputed'
+      ...(shortfallHandling === 'disputed' ? { status: 'disputed' } : {}),
+    })
+
+    // 2. If patient_balance — create a billable_charge for the shortfall
+    if (shortfallHandling === 'patient_balance') {
+      await addBillableCharge({
+        hospital_id: hospital.id,
+        patient_id: claim.patient_id,
+        patient_name: claim.patient_name,
+        source_module: 'Insurance',
+        source_transaction_id: `SHORTFALL-${claim.id.slice(0,8)}-${Date.now()}`,
+        item_name: `HMO Shortfall — ${claim.provider || 'HMO'} (Claim ${claim.claim_number || claim.id.slice(0,8)})`,
+        category: 'HMO Shortfall',
+        quantity: 1,
+        unit_price: shortfall,
+        total: shortfall,
+        status: 'pending',
+        created_by: profile?.id || null,
+      })
+    }
+
+    // 3. Insert a status history row
+    await addStatusHistory({
+      hospital_id: hospital.id,
+      claim_id: claim.id,
+      from_status: claim.status,
+      to_status: shortfallHandling === 'disputed' ? 'disputed' : claim.status,
+      changed_by: profile?.id || null,
+      changed_by_name: profile?.full_name || null,
+      changed_at: now,
+      reason: `Shortfall of ₦${shortfall.toFixed(2)} handled as: ${shortfallHandling}${notes ? ` — ${notes}` : ''}`,
+      metadata: {
+        shortfall_amount: shortfall,
+        shortfall_handling: shortfallHandling,
+        notes: notes || null,
+      },
+    })
+
+    // 4. Audit event
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: `claim.shortfall_${shortfallHandling}`,
+      entityType: 'insurance_claim', entityId: claim.id,
+      patientId: claim.patient_id || null,
+      summary: `Shortfall ₦${shortfall.toFixed(2)} on claim ${claim.claim_number || claim.id.slice(0,8)} (${claim.provider}) handled as: ${shortfallHandling}${notes ? ` — ${notes}` : ''}`,
+      metadata: {
+        claim_id: claim.id, claim_number: claim.claim_number,
+        shortfall_amount: shortfall, shortfall_handling: shortfallHandling, notes: notes || null,
+      },
+    })
+
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not handle shortfall' }
+  }
+}
+
+// ---------------------------------------------------------------------
+// CLAIM FORM PDF — NHIS-style printable claim form
+//
+// Opens a new browser window with a printable claim form containing:
+//   - Hospital logo + name + address
+//   - Patient details (name, MRN, HMO number, phone)
+//   - HMO details (provider, policy number, authorization code)
+//   - Diagnosis + procedures + drugs + attending physician
+//   - Itemized services with quantities and prices
+//   - Totals: subtotal, HMO amount, patient amount
+//   - Signature lines (attending physician, hospital stamp, HMO stamp)
+//
+// No return value — opens a print window.
+// ---------------------------------------------------------------------
+
+export function generateClaimFormPDF({ claim, invoice, invoiceItems, patient, hospital, profile }) {
+  const win = window.open('', '_blank')
+  if (!win) {
+    alert('Please allow popups to generate the claim form PDF.')
+    return
+  }
+
+  const clinicalSummary = claim.clinical_summary || buildClinicalSummary({ invoice, invoiceItems, patient, attendingPhysician: claim.attending_physician })
+  const totals = clinicalSummary?.totals || {}
+
+  const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-NG') : '—'
+  const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  const itemRows = (invoiceItems || []).map(it => `
+    <tr>
+      <td>${escapeHtml(it.item_name)}</td>
+      <td>${escapeHtml(it.category || '—')}</td>
+      <td style="text-align:center">${escapeHtml(it.quantity)}</td>
+      <td style="text-align:right">${formatMoney(it.unit_price)}</td>
+      <td style="text-align:right">${formatMoney(it.total)}</td>
+    </tr>
+  `).join('')
+
+  const html = `
+    <html><head><title>Claim Form — ${escapeHtml(claim.claim_number || 'CLM')}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 40px; color: #111; max-width: 800px; margin: auto; font-size: 12px; }
+      .header { text-align: center; border-bottom: 3px solid #0f172a; padding-bottom: 16px; margin-bottom: 20px; }
+      .h-name { font-size: 22px; font-weight: bold; text-transform: uppercase; }
+      .h-meta { font-size: 12px; color: #555; margin-top: 3px; }
+      h1 { text-align: center; font-size: 18px; margin: 20px 0; letter-spacing: 1px; }
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+      .box { background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; }
+      .box h3 { margin: 0 0 8px 0; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; }
+      .box div { margin-bottom: 3px; }
+      .totals { background: #f0f9ff; padding: 12px; border-radius: 6px; border: 1px solid #bae6fd; margin: 16px 0; }
+      .totals div { display: flex; justify-content: space-between; padding: 4px 0; }
+      .totals .grand { font-weight: bold; font-size: 14px; border-top: 2px solid #0f172a; padding-top: 6px; margin-top: 4px; }
+      table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+      th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+      th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; }
+      .signatures { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 60px; }
+      .sign-line { border-top: 1px solid #0f172a; padding-top: 4px; text-align: center; font-size: 11px; color: #64748b; }
+      .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+      .claim-number { background: #fef3c7; padding: 6px 12px; border-radius: 4px; display: inline-block; font-weight: bold; font-size: 13px; }
+    </style></head><body>
+      <div class="header">
+        ${hospital?.logo_url ? `<img src="${escapeHtml(hospital.logo_url)}" alt="logo" style="max-width: 100px; max-height: 70px; margin: 0 auto 8px; display: block;" />` : ''}
+        <div class="h-name">${escapeHtml(hospital?.name || 'Hospital')}</div>
+        ${hospital?.address ? `<div class="h-meta">${escapeHtml(hospital.address)}</div>` : ''}
+        ${hospital?.phone ? `<div class="h-meta">Tel: ${escapeHtml(hospital.phone)}</div>` : ''}
+      </div>
+
+      <h1>HMO / INSURANCE CLAIM FORM</h1>
+
+      <div style="text-align: center; margin-bottom: 16px;">
+        <span class="claim-number">Claim #: ${escapeHtml(claim.claim_number || '—')}</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="box">
+          <h3>Patient Details</h3>
+          <div><strong>Name:</strong> ${escapeHtml(patient?.full_name || claim.patient_name || '—')}</div>
+          <div><strong>MRN:</strong> ${escapeHtml(patient?.patient_id || patient?.hospital_number || '—')}</div>
+          <div><strong>Phone:</strong> ${escapeHtml(patient?.phone || '—')}</div>
+          <div><strong>HMO Number:</strong> ${escapeHtml(patient?.hmo_number || claim.policy_number || '—')}</div>
+        </div>
+        <div class="box">
+          <h3>HMO / Insurance Details</h3>
+          <div><strong>Provider:</strong> ${escapeHtml(claim.provider || '—')}</div>
+          <div><strong>Policy Number:</strong> ${escapeHtml(claim.policy_number || '—')}</div>
+          <div><strong>Authorization Code:</strong> ${escapeHtml(claim.authorization_code || '—')}</div>
+          <div><strong>Authorization Date:</strong> ${formatDate(claim.authorization_date)}</div>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>Clinical Summary</h3>
+        <div><strong>Attending Physician:</strong> ${escapeHtml(claim.attending_physician || '—')}</div>
+        <div><strong>Date of Service:</strong> ${formatDate(invoice?.created_at || claim.created_at)}</div>
+        <div><strong>Invoice Number:</strong> ${escapeHtml(invoice?.invoice_number || '—')}</div>
+      </div>
+
+      <h3 style="margin-top: 20px;">Services Rendered</h3>
+      <table>
+        <thead><tr><th>Description</th><th>Category</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${itemRows || '<tr><td colspan="5">No items recorded</td></tr>'}</tbody>
+      </table>
+
+      <div class="totals">
+        <div><span>Consultations</span><span>${formatMoney(totals.consultations || 0)}</span></div>
+        <div><span>Laboratory Tests</span><span>${formatMoney(totals.lab_tests || 0)}</span></div>
+        <div><span>Pharmacy / Drugs</span><span>${formatMoney(totals.drugs || 0)}</span></div>
+        <div><span>Procedures</span><span>${formatMoney(totals.procedures || 0)}</span></div>
+        <div><span>Bed / Ward Charges</span><span>${formatMoney(totals.bed_charges || 0)}</span></div>
+        <div><span>Other Services</span><span>${formatMoney(totals.other || 0)}</span></div>
+        <div class="grand"><span>Total Invoice</span><span>${formatMoney(invoice?.grand_total || invoice?.amount || 0)}</span></div>
+        <div><span>HMO Covers (${invoice?.hmo_coverage_percent || 0}%)</span><span>${formatMoney(claim.amount)}</span></div>
+        <div><span>Patient Pays</span><span>${formatMoney(invoice?.patient_amount || 0)}</span></div>
+      </div>
+
+      <div class="signatures">
+        <div><div style="height: 40px;"></div><div class="sign-line">Attending Physician</div></div>
+        <div><div style="height: 40px;"></div><div class="sign-line">Hospital Stamp &amp; Signature</div></div>
+        <div><div style="height: 40px;"></div><div class="sign-line">HMO Authorizing Officer</div></div>
+      </div>
+
+      <div class="footer">
+        Generated on ${new Date().toLocaleString('en-NG')} by ${escapeHtml(profile?.full_name || 'System')}<br/>
+        This claim form is for ${escapeHtml(claim.provider || 'the HMO')} — please submit within 30 days of service.
+      </div>
+    </body></html>`
+
+  win.document.write(html)
+  win.document.close()
+  win.focus()
+  setTimeout(() => win.print(), 500)
+}
+
+// ---------------------------------------------------------------------
+// BATCH CLAIM SUBMISSION — submit multiple claims to HMO at once
+//
+// Marks all selected claims with the same batch_id + sets status to
+// 'submitted' (if not already). Useful when generating a weekly batch
+// of claims to send to an HMO.
+//
+// Returns: { success, batchId?, submittedCount?, error? }
+// ---------------------------------------------------------------------
+
+export async function batchSubmitClaims({
+  hospital, profile,
+  claims,                  // array of insurance_claims rows
+  updateClaim,             // mutator (called per claim)
+  addStatusHistory,         // mutator
+  writeAudit,
+}) {
+  if (!claims?.length) return { success: false, error: 'No claims selected' }
+
+  // Generate a batch_id (one UUID for the whole batch)
+  const batchId = (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const now = new Date().toISOString()
+  let submittedCount = 0
+
+  try {
+    for (const claim of claims) {
+      // Skip claims that are already paid/approved/rejected — only submit
+      // claims that are in draft/queried/disputed/cancelled states
+      if (['paid', 'approved', 'rejected'].includes(claim.status)) continue
+
+      const oldStatus = claim.status
+      await updateClaim(claim.id, {
+        status: 'submitted',
+        submitted_at: claim.submitted_at || now,
+        batch_id: batchId,
+      })
+
+      await addStatusHistory({
+        hospital_id: hospital.id,
+        claim_id: claim.id,
+        from_status: oldStatus,
+        to_status: 'submitted',
+        changed_by: profile?.id || null,
+        changed_by_name: profile?.full_name || null,
+        changed_at: now,
+        reason: `Batch submission (batch ${batchId.slice(0,8)})`,
+        metadata: { batch_id: batchId, claim_number: claim.claim_number, provider: claim.provider },
+      })
+
+      submittedCount++
+    }
+
+    if (submittedCount === 0) {
+      return { success: false, error: 'None of the selected claims are in a submittable state' }
+    }
+
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: 'claim.batch_submitted',
+      entityType: 'insurance_claim', entityId: null,
+      summary: `Batch submitted ${submittedCount} claim(s) to ${claims[0]?.provider || 'HMO'} (batch ${batchId.slice(0,8)})`,
+      metadata: {
+        batch_id: batchId,
+        claim_ids: claims.map(c => c.id),
+        claim_numbers: claims.map(c => c.claim_number).filter(Boolean),
+        provider: claims[0]?.provider,
+        submitted_count: submittedCount,
+      },
+    })
+
+    return { success: true, batchId, submittedCount }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not batch submit claims' }
+  }
+}
+
+// =====================================================================
+// PHASE 4 — Approvals, Recurring Expenses, Financial Reports,
+// End-of-Day Reconciliation, Credit Control Rules
+// =====================================================================
+
+// ---------------------------------------------------------------------
+// CONSTANTS — Phase 4
+// ---------------------------------------------------------------------
+
+export const APPROVAL_REQUEST_TYPES = [
+  { value: 'discount',                 label: 'Discount',         description: 'Discount applied to an invoice above the approval threshold' },
+  { value: 'write_off',                label: 'Write-off',       description: 'Invoice written off as bad debt above the threshold' },
+  { value: 'refund',                    label: 'Refund',          description: 'Cash/wallet refund to patient above the threshold' },
+  { value: 'credit_note',              label: 'Credit Note',     description: 'Credit note issued above the threshold' },
+  { value: 'expense',                   label: 'Expense',        description: 'Hospital expense above the threshold' },
+  { value: 'claim_resubmission',        label: 'Claim Re-submit', description: 'HMO claim being re-submitted after rejection' },
+  { value: 'registration_fee_waiver',   label: 'Reg Fee Waiver',  description: 'Registration fee waived (above threshold)' },
+  { value: 'other',                     label: 'Other',           description: 'Any other action requiring approval' },
+]
+
+export const APPROVAL_STATUSES = [
+  { value: 'pending',   label: 'Pending',   color: 'var(--gold)' },
+  { value: 'approved',  label: 'Approved', color: 'var(--teal)' },
+  { value: 'rejected',  label: 'Rejected', color: 'var(--danger)' },
+  { value: 'cancelled', label: 'Cancelled', color: 'var(--muted)' },
+  { value: 'expired',   label: 'Expired',  color: 'var(--muted)' },
+]
+
+export const RECURRING_FREQUENCIES = [
+  { value: 'weekly',    label: 'Weekly' },
+  { value: 'monthly',   label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'yearly',    label: 'Yearly' },
+]
+
+export const CREDIT_CONTROL_ACTIONS = [
+  { value: 'warn',                  label: 'Warn only',                description: 'Show a warning banner but allow the action to proceed' },
+  { value: 'block',                 label: 'Block',                    description: 'Hard block — action is prevented entirely' },
+  { value: 'block_with_override',  label: 'Block with override',       description: 'Block unless user has override role (admin/owner)' },
+]
+
+export const EXPENSE_CATEGORIES = [
+  'Salaries & Wages', 'Rent', 'Utilities', 'Medical Supplies', 'Office Supplies',
+  'Equipment Purchase', 'Equipment Maintenance', 'Cleaning & Hygiene',
+  'Transport / Fuel', 'Bank Charges', 'Marketing', 'Miscellaneous',
+]
+
+// ---------------------------------------------------------------------
+// APPROVAL WORKFLOW
+// ---------------------------------------------------------------------
+
+// Create an approval request. Returns { success, approval? }.
+// The caller is responsible for performing the actual action AFTER
+// the approval comes through (use pollApprovalStatus or listen on
+// realtime — see Phase 4 README).
+export async function requestApproval({
+  hospital, profile,
+  requestType,           // one of APPROVAL_REQUEST_TYPES values
+  entityType,             // e.g. 'invoice', 'expense', 'credit_note'
+  entityId = null,        // optional FK to the entity (may be null if not yet created)
+  amount,                 // amount being approved (for threshold checks)
+  reason,                 // why this needs approval
+  approverRole = 'admin', // who can approve (default admin+owner)
+  payload = {},           // structured details for the action
+  addApproval,            // mutator from useOfflineTable('approval_requests')
+  writeAudit,
+}) {
+  if (!hospital?.id || !requestType || !entityType || !reason?.trim()) {
+    return { success: false, error: 'Missing required fields' }
+  }
+  try {
+    const approval = await addApproval({
+      hospital_id: hospital.id,
+      request_type: requestType,
+      entity_type: entityType,
+      entity_id: entityId,
+      amount: Number(amount) || 0,
+      requested_by: profile?.id || null,
+      requested_by_name: profile?.full_name || null,
+      reason: reason.trim(),
+      approver_role: approverRole,
+      payload,
+      status: 'pending',
+    })
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: `approval.requested`,
+      entityType: 'approval_request', entityId: approval?.id || null,
+      summary: `Approval requested: ${requestType} for ${formatMoney(amount)} — ${reason.trim()}`,
+      metadata: { request_type: requestType, entity_type: entityType, entity_id: entityId, amount, reason: reason.trim() },
+    })
+    return { success: true, approval }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not create approval request' }
+  }
+}
+
+// Approve an approval request. Returns { success, error? }.
+export async function approveApprovalRequest({
+  hospital, profile,
+  approval,              // the approval_requests row
+  approvalReason = null,  // optional reason from the approver
+  updateApproval,         // mutator
+  writeAudit,
+}) {
+  if (!approval?.id) return { success: false, error: 'No approval provided' }
+  if (approval.status !== 'pending') return { success: false, error: `Cannot approve a ${approval.status} request` }
+  try {
+    const now = new Date().toISOString()
+    await updateApproval(approval.id, {
+      status: 'approved',
+      approver_id: profile?.id || null,
+      approver_name: profile?.full_name || null,
+      approved_at: now,
+      approval_reason: approvalReason?.trim() || null,
+      actioned_at: now,
+    })
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: `approval.approved`,
+      entityType: 'approval_request', entityId: approval.id,
+      summary: `Approved ${approval.request_type} request for ${formatMoney(approval.amount)}${approvalReason ? ` — ${approvalReason}` : ''}`,
+      metadata: { request_type: approval.request_type, entity_type: approval.entity_type, amount: approval.amount, reason: approvalReason },
+    })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not approve' }
+  }
+}
+
+// Reject an approval request. Returns { success, error? }.
+export async function rejectApprovalRequest({
+  hospital, profile,
+  approval,
+  rejectionReason,  // required
+  updateApproval,
+  writeAudit,
+}) {
+  if (!approval?.id) return { success: false, error: 'No approval provided' }
+  if (approval.status !== 'pending') return { success: false, error: `Cannot reject a ${approval.status} request` }
+  if (!rejectionReason?.trim()) return { success: false, error: 'Rejection reason is required' }
+  try {
+    const now = new Date().toISOString()
+    await updateApproval(approval.id, {
+      status: 'rejected',
+      approver_id: profile?.id || null,
+      approver_name: profile?.full_name || null,
+      approved_at: now,
+      rejection_reason: rejectionReason.trim(),
+      actioned_at: now,
+    })
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: `approval.rejected`,
+      entityType: 'approval_request', entityId: approval.id,
+      summary: `Rejected ${approval.request_type} request for ${formatMoney(approval.amount)} — ${rejectionReason.trim()}`,
+      metadata: { request_type: approval.request_type, entity_type: approval.entity_type, amount: approval.amount, rejection_reason: rejectionReason.trim() },
+    })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not reject' }
+  }
+}
+
+// ---------------------------------------------------------------------
+// RECURRING EXPENSES
+// ---------------------------------------------------------------------
+
+// Post a recurring expense NOW — creates a hospital_expenses row using
+// the template, then advances next_due_date by the frequency.
+//
+// Returns: { success, expense?, error? }
+export async function postRecurringExpense({
+  hospital, profile,
+  recurring,             // the recurring_expenses row
+  addExpense,             // mutator from useOfflineTable('hospital_expenses')
+  updateRecurring,       // mutator from useOfflineTable('recurring_expenses')
+  writeAudit,
+}) {
+  if (!recurring?.id) return { success: false, error: 'No recurring expense provided' }
+  if (!recurring.is_active) return { success: false, error: 'Recurring expense is not active' }
+  try {
+    // 1. Create the expense row
+    const reference = recurring.reference_template
+      ? recurring.reference_template
+          .replace('{YYYY}', String(new Date().getFullYear()))
+          .replace('{MM}', String(new Date().getMonth() + 1).padStart(2, '0'))
+          .replace('{DD}', String(new Date().getDate()).padStart(2, '0'))
+      : null
+
+    const expense = await addExpense({
+      hospital_id: hospital.id,
+      category: recurring.category,
+      description: recurring.description,
+      amount: recurring.amount,
+      payment_method: recurring.payment_method,
+      reference_number: reference,
+      paid_at: new Date().toISOString(),
+      recorded_by: profile?.id || null,
+      recorded_by_name: profile?.full_name || null,
+    })
+
+    // 2. Advance next_due_date by the frequency
+    const nextDue = computeNextDueDate(recurring.next_due_date, recurring.frequency)
+
+    // 3. Update the recurring template
+    await updateRecurring(recurring.id, {
+      last_posted_at: new Date().toISOString(),
+      last_posted_expense_id: expense?.id || null,
+      post_count: (recurring.post_count || 0) + 1,
+      next_due_date: nextDue.toISOString().slice(0, 10),
+      // If end_date has passed, mark as inactive
+      ...(recurring.end_date && new Date(nextDue) > new Date(recurring.end_date) ? { is_active: false } : {}),
+    })
+
+    writeAudit?.({
+      hospitalId: hospital.id, actor: profile,
+      action: `recurring_expense.posted`,
+      entityType: 'recurring_expense', entityId: recurring.id,
+      summary: `Posted recurring expense "${recurring.description}" — ${formatMoney(recurring.amount)} (${recurring.frequency})`,
+      metadata: {
+        recurring_id: recurring.id,
+        expense_id: expense?.id,
+        amount: recurring.amount,
+        frequency: recurring.frequency,
+        post_count: (recurring.post_count || 0) + 1,
+      },
+    })
+
+    return { success: true, expense }
+  } catch (err) {
+    return { success: false, error: err.message || 'Could not post recurring expense' }
+  }
+}
+
+// Compute the next due date given a current due date + frequency.
+function computeNextDueDate(currentDue, frequency) {
+  const d = new Date(currentDue)
+  switch (frequency) {
+    case 'weekly':    d.setDate(d.getDate() + 7); break
+    case 'monthly':   d.setMonth(d.getMonth() + 1); break
+    case 'quarterly': d.setMonth(d.getMonth() + 3); break
+    case 'yearly':    d.setFullYear(d.getFullYear() + 1); break
+  }
+  return d
+}
+
+// ---------------------------------------------------------------------
+// FINANCIAL REPORTS — client-side computation
+// ---------------------------------------------------------------------
+
+// Report 1: Daily Collection Summary
+// Returns: { byMethod: [{ method, count, total }], byCashier: [{ cashierName, count, total }] }
+export function getDailyCollectionSummary({ payments, date = new Date() }) {
+  const targetDateStr = new Date(date).toDateString()
+  const todayPayments = (payments || []).filter(p =>
+    p.status !== 'reversed' &&
+    new Date(p.created_at).toDateString() === targetDateStr
+  )
+
+  const byMethod = {}
+  const byCashier = {}
+  for (const p of todayPayments) {
+    const method = p.method || 'Cash'
+    const cashier = p.recorded_by_name || p.received_by_name || 'Unknown'
+    if (!byMethod[method]) byMethod[method] = { method, count: 0, total: 0 }
+    if (!byCashier[cashier]) byCashier[cashier] = { cashierName: cashier, count: 0, total: 0 }
+    byMethod[method].count++
+    byMethod[method].total += Number(p.amount || 0)
+    byCashier[cashier].count++
+    byCashier[cashier].total += Number(p.amount || 0)
+  }
+  return {
+    byMethod: Object.values(byMethod).sort((a, b) => b.total - a.total),
+    byCashier: Object.values(byCashier).sort((a, b) => b.total - a.total),
+    totalCount: todayPayments.length,
+    totalAmount: todayPayments.reduce((s, p) => s + Number(p.amount || 0), 0),
+  }
+}
+
+// Report 2: Outstanding Invoices & Aging
+// Buckets: 0-30, 31-60, 61-90, 90+ days
+export function getOutstandingAging({ invoices, asOfDate = new Date() }) {
+  const asOfMs = new Date(asOfDate).getTime()
+  const outstanding = (invoices || []).filter(i =>
+    i.draft_status !== 'cancelled' &&
+    i.draft_status !== 'written_off' &&
+    Number(i.balance || 0) > 0.001
+  )
+
+  const buckets = {
+    '0-30':   { label: '0–30 days',   total: 0, count: 0, invoices: [] },
+    '31-60':  { label: '31–60 days',  total: 0, count: 0, invoices: [] },
+    '61-90':  { label: '61–90 days',  total: 0, count: 0, invoices: [] },
+    '90+':    { label: '90+ days',     total: 0, count: 0, invoices: [] },
+  }
+
+  for (const inv of outstanding) {
+    const ageDays = Math.floor((asOfMs - new Date(inv.created_at).getTime()) / (1000 * 60 * 60 * 24))
+    let bucket
+    if (ageDays <= 30) bucket = buckets['0-30']
+    else if (ageDays <= 60) bucket = buckets['31-60']
+    else if (ageDays <= 90) bucket = buckets['61-90']
+    else bucket = buckets['90+']
+    bucket.total += Number(inv.balance || 0)
+    bucket.count++
+    bucket.invoices.push({ ...inv, ageDays })
+  }
+
+  return {
+    buckets,
+    totalOutstanding: outstanding.reduce((s, i) => s + Number(i.balance || 0), 0),
+    totalInvoices: outstanding.length,
+  }
+}
+
+// Report 3: Revenue by Department / Service
+// Uses billable_charges.category to group revenue.
+export function getRevenueByDepartment({ billableCharges, invoices, periodFrom, periodTo }) {
+  const fromMs = periodFrom ? new Date(periodFrom).getTime() : 0
+  const toMs = periodTo ? new Date(periodTo + 'T23:59:59').getTime() : Date.now()
+
+  // Map billable_charge categories to "departments"
+  const categoryToDept = {
+    'Consultation': 'Consultations',
+    'Lab': 'Laboratory',
+    'Radiology': 'Radiology',
+    'Pharmacy': 'Pharmacy',
+    'Drug': 'Pharmacy',
+    'Medication': 'Pharmacy',
+    'Procedure': 'Procedures',
+    'Bed': 'IPD / Ward',
+    'Service': 'Other Services',
+    'ANC': 'ANC / Maternity',
+    'Registration': 'Registration',
+    'Manual': 'Other Services',
+    'HMO Shortfall': 'HMO Shortfalls',
+    'Insurance': 'Insurance',
+  }
+
+  const deptTotals = {}
+  for (const c of (billableCharges || [])) {
+    if (c.status !== 'invoiced') continue
+    const chargeMs = new Date(c.created_at).getTime()
+    if (chargeMs < fromMs || chargeMs > toMs) continue
+    const dept = categoryToDept[c.category] || 'Other'
+    if (!deptTotals[dept]) deptTotals[dept] = { department: dept, total: 0, count: 0 }
+    deptTotals[dept].total += Number(c.total || 0)
+    deptTotals[dept].count++
+  }
+
+  return {
+    byDepartment: Object.values(deptTotals).sort((a, b) => b.total - a.total),
+    totalRevenue: Object.values(deptTotals).reduce((s, d) => s + d.total, 0),
+    totalCount: Object.values(deptTotals).reduce((s, d) => s + d.count, 0),
+  }
+}
+
+// Report 4: HMO Claims Status & Recovery
+export function getClaimsStatusSummary({ claims, periodFrom, periodTo }) {
+  const fromMs = periodFrom ? new Date(periodFrom).getTime() : 0
+  const toMs = periodTo ? new Date(periodTo + 'T23:59:59').getTime() : Date.now()
+
+  const inPeriod = (claims || []).filter(c => {
+    const ms = new Date(c.submitted_at || c.created_at).getTime()
+    return ms >= fromMs && ms <= toMs
+  })
+
+  const byStatus = {}
+  const byProvider = {}
+  for (const c of inPeriod) {
+    const status = c.status || 'submitted'
+    if (!byStatus[status]) byStatus[status] = { status, count: 0, claimed: 0, approved: 0, paid: 0 }
+    byStatus[status].count++
+    byStatus[status].claimed += Number(c.amount || 0)
+    byStatus[status].approved += Number(c.approved_amount || 0)
+    byStatus[status].paid += Number(c.paid_amount || 0)
+
+    const provider = c.provider || 'Unknown'
+    if (!byProvider[provider]) byProvider[provider] = { provider, count: 0, claimed: 0, approved: 0, paid: 0, shortfall: 0 }
+    byProvider[provider].count++
+    byProvider[provider].claimed += Number(c.amount || 0)
+    byProvider[provider].approved += Number(c.approved_amount || 0)
+    byProvider[provider].paid += Number(c.paid_amount || 0)
+    byProvider[provider].shortfall += Number(c.shortfall_amount || 0)
+  }
+
+  return {
+    byStatus: Object.values(byStatus),
+    byProvider: Object.values(byProvider).sort((a, b) => b.claimed - a.claimed),
+    totalClaimed: inPeriod.reduce((s, c) => s + Number(c.amount || 0), 0),
+    totalApproved: inPeriod.reduce((s, c) => s + Number(c.approved_amount || 0), 0),
+    totalPaid: inPeriod.reduce((s, c) => s + Number(c.paid_amount || 0), 0),
+    totalShortfall: inPeriod.reduce((s, c) => s + Number(c.shortfall_amount || 0), 0),
+    totalClaims: inPeriod.length,
+  }
+}
+
+// Report 5: Expense vs Revenue (P&L summary)
+export function getExpenseVsRevenue({ invoices, expenses, periodFrom, periodTo }) {
+  const fromMs = periodFrom ? new Date(periodFrom).getTime() : 0
+  const toMs = periodTo ? new Date(periodTo + 'T23:59:59').getTime() : Date.now()
+
+  const periodInvoices = (invoices || []).filter(i => {
+    const ms = new Date(i.created_at).getTime()
+    return ms >= fromMs && ms <= toMs && i.draft_status !== 'cancelled'
+  })
+  const periodExpenses = (expenses || []).filter(e => {
+    const ms = new Date(e.paid_at || e.created_at).getTime()
+    return ms >= fromMs && ms <= toMs
+  })
+
+  const revenue = periodInvoices.reduce((s, i) => s + Number(i.amount_paid || 0), 0)
+  const invoiced = periodInvoices.reduce((s, i) => s + Number(i.grand_total || i.amount || 0), 0)
+  const outstanding = periodInvoices.reduce((s, i) => s + Number(i.balance || 0), 0)
+  const totalExpenses = periodExpenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+  const netProfit = revenue - totalExpenses
+
+  // Group expenses by category
+  const byCategory = {}
+  for (const e of periodExpenses) {
+    const cat = e.category || 'Miscellaneous'
+    if (!byCategory[cat]) byCategory[cat] = { category: cat, total: 0, count: 0 }
+    byCategory[cat].total += Number(e.amount || 0)
+    byCategory[cat].count++
+  }
+
+  return {
+    revenue,
+    invoiced,
+    outstanding,
+    totalExpenses,
+    netProfit,
+    margin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
+    expensesByCategory: Object.values(byCategory).sort((a, b) => b.total - a.total),
+    invoiceCount: periodInvoices.length,
+    expenseCount: periodExpenses.length,
+  }
+}
+
+// Report 6: Patient Statement (already in Phase 2 — re-exported here for convenience)
+// Use computePatientStatement() from Phase 2.
+
+// ---------------------------------------------------------------------
+// CREDIT CONTROL — evaluate whether a patient should be blocked
+// ---------------------------------------------------------------------
+
+// Evaluate credit control rules for a patient.
+// Returns: { blocked: bool, action: 'warn'|'block'|'block_with_override'|'none', reason, ruleId?, outstandingBalance, oldestInvoiceAgeDays }
+export function evaluateCreditControl({ patient, invoices, rules }) {
+  if (!patient) return { blocked: false, action: 'none', reason: null }
+  const activeRules = (rules || []).filter(r => r.is_active)
+  if (activeRules.length === 0) return { blocked: false, action: 'none', reason: null }
+
+  // Compute patient's outstanding balance + oldest unpaid invoice age
+  const patientOutstanding = (invoices || [])
+    .filter(i =>
+      i.patient_id === patient.id &&
+      i.draft_status !== 'cancelled' &&
+      i.draft_status !== 'written_off' &&
+      Number(i.balance || 0) > 0.001
+    )
+  const outstandingBalance = patientOutstanding.reduce((s, i) => s + Number(i.balance || 0), 0)
+  if (patientOutstanding.length === 0) {
+    return { blocked: false, action: 'none', reason: null, outstandingBalance: 0, oldestInvoiceAgeDays: 0 }
+  }
+  const oldestInvoice = patientOutstanding.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0]
+  const oldestInvoiceAgeDays = Math.floor((Date.now() - new Date(oldestInvoice.created_at).getTime()) / (1000 * 60 * 60 * 24))
+
+  // Find the first matching rule
+  for (const rule of activeRules) {
+    // Check if rule applies to this patient's category
+    if (!rule.applies_to_all && !rule.applies_to_categories?.includes(patient.category || 'outpatient')) continue
+
+    if (outstandingBalance >= Number(rule.outstanding_balance_threshold || 0) &&
+        oldestInvoiceAgeDays >= Number(rule.oldest_invoice_age_days || 0)) {
+      return {
+        blocked: rule.action !== 'warn',
+        action: rule.action,
+        reason: `Outstanding balance ${formatMoney(outstandingBalance)} with oldest unpaid invoice ${oldestInvoiceAgeDays} days old exceeds threshold (${formatMoney(rule.outstanding_balance_threshold)} / ${rule.oldest_invoice_age_days} days)`,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        outstandingBalance,
+        oldestInvoiceAgeDays,
+      }
+    }
+  }
+
+  return { blocked: false, action: 'none', reason: null, outstandingBalance, oldestInvoiceAgeDays }
+}
+
+// Check if a patient has any active credit block (manual or rule-triggered)
+export function getActivePatientBlock(patientId, blocks) {
+  return (blocks || []).find(b => b.patient_id === patientId && b.status === 'active')
+}

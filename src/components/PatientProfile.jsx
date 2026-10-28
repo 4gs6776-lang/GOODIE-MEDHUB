@@ -5,7 +5,7 @@ import MedicationChart from './MedicationChart'
 import AppIcon from './icons'
 import PatientWallet from './PatientWallet'
 import { writeAudit } from '../lib/audit'
-import { formatDateTime } from '../lib/datetime'
+import { formatDateTime, getTimezone } from '../lib/datetime'
 import { computePatientStatement } from '../lib/billingService'
 
 const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Statement', 'Edit Info']
@@ -14,7 +14,8 @@ const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescri
 // nothing new is stored here except through those existing hooks.
 export default function PatientProfile({ patientId, onClose }){
   const { profile, hospital } = useAuth()
-  const { records: patients, updateRecord: updatePatient, loadError: patientsLoadError } = useOfflineTable('patients', hospital?.id)
+  const timezone = getTimezone(hospital)
+  const { records: patients, addRecord: addPatient, updateRecord: updatePatient, loadError: patientsLoadError } = useOfflineTable('patients', hospital?.id)
   const { records: vitals, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: prescriptions, addRecord: addPrescription, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
   const { records: pharmacyItems, updateRecord: updatePharmacyItem } = useOfflineTable('pharmacy_items', hospital?.id)
@@ -29,6 +30,12 @@ export default function PatientProfile({ patientId, onClose }){
   const { records: allPayments } = useOfflineTable('payments', hospital?.id)
   const { records: creditNotes } = useOfflineTable('credit_notes', hospital?.id)
   const { records: deposits } = useOfflineTable('deposits', hospital?.id)
+
+  // Phase 5: lab orders for the unified clinical History tab
+  const { records: labOrders } = useOfflineTable('lab_orders', hospital?.id)
+  // Phase 5: radiology scans + appointments for the "Everything" history
+  const { records: radiologyScans } = useOfflineTable('radiology_scans', hospital?.id)
+  const { records: appointments } = useOfflineTable('appointments', hospital?.id)
 
   // Doctors can view patient details but cannot add/edit/delete patients.
   // The "Edit Info" tab is hidden from doctors.
@@ -48,6 +55,124 @@ export default function PatientProfile({ patientId, onClose }){
   const [pharmError, setPharmError] = useState('')
 
   const patient = patients.find(p => p.id === patientId)
+
+  // ---- Phase 5: Folder expiry computation (category-based) ----
+  // Personal + Emergency: 3 years
+  // Family: 10 years
+  // ANC + HMO: never (NULL)
+  // folder_expires_at is set by migration 055 based on category.
+  const folderExpiry = useMemo(() => {
+    if (!patient) return null
+    // ANC + HMO never expire
+    if (!patient.folder_expires_at) return null
+    const expiresAt = new Date(patient.folder_expires_at)
+    const now = new Date()
+    const isExpired = expiresAt < now
+    const daysUntilExpiry = Math.floor((expiresAt - now) / (1000 * 60 * 60 * 24))
+    const isExpiringSoon = !isExpired && daysUntilExpiry <= 30
+    // Duration depends on category (for renewal)
+    const renewalDuration = patient.category === 'family' ? 10 : 3  // years
+    return { expiresAt, isExpired, daysUntilExpiry, isExpiringSoon, renewalDuration }
+  }, [patient])
+
+  const canRenewFolder = profile && ['admin', 'owner'].includes(profile.role)
+  const canReRegister = profile && ['admin', 'owner', 'front_desk'].includes(profile.role)
+
+  async function handleRenewFolder() {
+    if (!patient || !canRenewFolder) return
+    const newExpiry = new Date()
+    newExpiry.setFullYear(newExpiry.getFullYear() + folderExpiry.renewalDuration)
+    try {
+      await updatePatient(patient.id, {
+        folder_expires_at: newExpiry.toISOString(),
+        folder_renewed_at: new Date().toISOString(),
+        folder_renewed_by: profile?.id || null,
+        folder_renewed_by_name: profile?.full_name || null,
+        folder_renewal_count: (patient.folder_renewal_count || 0) + 1,
+      })
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'patient.folder_renewed',
+        entityType: 'patient', entityId: patient.id,
+        patientId: patient.id,
+        summary: `Renewed ${patient.category || 'patient'} folder for ${patient.full_name} — new expiry ${newExpiry.toLocaleDateString('en-NG')} (+${folderExpiry.renewalDuration} years, renewal #${(patient.folder_renewal_count || 0) + 1})`,
+        metadata: {
+          patient_id: patient.id,
+          category: patient.category,
+          previous_expiry: patient.folder_expires_at,
+          new_expiry: newExpiry.toISOString(),
+          renewal_count: (patient.folder_renewal_count || 0) + 1,
+          renewal_duration_years: folderExpiry.renewalDuration,
+        },
+      })
+      showToast(`Folder renewed — expires ${newExpiry.toLocaleDateString('en-NG')}`)
+    } catch (err) {
+      showToast(err.message || 'Could not renew folder')
+    }
+  }
+
+  // Re-register: creates a NEW patient record linked to the old one
+  // via previous_folder_id. Old folder stays for historical lookup.
+  async function handleReRegister() {
+    if (!patient || !canReRegister) return
+    if (!confirm(`Register a NEW folder for ${patient.full_name}?\n\nThe old folder (expired) will remain in the system for historical lookup. The new folder will be linked to it so staff can navigate between them.\n\nNew folder category: ${patient.category || 'personal'}\nNew registration fee may apply.`)) return
+    try {
+      const newExpiry = new Date()
+      const years = patient.category === 'family' ? 10 : 3
+      newExpiry.setFullYear(newExpiry.getFullYear() + years)
+
+      const newPatient = await addPatient({
+        hospital_id: hospital.id,
+        full_name: patient.full_name,
+        surname: patient.surname || null,
+        other_names: patient.other_names || null,
+        age: patient.age || null,
+        gender: patient.gender || null,
+        phone: patient.phone || null,
+        email: patient.email || null,
+        date_of_birth: patient.date_of_birth || null,
+        blood_group: patient.blood_group || null,
+        genotype: patient.genotype || null,
+        nationality: patient.nationality || null,
+        state_of_origin: patient.state_of_origin || null,
+        occupation: patient.occupation || null,
+        religion: patient.religion || null,
+        category: patient.category || 'personal',
+        address: patient.address || null,
+        emergency_contact_name: patient.emergency_contact_name || null,
+        emergency_contact_phone: patient.emergency_contact_phone || null,
+        next_of_kin_relationship: patient.next_of_kin_relationship || null,
+        next_of_kin_address: patient.next_of_kin_address || null,
+        status: 'stable',
+        queue_status: 'waiting',
+        queue_updated_at: new Date().toISOString(),
+        created_by: profile?.id,
+        // Phase 5: link to old folder + set new expiry
+        previous_folder_id: patient.id,
+        folder_expires_at: newExpiry.toISOString(),
+        folder_renewal_count: 0,
+      })
+
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'patient.folder_re_registered',
+        entityType: 'patient', entityId: newPatient?.id || null,
+        patientId: newPatient?.id || null,
+        summary: `Re-registered new folder for ${patient.full_name} — old folder ${patient.id.slice(0,8)} linked via previous_folder_id. New expiry ${newExpiry.toLocaleDateString('en-NG')}.`,
+        metadata: {
+          old_patient_id: patient.id,
+          new_patient_id: newPatient?.id,
+          category: patient.category,
+          new_expiry: newExpiry.toISOString(),
+        },
+      })
+
+      showToast(`New folder created for ${patient.full_name} — linked to old folder`)
+      onClose()  // close the old profile — user can open the new one
+    } catch (err) {
+      showToast(err.message || 'Could not re-register')
+    }
+  }
 
   const [loadTimedOut, setLoadTimedOut] = useState(false)
   useEffect(() => {
@@ -154,9 +279,32 @@ export default function PatientProfile({ patientId, onClose }){
       <div style={panelStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '18px 20px', borderBottom: '1px solid var(--line-soft)' }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{patient.full_name}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {patient.full_name}
+              {folderExpiry?.isExpired && (
+                <span style={{
+                  fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                  background: 'rgba(225,104,94,0.20)', color: 'var(--danger)',
+                  textTransform: 'uppercase', letterSpacing: 0.5,
+                }}>
+                  Expired
+                </span>
+              )}
+              {folderExpiry?.isExpiringSoon && (
+                <span style={{
+                  fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                  background: 'rgba(201,169,97,0.20)', color: 'var(--gold)',
+                  textTransform: 'uppercase', letterSpacing: 0.5,
+                }}>
+                  Expires in {folderExpiry.daysUntilExpiry}d
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
               {patient.age ? `${patient.age} yrs` : ''}{patient.gender ? ` · ${patient.gender}` : ''}{patient.hospital_number ? ` · #${patient.hospital_number}` : ''}
+              {folderExpiry && ` · Registered ${new Date(patient.created_at).toLocaleDateString('en-NG')}`}
+              {folderExpiry && ` · Expires ${folderExpiry.expiresAt.toLocaleDateString('en-NG')}`}
+              {patient.folder_renewal_count > 0 && ` · Renewed ${patient.folder_renewal_count}×`}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -174,6 +322,65 @@ export default function PatientProfile({ patientId, onClose }){
             >✕</button>
           </div>
         </div>
+
+        {/* ---- Phase 5: Folder expiry warning banner ---- */}
+        {folderExpiry?.isExpired && (
+          <div style={{
+            margin: '0 20px', padding: '10px 14px', borderRadius: 8,
+            background: 'rgba(225,104,94,0.10)', border: '1px solid rgba(225,104,94,0.30)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          }}>
+            <div style={{ fontSize: 12.5, color: 'var(--danger)', flex: 1, minWidth: 200 }}>
+              <strong>This {patient.category || 'patient'} folder has expired.</strong> Expired on {folderExpiry.expiresAt.toLocaleDateString('en-NG')}.
+              The folder is still accessible but should be renewed or re-registered.
+              {patient.folder_renewal_count > 0 && ` Previously renewed ${patient.folder_renewal_count} time(s).`}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              {canRenewFolder && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: 'auto', padding: '6px 14px', fontSize: 11.5, background: 'var(--teal)' }}
+                  onClick={handleRenewFolder}
+                >
+                  Renew (+{folderExpiry.renewalDuration} years)
+                </button>
+              )}
+              {canReRegister && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ width: 'auto', padding: '6px 14px', fontSize: 11.5, color: 'var(--violet)', borderColor: 'var(--violet)' }}
+                  onClick={handleReRegister}
+                  title="Create a new folder for this patient, linked to the old one"
+                >
+                  Register New Folder
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {folderExpiry?.isExpiringSoon && (
+          <div style={{
+            margin: '0 20px', padding: '8px 14px', borderRadius: 8,
+            background: 'rgba(201,169,97,0.08)', border: '1px solid rgba(201,169,97,0.25)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          }}>
+            <div style={{ fontSize: 12, color: 'var(--gold)' }}>
+              <strong>Folder expiring soon.</strong> Expires in {folderExpiry.daysUntilExpiry} day(s) — on {folderExpiry.expiresAt.toLocaleDateString('en-NG')}.
+            </div>
+            {canRenewFolder && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: 'auto', padding: '5px 12px', fontSize: 11, color: 'var(--gold)', borderColor: 'var(--gold)' }}
+                onClick={handleRenewFolder}
+              >
+                Renew Now
+              </button>
+            )}
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '12px 20px 10px' }}>
           {visibleTabs.map(t => (
@@ -208,7 +415,25 @@ export default function PatientProfile({ patientId, onClose }){
             />
           )}
           {tab === 'Wallet' && <PatientWallet patient={patient} />}
-          {tab === 'History' && <HistoryTab history={history} />}
+          {tab === 'History' && (
+            <HistoryTab
+              history={history}
+              prescriptions={patientPrescriptions}
+              labOrders={labOrders.filter(lo => lo.patient_id === patient?.id || lo.patient_name === patient?.full_name)}
+              patientId={patient?.id}
+              patient={patient}
+              invoices={invoices.filter(inv => inv.patient_id === patient?.id || inv.patient_name === patient?.full_name)}
+              payments={allPayments.filter(p => p.patient_id === patient?.id)}
+              radiologyScans={radiologyScans.filter(rs => rs.patient_id === patient?.id || rs.patient_name === patient?.full_name)}
+              appointments={appointments.filter(a => a.patient_id === patient?.id)}
+              stockRecords={stockRecords.filter(r => r.patient_id === patient?.id || r.patient_name === patient?.full_name)}
+              creditNotes={creditNotes.filter(cn => {
+                const inv = invoices.find(i => i.id === cn.original_invoice_id)
+                return inv?.patient_id === patient?.id
+              })}
+              timezone={timezone}
+            />
+          )}
           {tab === 'Items Given' && <ItemsGivenTab records={patientStockRecords} />}
           {tab === 'Prescriptions' && <PrescriptionsTab prescriptions={patientPrescriptions} />}
           {tab === 'Drug Chart' && (
@@ -454,19 +679,369 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
   )
 }
 
-function HistoryTab({ history }){
-  if (history.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No past consultations recorded.</div>
+function HistoryTab({ history, prescriptions = [], labOrders = [], patientId, patient, invoices = [], payments = [], radiologyScans = [], appointments = [], stockRecords = [], creditNotes = [], timezone }){
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize] = useState(10)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [expandedId, setExpandedId] = useState(null)
+
+  const formatMoney = (n) => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })
+
+  // Build a UNIFIED timeline from ALL data sources
+  const timeline = useMemo(() => {
+    const events = []
+
+    // 1. Clinical consultations (patient_vitals with status=completed)
+    history.forEach(v => {
+      const encounterRx = prescriptions.filter(rx => rx.patient_vitals_id === v.id)
+      const encounterLabs = labOrders.filter(lo => lo.patient_vitals_id === v.id)
+      events.push({
+        id: `enc-${v.id}`,
+        date: v.completed_at || v.created_at,
+        type: 'consultation',
+        typeLabel: 'Consultation',
+        color: 'var(--teal)',
+        bg: 'rgba(0,199,199,0.10)',
+        title: v.chief_complaints || 'Consultation',
+        summary: [
+          v.diagnoses?.length > 0 ? `Dx: ${v.diagnoses.slice(0, 3).map(d => d.label).join(', ')}${v.diagnoses.length > 3 ? ` +${v.diagnoses.length - 3}` : ''}` : null,
+          encounterRx.length > 0 ? `${encounterRx.length} prescription(s)` : null,
+          encounterLabs.length > 0 ? `${encounterLabs.length} lab order(s)` : null,
+          v.blood_pressure ? `BP ${v.blood_pressure}` : null,
+        ].filter(Boolean).join(' · '),
+        details: {
+          encounter: v,
+          prescriptions: encounterRx,
+          labOrders: encounterLabs,
+        },
+      })
+    })
+
+    // 2. Prescriptions (standalone — not linked to an encounter)
+    prescriptions.forEach(rx => {
+      if (rx.patient_vitals_id && history.some(v => v.id === rx.patient_vitals_id)) return  // already shown in encounter
+      events.push({
+        id: `rx-${rx.id}`,
+        date: rx.prescribed_at || rx.created_at,
+        type: 'prescription',
+        typeLabel: 'Prescription',
+        color: 'var(--blue)',
+        bg: 'rgba(59,130,246,0.10)',
+        title: rx.drug_name,
+        summary: `${rx.dosage || ''} · ${rx.frequency || ''} · Qty ${rx.quantity || 1} · ${rx.status || 'active'}${rx.doctor_name ? ` · Dr. ${rx.doctor_name.replace(/^Dr\.?\s*/i, '')}` : ''}`,
+        details: { prescription: rx },
+      })
+    })
+
+    // 3. Lab orders (standalone)
+    labOrders.forEach(lo => {
+      if (lo.patient_vitals_id && history.some(v => v.id === lo.patient_vitals_id)) return
+      events.push({
+        id: `lab-${lo.id}`,
+        date: lo.created_at,
+        type: 'lab',
+        typeLabel: 'Lab Order',
+        color: 'var(--violet)',
+        bg: 'rgba(118,87,232,0.10)',
+        title: lo.test_name || lo.test_type || 'Lab test',
+        summary: `Status: ${lo.status || 'pending'}${lo.urgency ? ` · ${lo.urgency}` : ''}${lo.result_value ? ` · Result: ${lo.result_value}` : ''}`,
+        details: { labOrder: lo },
+      })
+    })
+
+    // 4. Radiology scans
+    radiologyScans.forEach(rs => {
+      events.push({
+        id: `rad-${rs.id}`,
+        date: rs.created_at,
+        type: 'radiology',
+        typeLabel: 'Radiology',
+        color: 'var(--violet)',
+        bg: 'rgba(118,87,232,0.10)',
+        title: `${rs.modality || 'Scan'} — ${rs.body_part || rs.indication || 'Imaging'}`,
+        summary: `Status: ${rs.status || 'pending'}${rs.radiologist_report ? ` · Report available` : ''}`,
+        details: { scan: rs },
+      })
+    })
+
+    // 5. Invoices
+    invoices.forEach(inv => {
+      events.push({
+        id: `inv-${inv.id}`,
+        date: inv.created_at,
+        type: 'invoice',
+        typeLabel: 'Invoice',
+        color: 'var(--gold)',
+        bg: 'rgba(201,169,97,0.10)',
+        title: `${inv.invoice_number || 'Invoice'} — ${formatMoney(inv.grand_total || inv.amount)}`,
+        summary: `Status: ${inv.status || 'unpaid'} · Paid: ${formatMoney(inv.amount_paid)} · Balance: ${formatMoney(inv.balance)}${inv.draft_status === 'draft' ? ' · DRAFT' : ''}${inv.draft_status === 'written_off' ? ' · WRITTEN OFF' : ''}`,
+        details: { invoice: inv },
+      })
+    })
+
+    // 6. Payments
+    payments.forEach(p => {
+      events.push({
+        id: `pay-${p.id}`,
+        date: p.created_at,
+        type: 'payment',
+        typeLabel: 'Payment',
+        color: 'var(--mint)',
+        bg: 'rgba(16,185,129,0.10)',
+        title: `Payment — ${formatMoney(p.amount)}`,
+        summary: `${p.method || 'Cash'}${p.reference_number ? ` · Ref: ${p.reference_number}` : ''}${p.status === 'reversed' ? ' · REVERSED' : ''}`,
+        details: { payment: p },
+      })
+    })
+
+    // 7. Pharmacy dispenses (patient_stock_records)
+    stockRecords.forEach(r => {
+      events.push({
+        id: `disp-${r.id}`,
+        date: r.created_at,
+        type: 'dispense',
+        typeLabel: 'Pharmacy',
+        color: 'var(--teal)',
+        bg: 'rgba(0,199,199,0.10)',
+        title: `${r.item_name} × ${r.quantity_used || 1}`,
+        summary: `${formatMoney(r.total_price)}${r.created_by_name ? ` · by ${r.created_by_name}` : ''}`,
+        details: { record: r },
+      })
+    })
+
+    // 8. Appointments
+    appointments.forEach(a => {
+      events.push({
+        id: `appt-${a.id}`,
+        date: a.appointment_time || a.created_at,
+        type: 'appointment',
+        typeLabel: 'Appointment',
+        color: 'var(--blue)',
+        bg: 'rgba(59,130,246,0.10)',
+        title: a.reason || a.appointment_type || 'Appointment',
+        summary: `Status: ${a.status || 'scheduled'}${a.doctor_name ? ` · ${a.doctor_name}` : ''}`,
+        details: { appointment: a },
+      })
+    })
+
+    // 9. Credit notes
+    creditNotes.forEach(cn => {
+      events.push({
+        id: `cn-${cn.id}`,
+        date: cn.created_at,
+        type: 'credit_note',
+        typeLabel: 'Credit Note',
+        color: 'var(--violet)',
+        bg: 'rgba(118,87,232,0.10)',
+        title: `${cn.credit_note_number || 'CN'} — ${formatMoney(cn.amount)}`,
+        summary: `${cn.reason_code || ''} — ${cn.reason_text || ''}${cn.refund_method ? ` · ${cn.refund_method}` : ''}`,
+        details: { creditNote: cn },
+      })
+    })
+
+    // Sort by date descending (newest first)
+    return events.sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [history, prescriptions, labOrders, radiologyScans, invoices, payments, stockRecords, appointments, creditNotes])
+
+  // Filter by type + search
+  const filtered = useMemo(() => {
+    let arr = timeline
+    if (typeFilter !== 'all') {
+      arr = arr.filter(e => e.type === typeFilter)
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      arr = arr.filter(e =>
+        (e.title || '').toLowerCase().includes(q) ||
+        (e.summary || '').toLowerCase().includes(q) ||
+        (e.typeLabel || '').toLowerCase().includes(q)
+      )
+    }
+    return arr
+  }, [timeline, typeFilter, searchQuery])
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const safePage = Math.min(currentPage, totalPages)
+  const startIndex = (safePage - 1) * pageSize
+  const endIndex = Math.min(startIndex + pageSize, filtered.length)
+  const pageItems = filtered.slice(startIndex, endIndex)
+
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, typeFilter])
+
+  const typeOptions = [
+    { value: 'all',           label: 'All' },
+    { value: 'consultation',   label: 'Consultations' },
+    { value: 'prescription',   label: 'Prescriptions' },
+    { value: 'lab',            label: 'Lab' },
+    { value: 'radiology',      label: 'Radiology' },
+    { value: 'invoice',        label: 'Invoices' },
+    { value: 'payment',        label: 'Payments' },
+    { value: 'dispense',       label: 'Pharmacy' },
+    { value: 'appointment',    label: 'Appointments' },
+    { value: 'credit_note',    label: 'Credit Notes' },
+  ]
+
+  if (timeline.length === 0) {
+    return <div style={{ color: 'var(--muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>No history recorded for this patient yet.</div>
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {history.map(v => (
-        <div key={v.id} style={{ padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>{new Date(v.completed_at || v.created_at).toLocaleString()}</div>
-          {v.chief_complaints && <div style={{ fontSize: 13, marginBottom: 4 }}><strong>Chief Complaint:</strong> {v.chief_complaints}</div>}
-          {v.diagnoses?.length > 0 && <div style={{ fontSize: 13, marginBottom: 4 }}><strong>Diagnosis:</strong> {v.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')}</div>}
-          {v.treatment_plan && <div style={{ fontSize: 13, marginBottom: 4 }}><strong>Treatment Plan:</strong> {v.treatment_plan}</div>}
-          {v.follow_up_notes && <div style={{ fontSize: 13 }}><strong>Follow-up:</strong> {v.follow_up_notes}</div>}
+    <div>
+      {/* Filter + search */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>
+          <strong>{filtered.length}</strong> event{filtered.length === 1 ? '' : 's'}
+          {filtered.length !== timeline.length && ` (filtered from ${timeline.length})`}
         </div>
-      ))}
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '5px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)' }}>
+          {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <input
+          type="text"
+          placeholder="Search…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ flex: 1, minWidth: 180, maxWidth: 280, padding: '5px 8px', fontSize: 11, borderRadius: 6, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)' }}
+        />
+      </div>
+
+      {/* Timeline */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {pageItems.map(e => {
+          const isExpanded = expandedId === e.id
+          const dateStr = new Date(e.date).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' })
+          return (
+            <div
+              key={e.id}
+              style={{
+                padding: '10px 12px', borderRadius: 8,
+                background: 'var(--bg-elevated)',
+                border: `1px solid ${isExpanded ? e.color + '55' : 'var(--line-soft)'}`,
+                cursor: 'pointer',
+              }}
+              onClick={() => setExpandedId(isExpanded ? null : e.id)}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: e.bg, color: e.color, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+                      {e.typeLabel}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{dateStr}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 2 }}>{e.title}</div>
+                  {e.summary && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.summary}</div>}
+
+                  {/* Expanded details */}
+                  {isExpanded && e.details && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line-soft)', fontSize: 12 }}>
+                      {e.type === 'consultation' && <ConsultationDetails encounter={e.details.encounter} prescriptions={e.details.prescriptions} labOrders={e.details.labOrders} />}
+                      {e.type === 'prescription' && (
+                        <div>
+                          <div><strong>Drug:</strong> {e.details.prescription.drug_name}</div>
+                          <div><strong>Dosage:</strong> {e.details.prescription.dosage}</div>
+                          <div><strong>Frequency:</strong> {e.details.prescription.frequency}</div>
+                          <div><strong>Quantity:</strong> {e.details.prescription.quantity}</div>
+                          <div><strong>Status:</strong> {e.details.prescription.status}</div>
+                          {e.details.prescription.doctor_name && <div><strong>Doctor:</strong> {e.details.prescription.doctor_name}</div>}
+                          {e.details.prescription.notes && <div><strong>Notes:</strong> {e.details.prescription.notes}</div>}
+                        </div>
+                      )}
+                      {e.type === 'lab' && (
+                        <div>
+                          <div><strong>Test:</strong> {e.details.labOrder.test_name || e.details.labOrder.test_type}</div>
+                          <div><strong>Status:</strong> {e.details.labOrder.status}</div>
+                          {e.details.labOrder.result_value && <div><strong>Result:</strong> {e.details.labOrder.result_value}</div>}
+                          {e.details.labOrder.result_notes && <div><strong>Notes:</strong> {e.details.labOrder.result_notes}</div>}
+                        </div>
+                      )}
+                      {e.type === 'radiology' && (
+                        <div>
+                          <div><strong>Modality:</strong> {e.details.scan.modality}</div>
+                          <div><strong>Body Part:</strong> {e.details.scan.body_part || '—'}</div>
+                          <div><strong>Status:</strong> {e.details.scan.status}</div>
+                          {e.details.scan.radiologist_report && <div><strong>Report:</strong> {e.details.scan.radiologist_report}</div>}
+                        </div>
+                      )}
+                      {e.type === 'invoice' && (
+                        <div>
+                          <div><strong>Invoice #:</strong> {e.details.invoice.invoice_number}</div>
+                          <div><strong>Total:</strong> {formatMoney(e.details.invoice.grand_total || e.details.invoice.amount)}</div>
+                          <div><strong>Paid:</strong> {formatMoney(e.details.invoice.amount_paid)}</div>
+                          <div><strong>Balance:</strong> {formatMoney(e.details.invoice.balance)}</div>
+                          <div><strong>Status:</strong> {e.details.invoice.status} · {e.details.invoice.draft_status || 'finalized'}</div>
+                          {e.details.invoice.payment_method && <div><strong>Method:</strong> {e.details.invoice.payment_method}</div>}
+                        </div>
+                      )}
+                      {e.type === 'payment' && (
+                        <div>
+                          <div><strong>Amount:</strong> {formatMoney(e.details.payment.amount)}</div>
+                          <div><strong>Method:</strong> {e.details.payment.method}</div>
+                          {e.details.payment.reference_number && <div><strong>Reference:</strong> {e.details.payment.reference_number}</div>}
+                          <div><strong>Status:</strong> {e.details.payment.status || 'completed'}</div>
+                        </div>
+                      )}
+                      {e.type === 'dispense' && (
+                        <div>
+                          <div><strong>Item:</strong> {e.details.record.item_name}</div>
+                          <div><strong>Quantity:</strong> {e.details.record.quantity_used}</div>
+                          <div><strong>Unit Price:</strong> {formatMoney(e.details.record.unit_price)}</div>
+                          <div><strong>Total:</strong> {formatMoney(e.details.record.total_price)}</div>
+                        </div>
+                      )}
+                      {e.type === 'appointment' && (
+                        <div>
+                          <div><strong>Time:</strong> {new Date(e.details.appointment.appointment_time).toLocaleString('en-NG')}</div>
+                          <div><strong>Status:</strong> {e.details.appointment.status}</div>
+                          {e.details.appointment.doctor_name && <div><strong>Doctor:</strong> {e.details.appointment.doctor_name}</div>}
+                          {e.details.appointment.reason && <div><strong>Reason:</strong> {e.details.appointment.reason}</div>}
+                        </div>
+                      )}
+                      {e.type === 'credit_note' && (
+                        <div>
+                          <div><strong>CN #:</strong> {e.details.creditNote.credit_note_number}</div>
+                          <div><strong>Amount:</strong> {formatMoney(e.details.creditNote.amount)}</div>
+                          <div><strong>Reason:</strong> {e.details.creditNote.reason_code} — {e.details.creditNote.reason_text}</div>
+                          <div><strong>Refund:</strong> {e.details.creditNote.refund_method || 'none'}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div style={{ flexShrink: 0, color: 'var(--muted)', fontSize: 10 }}>
+                  {isExpanded ? '▲' : '▼'}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 14, alignItems: 'center' }}>
+          <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} disabled={safePage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>← Prev</button>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Page {safePage} of {totalPages} · {startIndex + 1}–{endIndex} of {filtered.length}</span>
+          <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} disabled={safePage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Next →</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConsultationDetails({ encounter, prescriptions, labOrders }) {
+  return (
+    <div>
+      {encounter.chief_complaints && <div><strong>Chief Complaint:</strong> {encounter.chief_complaints}</div>}
+      {encounter.diagnoses?.length > 0 && <div><strong>Diagnoses:</strong> {encounter.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')}</div>}
+      {encounter.treatment_plan && <div><strong>Treatment Plan:</strong> {encounter.treatment_plan}</div>}
+      {encounter.follow_up_notes && <div><strong>Follow-up:</strong> {encounter.follow_up_notes}</div>}
+      {encounter.clinical_notes && <div><strong>Notes:</strong> {encounter.clinical_notes}</div>}
+      {encounter.blood_pressure && <div><strong>Vitals:</strong> BP {encounter.blood_pressure} · Pulse {encounter.pulse_rate || '—'} · Temp {encounter.temperature || '—'}°C</div>}
+      {prescriptions.length > 0 && <div style={{ marginTop: 4 }}><strong>Prescriptions:</strong> {prescriptions.map(rx => `${rx.drug_name} (${rx.dosage})`).join('; ')}</div>}
+      {labOrders.length > 0 && <div><strong>Lab Orders:</strong> {labOrders.map(lo => lo.test_name || lo.test_type).join(', ')}</div>}
     </div>
   )
 }

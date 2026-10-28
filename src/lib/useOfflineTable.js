@@ -8,6 +8,13 @@ import {
 import { supabase } from './supabaseClient'
 import { assertWriteAllowed } from './subscriptionLock'
 import { assertWithinPlanLimit, getEntitlements } from './planEntitlements'
+import {
+  getCachedTable,
+  setCachedTable,
+  invalidateTable,
+  subscribeToTable,
+  clearAllCache,
+} from './useTableCache'
 
 const DB_NAME = 'HospitalOfflineDB'
 const DB_VERSION = 3
@@ -464,10 +471,25 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
 
   useEffect(() => {
     async function initialLoad() {
+      // ---- Check global cache first ----
+      // If another component already loaded this table, use the cached
+      // IndexedDB data instead of fetching from Supabase again.
+      // The cache is invalidated on any local write or realtime update.
+      const cached = getCachedTable(tableName, hospitalId)
+      if (cached) {
+        // Cache hit — just read from IndexedDB (which is already populated)
+        await loadLocalRecords()
+        // Subscribe to cache invalidation so we re-read when other
+        // components write to the same table
+        return
+      }
+
       if (hospitalId) {
         try {
           const db = await openDB()
           await pullFromSupabase(db, tableName, hospitalId)
+          // Mark this table as cached so other components skip the pull
+          setCachedTable(tableName, hospitalId, [])
         } catch (err) {
           console.error('Error opening DB for initial pull:', err)
         }
@@ -481,6 +503,11 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
       // transient failures (e.g. "Failed to fetch") stuck in the panel
       // forever with no automatic way out.
       if (navigator.onLine && hospitalId) flushTableQueue(tableName)
+    })
+
+    // Subscribe to cross-component cache invalidation
+    const unsubscribe = subscribeToTable(tableName, hospitalId, () => {
+      loadLocalRecords()
     })
 
     // Safety net: while this table has unsynced records, retry quietly
@@ -515,6 +542,8 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
       clearInterval(retryTimer)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      // Unsubscribe from cross-component cache invalidation
+      if (unsubscribe) unsubscribe()
     }
   }, [loadLocalRecords, tableName, hospitalId])
 
@@ -788,9 +817,13 @@ export function useOfflineTable(tableName, hospitalId, options = {}) {
   const syncFromServer = async () => {
     if (!hospitalId) return
     try {
+      // Invalidate the cache so other components know to re-read
+      invalidateTable(tableName, hospitalId)
       const db = await openDB()
       await pullFromSupabase(db, tableName, hospitalId)
       await loadLocalRecords()
+      // Re-populate the cache
+      setCachedTable(tableName, hospitalId, [])
     } catch (err) {
       console.error(`Error manually syncing ${tableName} from server:`, err)
     }

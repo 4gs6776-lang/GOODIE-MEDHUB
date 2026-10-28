@@ -24,9 +24,10 @@ export const MODULE_HISTORY_MAP = {
     prefixes: [
       'prescription.',
       'pharmacy.',
+      'pharmacy_request.',    // ← pharmacy_request.dispensed / .rejected (note the underscore — without this, those events would be missed)
     ],
-    entityTypes: ['prescription', 'pharmacy_request'],
-    description: 'Every prescription, dispensing, restock, and pharmacy request sent by nurses.',
+    entityTypes: ['prescription', 'pharmacy_request', 'pharmacy_sale'],
+    description: 'Every prescription, dispensing, restock, walk-in sale, and pharmacy request.',
   },
 
   billing: {
@@ -38,9 +39,11 @@ export const MODULE_HISTORY_MAP = {
       'wallet.',
       'insurance.',
       'hospital_expense.',
+      'credit_note.',
+      'approval.',
     ],
-    entityTypes: ['invoice', 'payment', 'billable_charge', 'patient_wallet', 'patient_wallet_transaction', 'insurance_claim', 'hospital_expense'],
-    description: 'Every invoice generated, payment recorded, wallet transaction, insurance claim, and expense.',
+    entityTypes: ['invoice', 'payment', 'billable_charge', 'patient_wallet', 'patient_wallet_transaction', 'insurance_claim', 'hospital_expense', 'credit_note', 'approval_request'],
+    description: 'Every invoice generated, payment recorded, wallet transaction, insurance claim, expense, credit note, and approval request.',
   },
 
   inventory: {
@@ -78,10 +81,11 @@ export const MODULE_HISTORY_MAP = {
       'patient.archive',
       'patient.profile_updated',
       'patient.registration_fee_',
+      'patient.folder_renewed',
       'appointment.',
     ],
     entityTypes: ['patient', 'appointment'],
-    description: 'Every patient registered, archived, profile updated, and appointment action.',
+    description: 'Every patient registered, archived, profile updated, folder renewed, and appointment action.',
   },
 
   nursing: {
@@ -119,10 +123,11 @@ export const MODULE_HISTORY_MAP = {
     title: 'HMO / Insurance History',
     prefixes: [
       'insurance.',
+      'claim.',
       'patient.registration_fee_',
     ],
-    entityTypes: ['insurance_claim', 'patient'],
-    description: 'Every HMO claim auto-filed, insurance action, and HMO patient registration.',
+    entityTypes: ['insurance_claim', 'claim_status_history', 'patient'],
+    description: 'Every HMO claim filed, status change (queried/approved/paid/rejected), shortfall handling, and HMO patient registration.',
   },
 
   anc: {
@@ -170,10 +175,18 @@ export const MODULE_HISTORY_MAP = {
       'hospital.',
       'hospital_bank_account.',
       'hospital_registration_fees.',
+      'hospital_payment_method.',
       'user.password_changed',
+      'service_catalog.',
+      'price_list.',
+      'price_list_item.',
+      'hmo_contract.',
+      'expense_vendor.',
+      'recurring_expense.',
+      'credit_control_rule.',
     ],
-    entityTypes: ['hospital', 'hospital_bank_account', 'hospital_registration_fees'],
-    description: 'Hospital settings, logo, bank accounts, registration fees, and password changes.',
+    entityTypes: ['hospital', 'hospital_bank_account', 'hospital_registration_fees', 'hospital_payment_methods', 'service_catalog', 'price_lists', 'price_list_items', 'hmo_contracts', 'expense_vendors', 'recurring_expense', 'hospital_credit_control_rules'],
+    description: 'Hospital settings, logo, bank accounts, registration fees, payment methods, service catalog, price lists, HMO contracts, expense vendors, recurring expenses, credit control rules, and password changes.',
   },
 
   messages: {

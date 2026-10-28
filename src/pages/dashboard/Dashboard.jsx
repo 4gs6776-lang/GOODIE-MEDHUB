@@ -285,6 +285,7 @@ export default function Dashboard(){
   const [weeklyCounts, setWeeklyCounts] = useState([0,0,0,0,0,0,0])
   const [appointments, setAppointments] = useState([])
   const [search, setSearch] = useState('')
+  const [patientSearch, setPatientSearch] = useState('')  // dedicated search for the patients tab
   const [searchOpen, setSearchOpen] = useState(false)
   const [deepLinkSearch, setDeepLinkSearch] = useState('')
   const searchBoxRef = useRef(null)
@@ -651,7 +652,9 @@ export default function Dashboard(){
 
   const displayedPatients = pending ? patients.filter(p => p.id !== pending.patient.id) : patients
   const filteredPatients = displayedPatients.filter(p =>
-    !search.trim() || String(p.full_name || '').toLowerCase().includes(search.trim().toLowerCase())
+    !patientSearch.trim() || String(p.full_name || '').toLowerCase().includes(patientSearch.trim().toLowerCase()) ||
+    String(p.phone || '').toLowerCase().includes(patientSearch.trim().toLowerCase()) ||
+    String(p.patient_id || p.hospital_number || '').toLowerCase().includes(patientSearch.trim().toLowerCase())
   )
 
   // Global Pagination Rule — the master patient list can grow into the
@@ -664,7 +667,7 @@ export default function Dashboard(){
     pageSize: patientsPageSize, setPageSize: setPatientsPageSize,
     totalPages: patientsTotalPages, totalItems: patientsTotalItems,
     startIndex: patientsStart, endIndex: patientsEnd,
-  } = usePagination(filteredPatients, { pageSize: 20, resetKey: search })
+  } = usePagination(filteredPatients, { pageSize: 20, resetKey: patientSearch })
 
   // Global search: live results across patients, appointments, and invoices
   const globalSearchResults = useMemo(() => {
@@ -1399,16 +1402,26 @@ export default function Dashboard(){
                       <div className="dash-panel-title">All Patients</div>
                       <div className="dash-panel-sub">{hospital?.name || 'your hospital'}</div>
                     </div>
-                    {profile?.role !== 'doctor' && (
-                      <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
-                    )}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div className="dash-search" style={{ minWidth: 200, maxWidth: 300 }}>
+                        <AppIcon name="search" size={15} />
+                        <input
+                          placeholder="Search patient name…"
+                          value={patientSearch}
+                          onChange={e => setPatientSearch(e.target.value)}
+                        />
+                      </div>
+                      {profile?.role !== 'doctor' && (
+                        <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowModal(true)}>+ Add Patient</button>
+                      )}
+                    </div>
                   </div>
 
                   {loading ? (
                     <div className="dash-empty-state">Loading…</div>
                   ) : filteredPatients.length === 0 ? (
                     <div className="dash-empty-state">
-                      {search.trim() ? `No patients match "${search}".` : 'No patients yet. Add your first one above.'}
+                      {patientSearch.trim() ? `No patients match "${patientSearch}".` : 'No patients yet. Add your first one above.'}
                     </div>
                   ) : (
                     <>

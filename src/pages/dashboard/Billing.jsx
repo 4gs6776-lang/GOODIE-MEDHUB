@@ -4,10 +4,13 @@ import { useOfflineTable } from '../../lib/useOfflineTable'
 import { useRealtimeAlert } from '../../lib/useRealtimeAlert'
 import { supabase } from '../../lib/supabaseClient'
 import CashierWorkspace from '../../components/CashierWorkspace'
+import InvoiceViewer from '../../components/InvoiceViewer'
 import PatientAutocomplete from '../../components/common/PatientAutocomplete'
 import ModuleHistoryButton from '../../components/ModuleHistoryButton'
 import CreditNoteModal from '../../components/CreditNoteModal'
 import MultiInvoicePaymentModal from '../../components/MultiInvoicePaymentModal'
+import ApprovalQueueModal from '../../components/ApprovalQueueModal'
+import EndOfDayReconciliationModal from '../../components/EndOfDayReconciliationModal'
 import { usePagination } from '../../lib/usePagination'
 import Pagination from '../../components/common/Pagination'
 import SearchInput from '../../components/common/SearchInput'
@@ -73,6 +76,8 @@ export default function Billing({ initialSearch = '' }) {
   const [creditNoteInvoice, setCreditNoteInvoice] = useState(null)  // the invoice being credited
   const [showMultiPayModal, setShowMultiPayModal] = useState(false)
   const [multiPayPatient, setMultiPayPatient] = useState(null)
+  const [showApprovals, setShowApprovals] = useState(false)
+  const [showEndOfDay, setShowEndOfDay] = useState(false)
   const [cnSearch, setCnSearch] = useState('')  // credit notes tab search
 
   const [toast, setToast] = useState(null)
@@ -86,7 +91,15 @@ export default function Billing({ initialSearch = '' }) {
   // manual charges (consultation, procedure, etc.) directly.
   const [showCreateInvoice, setShowCreateInvoice] = useState(false)
 
-  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'drafts' | 'transactions' | 'payments' | 'expenses' | 'credit_notes'
+  const [activeTab, setActiveTab] = useState('queue')  // 'queue' | 'unpaid' | 'drafts' | 'transactions' | 'payments' | 'expenses' | 'credit_notes'
+  const [unpaidSearch, setUnpaidSearch] = useState('')
+  // ---- "View Invoice" modal (lets the cashier reopen an unpaid invoice to
+  // take a payment on it). This is the FIX for the bug where clicking
+  // "Generate Invoice" by mistake — without entering an amount — leaves the
+  // invoice stuck in 'unpaid' state with no obvious way to access it.
+  // Now the cashier can find it on the Unpaid tab and click "Take Payment"
+  // to reopen the InvoiceViewer (which has the Record Payment form).
+  const [viewInvoice, setViewInvoice] = useState(null)
   const [txnTypeFilter, setTxnTypeFilter] = useState('all')  // 'all' | 'deposit' | 'charge' | 'refund' | 'adjustment'
   const [txnSearch, setTxnSearch] = useState('')
   const [payMethodFilter, setPayMethodFilter] = useState('all')
@@ -155,6 +168,35 @@ export default function Billing({ initialSearch = '' }) {
   } = usePagination(patientQueue, { pageSize: 10, resetKey: search })
 
   const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+
+  // ---- Unpaid invoices (the FIX for the "stuck awaiting bill" bug) ----------
+  // Any finalized invoice with a balance > 0 — including ones created by
+  // mistake (cashier clicked Generate Invoice without entering an amount).
+  // The cashier can find them on the Unpaid tab, click "Take Payment",
+  // and reopen the InvoiceViewer to record a payment against the balance.
+  const unpaidInvoicesList = useMemo(() => {
+    const list = invoices
+      .filter(i =>
+        i.draft_status !== 'draft' &&
+        i.status !== 'cancelled' &&
+        i.status !== 'paid' &&
+        Number(i.balance || 0) > 0.001
+      )
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    if (!unpaidSearch.trim()) return list
+    const q = unpaidSearch.trim().toLowerCase()
+    return list.filter(i =>
+      String(i.invoice_number || '').toLowerCase().includes(q) ||
+      String(i.patient_name || '').toLowerCase().includes(q) ||
+      String(i.payment_method || '').toLowerCase().includes(q)
+    )
+  }, [invoices, unpaidSearch])
+
+  // ---- Unpaid invoices pagination --------------------------------------
+  const {
+    pageItems: pagedUnpaid, currentPage: unpaidPage, setCurrentPage: setUnpaidPage, pageSize: unpaidPageSize, setPageSize: setUnpaidPageSize,
+    totalPages: unpaidTotalPages, totalItems: unpaidTotalItems, startIndex: unpaidStart, endIndex: unpaidEnd,
+  } = usePagination(unpaidInvoicesList, { pageSize: 15, resetKey: unpaidSearch })
 
   // ---- Wallet transactions filter + pagination ----------------------
   const filteredTxns = useMemo(() => {
@@ -530,6 +572,7 @@ export default function Billing({ initialSearch = '' }) {
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
           { key: 'queue', label: 'Patient Queue', icon: 'users' },
+          { key: 'unpaid', label: 'Unpaid Invoices', icon: 'billing', badge: unpaidInvoicesList.length },
           { key: 'drafts', label: 'Drafts', icon: 'billing' },
           { key: 'transactions', label: 'Wallet Transactions', icon: 'billing' },
           { key: 'payments', label: 'Payments', icon: 'billing' },
@@ -540,13 +583,43 @@ export default function Billing({ initialSearch = '' }) {
             key={t.key}
             type="button"
             className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5 }}
+            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => setActiveTab(t.key)}
           >
             {t.label}
+            {t.badge > 0 && (
+              <span style={{
+                background: activeTab === t.key ? 'rgba(255,255,255,0.2)' : 'var(--danger)',
+                color: activeTab === t.key ? '#fff' : '#fff',
+                fontSize: 10.5, fontWeight: 700,
+                padding: '1px 7px', borderRadius: 10, minWidth: 18, textAlign: 'center',
+              }}>
+                {t.badge}
+              </span>
+            )}
           </button>
         ))}
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {profile && ['admin', 'owner', 'billing'].includes(profile.role) && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--gold)', borderColor: 'var(--gold)' }}
+              onClick={() => setShowApprovals(true)}
+              title="View pending approval requests"
+            >
+              <AppIcon name="shield" size={14} /> Approvals
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setShowEndOfDay(true)}
+            title="End-of-day cashier reconciliation — count cash, verify totals"
+          >
+            <AppIcon name="clock" size={14} /> End of Day
+          </button>
           <ModuleHistoryButton moduleKey="billing" />
         </div>
       </div>
@@ -573,14 +646,14 @@ export default function Billing({ initialSearch = '' }) {
           <div className="dash-stat-delta positive">{kpis.pendingCount} awaiting billing</div>
         </div>
 
-        <div className="dash-stat-card premium-stat red-stat">
+        <div className="dash-stat-card premium-stat red-stat" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('unpaid')} title="Click to view all unpaid invoices">
           <div className="dash-stat-top">
             <div className="dash-stat-icon"><Icon name="alert" size={20} /></div>
             <svg className="dash-mini-chart" viewBox="0 0 90 38"><path d={SPARK} /></svg>
           </div>
-          <div className="dash-stat-label">Outstanding Invoices</div>
+          <div className="dash-stat-label">Outstanding Invoices <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>(click to view)</span></div>
           <div className="dash-stat-value">{formatMoney(kpis.out)}</div>
-          <div className="dash-stat-delta negative">Unpaid balance</div>
+          <div className="dash-stat-delta negative">{unpaidInvoicesList.length} unpaid invoice{unpaidInvoicesList.length === 1 ? '' : 's'}</div>
         </div>
 
         <div className="dash-stat-card premium-stat violet-stat">
@@ -685,11 +758,161 @@ export default function Billing({ initialSearch = '' }) {
       </div>
       )}
 
+      {/* ---- Unpaid Invoices tab (FIX for the "stuck awaiting bill" bug) ---------
+          Shows every finalized invoice with an outstanding balance. Each
+          row has a "Take Payment" button that reopens the InvoiceViewer so
+          the cashier can record a payment — including against invoices
+          that were created by mistake (Generate Invoice clicked with no
+          amount entered). */}
+      {activeTab === 'unpaid' && (
+        <div className="dash-panel">
+          <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div className="dash-panel-title">Unpaid Invoices</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                Invoices with outstanding balances. Click <strong>Take Payment</strong> to record a payment, <strong>View</strong> to print the receipt, or use Credit Note / Write Off for adjustments.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => setShowMultiPayModal(true)}
+                title="Record one payment and split it across multiple invoices"
+              >
+                <AppIcon name="billing" size={14} /> Multi-Invoice Payment
+              </button>
+              <div className="dash-search" style={{ maxWidth: 260 }}>
+                <Icon name="search" size={15} />
+                <input placeholder="Search invoice #, patient name…" value={unpaidSearch} onChange={e => setUnpaidSearch(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>Loading invoices…</div>
+          ) : unpaidInvoicesList.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 12.5 }}>
+              No unpaid invoices. Every finalized invoice has been fully paid or cancelled. 🎉
+            </div>
+          ) : (
+            <>
+              <div className="dash-table-wrap">
+                <table className="dash-full-table">
+                  <thead>
+                    <tr>
+                      <th>Invoice #</th>
+                      <th>Patient</th>
+                      <th>Created</th>
+                      <th>Total</th>
+                      <th>Paid</th>
+                      <th>Balance</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedUnpaid.map(inv => {
+                      const ageDays = Math.floor((Date.now() - new Date(inv.created_at).getTime()) / (24 * 60 * 60 * 1000))
+                      const ageLabel = ageDays === 0 ? 'today' : ageDays === 1 ? '1 day ago' : `${ageDays} days ago`
+                      const ageColor = ageDays >= 90 ? 'var(--danger)' : ageDays >= 30 ? 'var(--gold)' : 'var(--muted)'
+                      const statusColor = inv.status === 'partial' ? 'var(--gold)' : 'var(--danger)'
+                      const statusBg = inv.status === 'partial' ? 'rgba(232,184,46,0.14)' : 'rgba(225,104,94,0.14)'
+                      return (
+                        <tr key={inv.id}>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, color: 'var(--blue)', fontWeight: 700 }}>{inv.invoice_number || inv.id.slice(0,8)}</td>
+                          <td style={{ fontWeight: 600 }}>{inv.patient_name || '—'}</td>
+                          <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                            {formatDateTimeSec(inv.created_at, timezone)}
+                            <div style={{ fontSize: 10.5, color: ageColor, marginTop: 2 }}>{ageLabel}</div>
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)' }}>{formatMoney(inv.grand_total || inv.amount)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', color: 'var(--teal)' }}>{formatMoney(inv.amount_paid)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--danger)' }}>{formatMoney(inv.balance)}</td>
+                          <td>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: statusBg, color: statusColor, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              {inv.status}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              <button
+                                className="btn btn-primary"
+                                style={{ width: 'auto', padding: '5px 12px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                                onClick={() => {
+                                  // Reopen InvoiceViewer with the latest invoice state
+                                  // (re-find to pick up any updates since the table rendered)
+                                  const fresh = invoices.find(i => i.id === inv.id)
+                                  setViewInvoice(fresh || inv)
+                                }}
+                                title="Open this invoice to record a payment against the balance"
+                              >
+                                <AppIcon name="billing" size={13} /> Take Payment
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ width: 'auto', padding: '5px 10px', fontSize: 11 }}
+                                onClick={() => {
+                                  const fresh = invoices.find(i => i.id === inv.id)
+                                  setViewInvoice(fresh || inv)
+                                }}
+                                title="View invoice details and print receipt"
+                              >
+                                View
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ width: 'auto', padding: '5px 10px', fontSize: 11, color: 'var(--violet)', borderColor: 'var(--violet)' }}
+                                onClick={() => { setCreditNoteInvoice(inv); setShowCreditNoteModal(true) }}
+                                title="Issue a credit note against this invoice"
+                              >
+                                Credit Note
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ width: 'auto', padding: '5px 10px', fontSize: 11, color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                onClick={async () => {
+                                  const reason = prompt(`Write off invoice ${inv.invoice_number} for ${inv.patient_name}?\n\nBalance: ${formatMoney(inv.balance)}\n\nEnter a reason (required):`)
+                                  if (!reason?.trim()) return
+                                  const result = await writeOffInvoice({ hospital, profile, invoice: inv, reason, updateInvoice, writeAudit })
+                                  if (result.success) showToast(`Invoice ${inv.invoice_number} written off`)
+                                  else showToast(result.error || 'Could not write off')
+                                }}
+                                title="Mark as bad debt — requires reason"
+                              >
+                                Write Off
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <Pagination
+                currentPage={unpaidPage}
+                totalPages={unpaidTotalPages}
+                totalItems={unpaidTotalItems}
+                startIndex={unpaidStart}
+                endIndex={unpaidEnd}
+                pageSize={unpaidPageSize}
+                onPageChange={setUnpaidPage}
+                onPageSizeChange={setUnpaidPageSize}
+                itemLabel="unpaid invoices"
+              />
+            </>
+          )}
+        </div>
+      )}
+
       {/* ---- Transactions tab ---- */}
       {activeTab === 'transactions' && (
         <>
           {/* Mini-stats */}
-          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             <div className="dash-stat-card">
               <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="arrowUp" size={18} /></div>
               <div>
@@ -817,7 +1040,7 @@ export default function Billing({ initialSearch = '' }) {
       {activeTab === 'payments' && (
         <>
           {/* Mini-stats */}
-          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             <div className="dash-stat-card">
               <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="billing" size={18} /></div>
               <div>
@@ -984,7 +1207,7 @@ export default function Billing({ initialSearch = '' }) {
       {activeTab === 'expenses' && (
         <>
           {/* Mini-stats */}
-          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+          <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
             <div className="dash-stat-card">
               <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="arrowDown" size={18} /></div>
               <div>
@@ -1284,85 +1507,29 @@ export default function Billing({ initialSearch = '' }) {
             })()}
           </div>
 
-          {/* Also show finalized invoices with balances (for write-off + credit notes) */}
-          <div className="dash-panel" style={{ marginTop: 20 }}>
-            <div className="dash-panel-head">
-              <div>
-                <div className="dash-panel-title">Outstanding Invoices</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
-                  Finalized invoices with outstanding balances — apply credit notes or write off bad debt.
-                </div>
-              </div>
+          {/* Pointer to the Unpaid tab — outstanding invoices used to be
+              listed here but are now on their own dedicated tab so they're
+              easy to find (the "Generate Invoice by mistake" bug fix). */}
+          <div style={{
+            marginTop: 20, padding: '14px 18px', borderRadius: 10,
+            background: 'rgba(225,104,94,0.08)', border: '1px solid rgba(225,104,94,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+          }}>
+            <div style={{ fontSize: 12.5, color: 'var(--ivory)' }}>
+              <strong style={{ color: 'var(--danger)' }}>Outstanding invoices moved.</strong>
+              <span style={{ color: 'var(--muted)' }}> Invoices with unpaid balances now live on the </span>
+              <strong style={{ color: 'var(--ivory)' }}>Unpaid Invoices</strong>
+              <span style={{ color: 'var(--muted)' }}> tab — where you can take a payment, view the receipt, issue a credit note, or write off bad debt.</span>
             </div>
-
-            {(() => {
-              const outstanding = invoices.filter(i =>
-                i.draft_status === 'finalized' &&
-                Number(i.balance || 0) > 0.001
-              ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-              if (outstanding.length === 0) {
-                return (
-                  <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)', fontSize: 12.5 }}>
-                    No outstanding invoices.
-                  </div>
-                )
-              }
-              return (
-                <div className="dash-table-wrap">
-                  <table className="dash-full-table">
-                    <thead>
-                      <tr>
-                        <th>Invoice #</th>
-                        <th>Patient</th>
-                        <th>Created</th>
-                        <th>Total</th>
-                        <th>Paid</th>
-                        <th>Balance</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {outstanding.slice(0, 20).map(inv => (
-                        <tr key={inv.id}>
-                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5 }}>{inv.invoice_number}</td>
-                          <td style={{ fontWeight: 600 }}>{inv.patient_name}</td>
-                          <td style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDateTimeSec(inv.created_at, timezone)}</td>
-                          <td style={{ fontFamily: 'var(--font-mono, monospace)' }}>{formatMoney(inv.grand_total || inv.amount)}</td>
-                          <td style={{ fontFamily: 'var(--font-mono, monospace)', color: 'var(--teal)' }}>{formatMoney(inv.amount_paid)}</td>
-                          <td style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: 'var(--danger)' }}>{formatMoney(inv.balance)}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 4 }}>
-                              <button
-                                className="btn btn-ghost"
-                                style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--violet)', borderColor: 'var(--violet)' }}
-                                onClick={() => { setCreditNoteInvoice(inv); setShowCreditNoteModal(true) }}
-                                title="Issue a credit note against this invoice"
-                              >
-                                Credit Note
-                              </button>
-                              <button
-                                className="btn btn-ghost"
-                                style={{ width: 'auto', padding: '4px 10px', fontSize: 11, color: 'var(--danger)', borderColor: 'var(--danger)' }}
-                                onClick={async () => {
-                                  const reason = prompt(`Write off invoice ${inv.invoice_number}?\n\nBalance: ${formatMoney(inv.balance)}\n\nEnter a reason (required):`)
-                                  if (!reason?.trim()) return
-                                  const result = await writeOffInvoice({ hospital, profile, invoice: inv, reason, updateInvoice, writeAudit })
-                                  if (result.success) showToast(`Invoice ${inv.invoice_number} written off`)
-                                  else showToast(result.error || 'Could not write off')
-                                }}
-                                title="Mark as bad debt — requires reason"
-                              >
-                                Write Off
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            })()}
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: 'auto', padding: '7px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              onClick={() => setActiveTab('unpaid')}
+              title="Switch to the Unpaid Invoices tab"
+            >
+              <Icon name="arrowRight" size={14} /> Go to Unpaid Invoices
+            </button>
           </div>
         </>
       )}
@@ -1406,7 +1573,7 @@ export default function Billing({ initialSearch = '' }) {
               if (filtered.length === 0) {
                 return (
                   <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)', fontSize: 12.5 }}>
-                    No credit notes issued yet. Click "Credit Note" on an outstanding invoice in the Drafts tab to issue one.
+                    No credit notes issued yet. Click "Credit Note" on an outstanding invoice in the Unpaid Invoices tab to issue one.
                   </div>
                 )
               }
@@ -1503,6 +1670,14 @@ export default function Billing({ initialSearch = '' }) {
         />
       )}
 
+      {/* ---- Phase 4: Approval Queue + End of Day Reconciliation modals ---- */}
+      {showApprovals && (
+        <ApprovalQueueModal onClose={() => setShowApprovals(false)} />
+      )}
+      {showEndOfDay && (
+        <EndOfDayReconciliationModal onClose={() => setShowEndOfDay(false)} />
+      )}
+
       {selectedPatient && (
         <CashierWorkspace
           patientId={selectedPatient.id}
@@ -1578,6 +1753,22 @@ export default function Billing({ initialSearch = '' }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ---- InvoiceViewer modal (reopen an unpaid invoice) ---------------
+          Rendered when the cashier clicks "Take Payment" or "View" on any
+          row in the Unpaid Invoices tab. The InvoiceViewer shows the
+          invoice details, lets the cashier record a payment against the
+          balance, and print the receipt. This is the FIX that lets the
+          cashier come back to an invoice that was generated without a
+          payment amount entered. */}
+      {viewInvoice && (
+        <InvoiceViewer
+          invoice={viewInvoice}
+          hospital={hospital}
+          profile={profile}
+          onClose={() => setViewInvoice(null)}
+        />
       )}
 
       {toast && <div className="billing-toast">{toast}</div>}
