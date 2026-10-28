@@ -192,10 +192,38 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
 
   async function handleGenerateInvoice() {
     if (selectedCharges.length === 0) return alert('No charges selected.')
+
+    // ---- Safety check: prevent the "stuck awaiting bill" bug ------------
+    // If the cashier clicked Generate Invoice without entering an amount
+    // AND the patient has no wallet to auto-deduct from, the invoice would
+    // be created as UNPAID with the full balance still due. In the old code
+    // there was no obvious way to come back and record a payment on that
+    // invoice — the patient disappeared from the queue (their charges
+    // moved from pending → invoiced) and the unpaid invoice was buried
+    // under the Drafts tab with only Credit Note / Write Off buttons.
+    //
+    // The proper fix has two parts:
+    //   1. (Billing.jsx) A dedicated "Unpaid Invoices" tab with a
+    //      "Take Payment" button on each row that reopens InvoiceViewer.
+    //   2. (here) A confirmation dialog so the cashier is consciously
+    //      choosing to create an unpaid invoice — not doing it by mistake.
+    //
+    // We DON'T block the action entirely because legitimate cases exist
+    // (e.g. patient wants to pay later, split-billing, post-dated cheque).
+    // We just make the mistake impossible to make silently.
+    const pAmt = Number(amountPaid) || 0
+    if (pAmt <= 0 && !canUseWallet && amountOwedByPatient > 0.001) {
+      const proceed = window.confirm(
+        `No payment amount entered.\n\n` +
+        `The invoice will be created as UNPAID with a balance of ${formatMoney(amountOwedByPatient)}.\n\n` +
+        `You can record a payment on it later from:\n` +
+        `  Billing → Unpaid Invoices tab → Take Payment\n\n` +
+        `Click OK to create the unpaid invoice, or Cancel to go back and enter an amount.`
+      )
+      if (!proceed) return
+    }
     setSaving(true)
     try {
-      const pAmt = Number(amountPaid) || 0
-
       // ---- Wallet auto-deduction (per Q3 = a, Q5 = a, Q6 = a) ----------
       // If the patient has a wallet balance, deduct from it FIRST.
       // The remainder is the cashier-collected amount (pAmt).
