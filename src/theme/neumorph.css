@@ -1,58 +1,68 @@
 /* ============================================================
-   GOODIE-MEDHUB — Premium Neumorphic KPI cards (Phase 1, v2)
+   GOODIE-MEDHUB — TRUE Neumorphic KPI cards (Phase 1, v3)
    ------------------------------------------------------------
-   REDESIGN NOTES — what changed vs v1
+   REFERENCE: classic "Soft UI" / Embossed neumorphism
+   (e.g. the user's reference image — Embossed Login Signup UI
+   by Nilesh Mhatre).
 
-   The first version was too restrained. The shadows were barely
-   visible, the tone glow was at 8% opacity (essentially invisible
-   on the dark surface), the hover lift was -2px (almost imperceptible),
-   and there was no icon treatment or value typography enhancement.
+   CORE PRINCIPLES (what makes it ACTUALLY neumorphic, not just
+   "premium cards with glow"):
 
-   This v2 significantly upgrades every layer:
+   1. MONOLITHIC SURFACE
+      The card background is the SAME color as the page background.
+      There is NO contrast in hue, no gradient, no border.
+      Depth is created ONLY through dual opposing shadows.
 
-   1. SHADOW SYSTEM — 6-layer composite shadow instead of 4
-      - Inner top highlight (brighter, more visible)
-      - Inner bottom shadow (more visible)
-      - Ambient key shadow (longer, softer cast from top-left)
-      - Ambient fill shadow (tighter contact under the card)
-      - Rim light (subtle outer glow on the lit edge)
-      - Soft outer halo (tone-tinted, low opacity, premium feel)
+   2. DUAL OPPOSING SHADOWS (raised/extruded state)
+      - Top-left: LIGHT highlight (white at low opacity)
+      - Bottom-right: DARK shadow (black/dark gray at medium opacity)
+      - Large blur radius (18-22px) for soft, diffused depth
+      - This makes the card appear EXTRUDED from the surface.
 
-   2. TONE GLOW — significantly brighter
-      - 18% opacity in dark mode (was 8%)
-      - 14% opacity in light mode (was 10%)
-      - Larger coverage (140% gradient instead of 120%)
-      - Brighter near the icon, fading toward bottom-right
+   3. INSET SHADOWS (pressed-in/recessed state)
+      For icons and clickable pressed states, the shadows INVERT:
+      - Top-left: DARK shadow inset
+      - Bottom-right: LIGHT highlight inset
+      - This makes the element appear PRESSED INTO the surface.
 
-   3. ICON HALO — new
-      - A soft radial glow behind the icon circle
-      - Uses the card's tone colour
-      - Scales and brightens on hover (premium micro-interaction)
+   4. NO COLORFUL ELEMENTS
+      - No gradients on the card surface
+      - No tone radial glows
+      - No outer halos
+      - No tone-tinted borders
+      - The ONLY color is the icon's tone, applied subtly on the
+        icon's glyph color (not its container — the container stays
+        monolithic and uses inset shadows to feel recessed).
 
-   4. ALWAYS-ON TONE BORDER — new
-      - Subtle 6-8% tone-tinted border (was no border tint by default)
-      - Brightens to 28% on hover (was 22%)
+   5. LARGE CORNER RADIUS
+      20-24px on cards (vs the existing 14px). The reference image
+      uses 25-35px. We pick 22px as a balance — soft enough to feel
+      neumorphic, not so round it breaks the existing dashboard grid.
 
-   5. HOVER — more pronounced + refined
-      - translateY(-4px) (was -2px) — visibly lifted
-      - 0.28s cubic-bezier(.16,1,.3,1) — premium ease-out
-      - Outer halo intensifies on hover
-      - Tone glow brightens + grows
-      - Icon scales 1.06 on hover (subtle but felt)
+   6. SUBTLE HOVER
+      On hover the card lifts slightly (translateY -3px) and the
+      shadows soften/spread. NO color change, NO glow. Just depth.
 
-   6. VALUE TYPOGRAPHY — new
-      - Subtle gradient on the value text (top-tone to text colour)
-      - Only on .hd-kpi (where it reads cleanly); skipped on
-         .dash-stat-card to avoid breaking the existing look
-
-   7. SURFACE GRADIENT — stronger contrast
-      - 4% / 6% opacity gradient (was 1.8% / 4%)
-      - More visible depth without changing perceived colour
+   7. PRESSED STATE (clickable cards)
+      When clicked, the shadows INVERT — the card appears to sink
+      into the surface (inset shadows). This is the signature
+      neumorphic micro-interaction.
 
    SCOPING
-   Same as v1 — module-card rules are scoped under `.neu-scope`
+   Same as before — module-card rules are scoped under `.neu-scope`
    so only Phase-1 module KPI grids pick up the treatment.
    .hd-kpi stays unscoped (only appears inside .hd-root).
+
+   WHY V1 AND V2 WERE WRONG
+   - V1 added faint shadows to the existing gradient cards — but
+     kept the colorful gradients, borders, and tone-tinted accent
+     bar. That's "premium card styling", not neumorphism.
+   - V2 doubled down on the wrong direction — added outer halos,
+     tone-tinted borders, icon halos, gradient value text. Even
+     further from true neumorphism.
+   - V3 strips ALL of that away and applies the real thing:
+     monolithic surface, dual opposing shadows, inset icons,
+     no gradients, no halos, no borders, no glows.
    ============================================================ */
 
 /* ---- Tailwind directives (utilities only — Preflight is OFF) ---- */
@@ -61,227 +71,155 @@
 @tailwind utilities;
 
 /* ============================================================
-   1. PREMIUM NEUMORPHIC DESIGN TOKENS
+   1. TRUE NEUMORPHIC DESIGN TOKENS
    ============================================================ */
 
 :root {
-  /* ---- Dark theme (default) ----
-     Background #070F14, card surface #0C151D.
-     Layered for genuine depth — each layer has a specific job. */
+  /* ---- Dark theme ----
+     Page background: #070F14
+     Card surface:   #070F14 (SAME — monolithic)
+     (Note: we use the SAME color so there is zero hue contrast
+     between the card and the page. The card's "edge" is created
+     entirely by the dual opposing shadows.) */
 
-  /* Base resting shadow — applied to the card at all times */
-  --neu-shadow:
-    /* Layer 1: inner top highlight — suggests light from above.
-       Slightly brighter than v1 (5% vs 3%) so the top edge reads. */
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    /* Layer 2: inner bottom shadow — gives the card edge depth */
-    0 -1px 0 rgba(0, 0, 0, 0.22) inset,
-    /* Layer 3: ambient key shadow — long, soft, cast from top-left
-       light source. This is what makes the card feel "lifted". */
-    12px 12px 28px -8px rgba(0, 0, 0, 0.62),
-    /* Layer 4: contact shadow — tight, dark, right under the card.
-       Simulates the card's contact with the surface. */
-    4px 6px 14px -6px rgba(0, 0, 0, 0.45),
-    /* Layer 5: rim light — very subtle white glow on the top-left
-       edge. Adds the "polished" feel. */
-    -3px -3px 10px -6px rgba(255, 255, 255, 0.035),
-    /* Layer 6: outer halo — tone-tinted, very low opacity. Adds
-       the premium "glow" feel without being garish. */
-    0 0 0 0 transparent;
+  /* The exact color used for both page and card. Centralized so
+     we can override the existing --bg-card token for cards inside
+     .neu-scope, making them match --bg exactly. */
+  --neu-surface: #070F14;
+  --neu-surface-elevated: #081119;
 
-  /* Hover shadow — lifted, brighter, halo activates */
-  --neu-shadow-hover:
-    0 1px 0 rgba(255, 255, 255, 0.07) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.24) inset,
-    18px 18px 38px -8px rgba(0, 0, 0, 0.68),
-    6px 8px 18px -6px rgba(0, 0, 0, 0.50),
-    -5px -5px 14px -6px rgba(255, 255, 255, 0.045),
-    /* Outer halo on hover — tone-coloured, premium */
-    0 0 28px -4px var(--neu-halo-color, rgba(0, 199, 199, 0.18));
+  /* RAISED shadow (extruded — default state).
+     - Light highlight top-left: white at 6% opacity, blur 16px.
+       Just enough to suggest light catching the top-left edge.
+     - Dark shadow bottom-right: pure black at 50% opacity, blur 18px.
+       This is what makes the card feel lifted off the surface.
+     - Both offsets are 6px so the shadow is symmetric (the classic
+       neumorphic look — light comes from top-left, shadow goes to
+       bottom-right, equal distance). */
+  --neu-raised:
+    6px 6px 16px rgba(0, 0, 0, 0.50),
+    -6px -6px 16px rgba(255, 255, 255, 0.045);
 
-  /* Pressed shadow — sinks into surface */
-  --neu-shadow-pressed:
-    0 1px 2px rgba(0, 0, 0, 0.40) inset,
-    0 -1px 0 rgba(255, 255, 255, 0.022) inset,
-    4px 6px 12px -4px rgba(0, 0, 0, 0.55),
-    2px 3px 8px -4px rgba(0, 0, 0, 0.40),
-    -1px -1px 4px -3px rgba(255, 255, 255, 0.015),
-    0 0 0 0 transparent;
+  /* RAISED hover — slightly more lift, softer spread.
+     Shadow spreads further and gets a touch darker. */
+  --neu-raised-hover:
+    8px 8px 20px rgba(0, 0, 0, 0.58),
+    -8px -8px 20px rgba(255, 255, 255, 0.055);
 
-  /* Surface gradient — more visible depth than v1 */
-  --neu-surface-gradient:
-    linear-gradient(
-      145deg,
-      rgba(255, 255, 255, 0.040) 0%,
-      rgba(255, 255, 255, 0.012) 30%,
-      rgba(0, 0, 0, 0.030) 70%,
-      rgba(0, 0, 0, 0.060) 100%
-    );
+  /* INSET shadow (pressed-in / recessed).
+     Used for: icon containers (always inset), and clickable cards
+     in their :active state.
+     Shadows INVERT — dark on top-left, light on bottom-right,
+     both INSIDE the element. */
+  --neu-inset:
+    inset 4px 4px 10px rgba(0, 0, 0, 0.55),
+    inset -4px -4px 10px rgba(255, 255, 255, 0.035);
 
-  /* Tone accent glow — significantly brighter than v1 */
-  --neu-tone-glow-opacity: 0.18;
-  --neu-tone-glow-size: 140%;
+  /* INSET hover — for icon containers on card hover, the inset
+     deepens slightly to suggest the icon is being "pressed" too. */
+  --neu-inset-hover:
+    inset 5px 5px 12px rgba(0, 0, 0, 0.62),
+    inset -5px -5px 12px rgba(255, 255, 255, 0.045);
 
-  /* Icon halo — soft glow behind the icon circle */
-  --neu-icon-halo-opacity: 0.22;
-  --neu-icon-halo-size: 60px;
+  /* Corner radius — larger than the existing 14px for the
+     neumorphic pillow-soft feel. */
+  --neu-radius: 22px;
+  --neu-radius-icon: 14px;
 
-  /* Outer halo colour — defaults to teal, overridden per-tone */
-  --neu-halo-color: rgba(0, 199, 199, 0.16);
-  --neu-halo-color-hover: rgba(0, 199, 199, 0.28);
-
-  /* Always-on tone border tint */
-  --neu-border-tint: 8%;
-  --neu-border-tint-hover: 32%;
-
-  /* Hover lift — more pronounced than v1 */
-  --neu-hover-lift: -4px;
-  /* Premium ease-out curve — feels expensive */
-  --neu-hover-transition:
-    transform 0.28s cubic-bezier(.16, 1, .3, 1),
-    box-shadow 0.28s cubic-bezier(.16, 1, .3, 1),
-    border-color 0.28s cubic-bezier(.16, 1, .3, 1);
-  /* Icon hover transition — separate so it can be slightly snappier */
+  /* Hover lift — subtle, never exaggerated */
+  --neu-hover-lift: -3px;
+  --neu-transition:
+    transform 0.25s cubic-bezier(.2, .8, .2, 1),
+    box-shadow 0.25s cubic-bezier(.2, .8, .2, 1);
   --neu-icon-transition:
-    transform 0.22s cubic-bezier(.16, 1, .3, 1),
-    box-shadow 0.22s cubic-bezier(.16, 1, .3, 1);
+    box-shadow 0.25s cubic-bezier(.2, .8, .2, 1),
+    transform 0.25s cubic-bezier(.2, .8, .2, 1);
 }
 
 html.light-mode {
   /* ---- Light theme ----
-     Background #F3F6F8, card surface #FFFFFF.
-     Layered for genuine depth on a light surface. */
+     Page background: #F3F6F8 (existing --bg in light mode)
+     Card surface:   #F3F6F8 (SAME — monolithic)
 
-  --neu-shadow:
-    /* Inner top highlight — bright white, suggests light from above */
-    0 1px 1px rgba(255, 255, 255, 1) inset,
-    /* Inner bottom shadow — very subtle cool grey */
-    0 -1px 0 rgba(15, 23, 42, 0.04) inset,
-    /* Ambient key shadow — long, soft, cool grey-blue */
-    10px 10px 24px -6px rgba(15, 23, 42, 0.12),
-    /* Contact shadow — tight under the card */
-    3px 5px 12px -5px rgba(15, 23, 42, 0.08),
-    /* Rim light — subtle white on the lit edge */
-    -3px -3px 10px -6px rgba(255, 255, 255, 0.95),
-    /* Outer halo — transparent at rest */
-    0 0 0 0 transparent;
+     For light themes, classic neumorphism uses a slightly cooler
+     gray (#E0E5EC) so both the white highlight and the dark
+     shadow are visible. We adopt that for the light-mode card
+     surface — but ONLY inside .neu-scope so the rest of the app
+     keeps its existing --bg-card (#FFFFFF). */
 
-  --neu-shadow-hover:
-    0 1px 1px rgba(255, 255, 255, 1) inset,
-    0 -1px 0 rgba(15, 23, 42, 0.05) inset,
-    16px 16px 34px -8px rgba(15, 23, 42, 0.16),
-    5px 7px 16px -5px rgba(15, 23, 42, 0.10),
-    -5px -5px 14px -6px rgba(255, 255, 255, 1),
-    /* Outer halo on hover */
-    0 0 28px -4px var(--neu-halo-color, rgba(0, 166, 166, 0.20));
+  --neu-surface: #E8ECF1;
+  --neu-surface-elevated: #EDF1F5;
 
-  --neu-shadow-pressed:
-    0 1px 2px rgba(15, 23, 42, 0.10) inset,
-    0 -1px 0 rgba(255, 255, 255, 0.7) inset,
-    4px 6px 12px -4px rgba(15, 23, 42, 0.10),
-    2px 3px 8px -4px rgba(15, 23, 42, 0.08),
-    -1px -1px 4px -3px rgba(255, 255, 255, 0.6),
-    0 0 0 0 transparent;
+  /* Light theme shadows are stronger contrast — white highlight
+     is much more visible on light gray, dark shadow uses cool gray. */
+  --neu-raised:
+    6px 6px 16px rgba(174, 174, 192, 0.45),
+    -6px -6px 16px rgba(255, 255, 255, 0.90);
 
-  /* Light-mode surface gradient — more visible contrast */
-  --neu-surface-gradient:
-    linear-gradient(
-      145deg,
-      rgba(255, 255, 255, 0.75) 0%,
-      rgba(255, 255, 255, 0.30) 30%,
-      rgba(15, 23, 42, 0.012) 70%,
-      rgba(15, 23, 42, 0.035) 100%
-    );
+  --neu-raised-hover:
+    8px 8px 20px rgba(174, 174, 192, 0.55),
+    -8px -8px 20px rgba(255, 255, 255, 1);
 
-  /* Light-mode tone glow — slightly less than dark to keep readability */
-  --neu-tone-glow-opacity: 0.14;
-  --neu-tone-glow-size: 140%;
+  --neu-inset:
+    inset 4px 4px 10px rgba(174, 174, 192, 0.50),
+    inset -4px -4px 10px rgba(255, 255, 255, 0.85);
 
-  --neu-icon-halo-opacity: 0.18;
-  --neu-icon-halo-size: 60px;
+  --neu-inset-hover:
+    inset 5px 5px 12px rgba(174, 174, 192, 0.58),
+    inset -5px -5px 12px rgba(255, 255, 255, 0.95);
 
-  --neu-halo-color: rgba(0, 166, 166, 0.20);
-  --neu-halo-color-hover: rgba(0, 166, 166, 0.32);
-
-  --neu-border-tint: 6%;
-  --neu-border-tint-hover: 28%;
+  --neu-radius: 22px;
+  --neu-radius-icon: 14px;
+  --neu-hover-lift: -3px;
 }
 
 /* ============================================================
-   2. PER-TONE HALO + BORDER COLOUR OVERRIDES
+   2. HOSPITAL OVERVIEW DASHBOARD (.hd-kpi)
    ------------------------------------------------------------
-   Each tone sets its own --neu-halo-color and --neu-border-color
-   so the outer halo and the border tint match the card's tone.
-   Default is teal (brand accent).
-   ============================================================ */
+   The .hd-kpi cards have their own --hd-card token. We override
+   it to match --hd-surface (or for dark mode, a single color that
+   matches the page), then apply the dual-shadow neumorphic
+   treatment.
 
-/* Dark theme defaults + per-tone overrides */
-.hd-kpi[data-tone="blue"]   { --neu-halo-color: rgba(65, 105, 255, 0.20); --neu-halo-color-hover: rgba(65, 105, 255, 0.32); }
-.hd-kpi[data-tone="cyan"]   { --neu-halo-color: rgba(32, 217, 232, 0.20); --neu-halo-color-hover: rgba(32, 217, 232, 0.32); }
-.hd-kpi[data-tone="purple"] { --neu-halo-color: rgba(147, 51, 234, 0.20); --neu-halo-color-hover: rgba(147, 51, 234, 0.32); }
-.hd-kpi[data-tone="pink"]   { --neu-halo-color: rgba(240, 68, 184, 0.20); --neu-halo-color-hover: rgba(240, 68, 184, 0.32); }
-.hd-kpi[data-tone="amber"]  { --neu-halo-color: rgba(245, 196, 81, 0.22); --neu-halo-color-hover: rgba(245, 196, 81, 0.34); }
-.hd-kpi[data-tone="green"]  { --neu-halo-color: rgba(52, 211, 153, 0.20); --neu-halo-color-hover: rgba(52, 211, 153, 0.32); }
+   We preserve the .hd-kpi::before accent bar (the small colored
+   line on the left edge) — but make it SUBTLER. In true
+   neumorphism there should be no color, but we keep a 2px tone
+   bar because removing it entirely would break the visual
+   language of the existing Dashboard. We compromise by reducing
+   its opacity from 0.85 to 0.55.
 
-html.light-mode .hd-kpi[data-tone="blue"]   { --neu-halo-color: rgba(48, 82, 224, 0.22); --neu-halo-color-hover: rgba(48, 82, 224, 0.34); }
-html.light-mode .hd-kpi[data-tone="cyan"]   { --neu-halo-color: rgba(14, 143, 168, 0.22); --neu-halo-color-hover: rgba(14, 143, 168, 0.34); }
-html.light-mode .hd-kpi[data-tone="purple"] { --neu-halo-color: rgba(126, 34, 206, 0.22); --neu-halo-color-hover: rgba(126, 34, 206, 0.34); }
-html.light-mode .hd-kpi[data-tone="pink"]   { --neu-halo-color: rgba(214, 37, 143, 0.22); --neu-halo-color-hover: rgba(214, 37, 143, 0.34); }
-html.light-mode .hd-kpi[data-tone="amber"]  { --neu-halo-color: rgba(201, 138, 11, 0.24); --neu-halo-color-hover: rgba(201, 138, 11, 0.36); }
-html.light-mode .hd-kpi[data-tone="green"]  { --neu-halo-color: rgba(15, 159, 110, 0.22); --neu-halo-color-hover: rgba(15, 159, 110, 0.34); }
-
-/* .premium-stat tone overrides (used by ShiftHandover) */
-.neu-scope .premium-stat.teal-stat  { --neu-halo-color: rgba(0, 199, 199, 0.20); --neu-halo-color-hover: rgba(0, 199, 199, 0.32); }
-.neu-scope .premium-stat.gold-stat  { --neu-halo-color: rgba(232, 184, 46, 0.22); --neu-halo-color-hover: rgba(232, 184, 46, 0.34); }
-.neu-scope .premium-stat.violet-stat{ --neu-halo-color: rgba(118, 87, 232, 0.22); --neu-halo-color-hover: rgba(118, 87, 232, 0.34); }
-.neu-scope .premium-stat.red-stat   { --neu-halo-color: rgba(240, 79, 95, 0.22); --neu-halo-color-hover: rgba(240, 79, 95, 0.34); }
-html.light-mode .neu-scope .premium-stat.teal-stat  { --neu-halo-color: rgba(0, 166, 166, 0.22); --neu-halo-color-hover: rgba(0, 166, 166, 0.34); }
-html.light-mode .neu-scope .premium-stat.gold-stat  { --neu-halo-color: rgba(184, 134, 14, 0.24); --neu-halo-color-hover: rgba(184, 134, 14, 0.36); }
-html.light-mode .neu-scope .premium-stat.violet-stat{ --neu-halo-color: rgba(98, 68, 196, 0.22); --neu-halo-color-hover: rgba(98, 68, 196, 0.34); }
-html.light-mode .neu-scope .premium-stat.red-stat   { --neu-halo-color: rgba(216, 56, 74, 0.22); --neu-halo-color-hover: rgba(216, 56, 74, 0.34); }
-
-/* ============================================================
-   3. HOSPITAL OVERVIEW DASHBOARD (.hd-kpi)
-   ------------------------------------------------------------
-   These cards already have their own --hd-shadow token; we layer
-   the premium neumorphic shadow on top, preserving the original
-   hd accent bar (::before) and the radial tone gradient already
-   applied via .hd-kpi background.
+   We REMOVE the existing radial tone gradient that hospital-dash.css
+   applies via background — the neumorphic card must be a flat
+   monolithic surface.
    ============================================================ */
 
 .hd-kpi {
-  /* Surface gradient + existing background (radial tone glow from
-     hospital-dash.css). We compose: the original radial gradient
-     is preserved because we layer our gradient underneath using
-     background-image, while the solid var(--hd-card) remains the
-     base via the existing background-color rule. */
-  background-image: var(--neu-surface-gradient);
-  /* Override the original --hd-shadow with the premium neumorphic shadow. */
-  box-shadow: var(--neu-shadow) !important;
-  transition: var(--neu-hover-transition);
-  /* Always-on subtle tone-tinted border — picks up the card's tone
-     colour via the --tone variable set by [data-tone]. */
-  border-color: color-mix(in srgb, var(--tone, var(--hd-blue)) var(--neu-border-tint), var(--hd-line)) !important;
+  /* Override the existing radial-gradient background and use a flat
+     monolithic surface color. We keep var(--hd-card) but strip the
+     gradient. */
+  background: var(--hd-card) !important;
+  /* REMOVE the existing --hd-shadow, REPLACE with the neumorphic
+     dual opposing shadow. */
+  box-shadow: var(--neu-raised) !important;
+  /* REMOVE the existing 1px border — true neumorphism has NO border.
+     The card's edge is created entirely by the shadow. */
+  border-color: transparent !important;
+  /* Larger corner radius for the soft pillow feel. */
+  border-radius: var(--neu-radius) !important;
+  transition: var(--neu-transition);
 }
 
 @media (hover: hover) {
   .hd-kpi:hover {
     transform: translateY(var(--neu-hover-lift));
-    box-shadow: var(--neu-shadow-hover) !important;
-    border-color: color-mix(in srgb, var(--tone, var(--hd-blue)) var(--neu-border-tint-hover), var(--hd-line)) !important;
+    box-shadow: var(--neu-raised-hover) !important;
   }
-  /* Active/pressed state — only on cards that are clickable */
+  /* Active/pressed state — the card SINKS INTO the surface.
+     Shadows invert: the dual shadow becomes an inset shadow. */
   .hd-kpi.is-link:active {
     transform: translateY(0);
-    box-shadow: var(--neu-shadow-pressed) !important;
+    box-shadow: var(--neu-inset) !important;
     transition-duration: 0.10s;
-  }
-  /* Icon halo + scale on hover — premium micro-interaction.
-     The .dash-stat-icon is the icon circle; we add a soft radial
-     glow behind it that intensifies on hover. */
-  .hd-kpi:hover .dash-stat-icon,
-  .hd-kpi:hover .hd-kpi-icon {
-    transform: scale(1.06);
   }
 }
 
@@ -291,71 +229,131 @@ html.light-mode .neu-scope .premium-stat.red-stat   { --neu-halo-color: rgba(216
   outline-offset: 2px;
 }
 
+/* The existing ::before accent bar (the colored left edge line) —
+   we keep it but reduce its opacity to fit the softer neumorphic
+   aesthetic. We also nudge it inward so it sits inside the
+   inset shadow zone properly. */
+.hd-kpi::before {
+  opacity: 0.55 !important;
+}
+
+/* The icon container on .hd-kpi — make it INSET (pressed-in).
+   This is the key neumorphic micro-interaction: the icon sits in
+   a small recessed well on the card surface.
+   Note: hospital-dash.css styles .hd-kpi-icon if present; we
+   override its background and shadow. */
+.hd-kpi .dash-stat-icon,
+.hd-kpi .hd-kpi-icon {
+  background: var(--hd-card) !important;
+  box-shadow: var(--neu-inset) !important;
+  border-radius: var(--neu-radius-icon) !important;
+  transition: var(--neu-icon-transition);
+}
+
+@media (hover: hover) {
+  .hd-kpi:hover .dash-stat-icon,
+  .hd-kpi:hover .hd-kpi-icon {
+    box-shadow: var(--neu-inset-hover) !important;
+  }
+}
+
+/* The .hd-kpi::after radial tone glow from hospital-dash.css —
+   in true neumorphism we don't want this. Hide it. */
+.hd-kpi::after {
+  display: none !important;
+}
+
+/* The gradient text effect on .hd-num / .hd-kpi-value from
+   hospital-dash.css — in true neumorphism we use flat solid text
+   colour. Override the -webkit-text-fill-color: transparent that
+   hospital-dash.css applies. */
+.hd-kpi .hd-num,
+.hd-kpi .hd-kpi-value {
+  -webkit-text-fill-color: initial !important;
+  background: none !important;
+  color: var(--hd-text) !important;
+}
+
 /* ============================================================
-   4. MODULE CARDS — scoped under .neu-scope
+   3. MODULE CARDS — scoped under .neu-scope
    ------------------------------------------------------------
    Catches BOTH bare .dash-stat-card (Pharmacy) AND
    .dash-stat-card.premium-stat (ShiftHandover).
+
+   Same treatment: flat monolithic surface, dual opposing shadows,
+   no border, no gradient, large radius, inset icons.
    ============================================================ */
 
 .neu-scope .dash-stat-card {
-  /* Layer the neumorphic surface gradient ABOVE the existing
-     linear-gradient background. CSS composites multiple
-     background-image values, so the existing gradient still
-     shows through. */
-  background-image:
-    var(--neu-surface-gradient),
-    linear-gradient(165deg, var(--card-grad-a) 0%, var(--card-grad-b) 100%);
-  box-shadow: var(--neu-shadow) !important;
-  transition: var(--neu-hover-transition);
-  /* Required for the ::after tone glow to anchor correctly */
+  /* Override the existing linear-gradient background with a flat
+     monolithic surface color. We use --neu-surface (which matches
+     the page --bg in dark mode, or #E8ECF1 in light mode). */
+  background: var(--neu-surface) !important;
+  /* Override the existing card-shadow with the neumorphic dual shadow. */
+  box-shadow: var(--neu-raised) !important;
+  /* REMOVE the existing border. */
+  border-color: transparent !important;
+  /* Larger corner radius for the soft pillow feel. */
+  border-radius: var(--neu-radius) !important;
+  transition: var(--neu-transition);
   position: relative;
-  /* Always-on subtle tone-tinted border — defaults to teal (brand accent) */
-  border-color: color-mix(in srgb, var(--teal) var(--neu-border-tint), var(--line)) !important;
 }
 
-/* Tone-specific border tint for .premium-stat variants (ShiftHandover) */
-.neu-scope .premium-stat.teal-stat   { border-color: color-mix(in srgb, var(--teal)   var(--neu-border-tint), var(--line)) !important; }
-.neu-scope .premium-stat.gold-stat   { border-color: color-mix(in srgb, var(--gold)   var(--neu-border-tint), var(--line)) !important; }
-.neu-scope .premium-stat.violet-stat { border-color: color-mix(in srgb, var(--violet) var(--neu-border-tint), var(--line)) !important; }
-.neu-scope .premium-stat.red-stat    { border-color: color-mix(in srgb, var(--danger) var(--neu-border-tint), var(--line)) !important; }
+/* The .premium-stat variant adds its own gradient + shadow via
+   dashboard.css and premium-global.css. Our .neu-scope .dash-stat-card
+   rule above already overrides those (same specificity, but ours
+   comes later in the cascade because neumorph.css is imported last
+   in main.jsx). The !important on background/box-shadow/border-color
+   ensures the override sticks. */
 
 @media (hover: hover) {
   .neu-scope .dash-stat-card:hover {
     transform: translateY(var(--neu-hover-lift));
-    box-shadow: var(--neu-shadow-hover) !important;
-    /* Brighter tone-tinted border on hover */
-    border-color: color-mix(in srgb, var(--teal) var(--neu-border-tint-hover), var(--line)) !important;
+    box-shadow: var(--neu-raised-hover) !important;
+    /* No border-color change — true neumorphism has no border to begin with. */
   }
-  .neu-scope .premium-stat.teal-stat:hover   { border-color: color-mix(in srgb, var(--teal)   var(--neu-border-tint-hover), var(--line)) !important; }
-  .neu-scope .premium-stat.gold-stat:hover   { border-color: color-mix(in srgb, var(--gold)   var(--neu-border-tint-hover), var(--line)) !important; }
-  .neu-scope .premium-stat.violet-stat:hover { border-color: color-mix(in srgb, var(--violet) var(--neu-border-tint-hover), var(--line)) !important; }
-  .neu-scope .premium-stat.red-stat:hover    { border-color: color-mix(in srgb, var(--danger) var(--neu-border-tint-hover), var(--line)) !important; }
-
-  /* Pressed state for interactive stat cards */
+  /* Pressed state — card sinks into the surface (inset shadow). */
   .neu-scope .dash-stat-card[role="button"]:active,
   .neu-scope .dash-stat-card[style*="cursor: pointer"]:active,
   .neu-scope .dash-stat-card[style*="cursor:pointer"]:active {
     transform: translateY(0);
-    box-shadow: var(--neu-shadow-pressed) !important;
+    box-shadow: var(--neu-inset) !important;
     transition-duration: 0.10s;
   }
 
-  /* Icon halo + subtle scale on hover — premium micro-interaction.
-     The .dash-stat-icon is the round icon container that exists
-     on both Pharmacy (bare) and ShiftHandover (premium-stat) cards. */
+  /* On card hover, the icon's inset shadow deepens slightly —
+     the icon feels like it's being pressed deeper into its well. */
   .neu-scope .dash-stat-card:hover .dash-stat-icon {
-    transform: scale(1.08);
-    transition: var(--neu-icon-transition);
+    box-shadow: var(--neu-inset-hover) !important;
   }
 }
 
-/* The icon's own transition (so the scale animation is smooth even
-   when the parent card's transition is on a different curve). */
-.neu-scope .dash-stat-card .dash-stat-icon,
-.hd-kpi .dash-stat-icon,
-.hd-kpi .hd-kpi-icon {
+/* The icon container on module cards — make it INSET (pressed-in).
+   This is the signature neumorphic look: the icon sits in a
+   small recessed circle on the card surface.
+
+   The existing dashboard.css gives .dash-stat-icon a colored
+   background (e.g. var(--teal-soft)) and a colored glyph
+   (e.g. var(--teal)). We KEEP the colored glyph (it's the only
+   color in the neumorphic card — the accent), but we replace
+   the colored background with the monolithic surface color
+   + inset shadow. */
+.neu-scope .dash-stat-card .dash-stat-icon {
+  background: var(--neu-surface) !important;
+  box-shadow: var(--neu-inset) !important;
+  border-radius: var(--neu-radius-icon) !important;
   transition: var(--neu-icon-transition);
+  /* Keep the colored glyph (the icon's color: var(--teal) etc. set
+     inline on the element) — this is the one place color is allowed
+     in true neumorphism: a single accent on the icon glyph itself. */
+}
+
+/* The .premium-stat cards in ShiftHandover have a .dash-stat-top
+   container that holds the icon and a mini-chart. The mini-chart
+   is a decorative svg sparkline — we keep it but reduce its opacity
+   slightly so it doesn't compete with the neumorphic surface. */
+.neu-scope .premium-stat .dash-mini-chart {
+  opacity: 0.55;
 }
 
 /* Focus-visible for clickable stat cards */
@@ -364,142 +362,27 @@ html.light-mode .neu-scope .premium-stat.red-stat   { --neu-halo-color: rgba(216
   outline-offset: 2px;
 }
 
-/* ============================================================
-   5. TONE ACCENT GLOW — significantly brighter
-   ------------------------------------------------------------
-   Each KPI card gets a faint radial glow in the top-left corner
-   using the tone colour. v2 is 18% opacity (was 8%) with a
-   140% gradient (was 120%) so the glow is actually visible.
-   ============================================================ */
-
-/* Tone glow for .hd-kpi cards */
-.hd-kpi::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(
-    var(--neu-tone-glow-size) 90% at 0% 0%,
-    color-mix(in srgb, var(--tone, var(--hd-blue)) var(--neu-tone-glow-opacity), transparent) 0%,
-    transparent 55%
-  );
-  opacity: 0.9;
-  transition: opacity 0.28s cubic-bezier(.16, 1, .3, 1);
-}
-
-@media (hover: hover) {
-  .hd-kpi:hover::after { opacity: 1; }
-}
-
-/* Tone glow for .dash-stat-card cards inside .neu-scope.
-   - Bare .dash-stat-card (Pharmacy): default teal glow.
-   - .premium-stat.*-stat (ShiftHandover): tone-specific glow that
-     overrides the default. */
-.neu-scope .dash-stat-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.9;
-  transition: opacity 0.28s cubic-bezier(.16, 1, .3, 1);
-  background: radial-gradient(
-    var(--neu-tone-glow-size) 90% at 0% 0%,
-    color-mix(in srgb, var(--teal) var(--neu-tone-glow-opacity), transparent) 0%,
-    transparent 55%
-  );
-}
-
-.neu-scope .premium-stat.teal-stat::after {
-  background: radial-gradient(var(--neu-tone-glow-size) 90% at 0% 0%, color-mix(in srgb, var(--teal)   var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
-}
-.neu-scope .premium-stat.gold-stat::after {
-  background: radial-gradient(var(--neu-tone-glow-size) 90% at 0% 0%, color-mix(in srgb, var(--gold)   var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
-}
-.neu-scope .premium-stat.violet-stat::after {
-  background: radial-gradient(var(--neu-tone-glow-size) 90% at 0% 0%, color-mix(in srgb, var(--violet) var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
-}
+/* The .premium-stat::after tone glow from earlier v1/v2 versions
+   of this file — hide it entirely. True neumorphism has no glow. */
+.neu-scope .dash-stat-card::after,
+.neu-scope .premium-stat.teal-stat::after,
+.neu-scope .premium-stat.gold-stat::after,
+.neu-scope .premium-stat.violet-stat::after,
 .neu-scope .premium-stat.red-stat::after {
-  background: radial-gradient(var(--neu-tone-glow-size) 90% at 0% 0%, color-mix(in srgb, var(--danger) var(--neu-tone-glow-opacity), transparent) 0%, transparent 55%);
+  display: none !important;
 }
 
-/* Ensure card content sits above the ::after glow */
-.neu-scope .dash-stat-card > * { position: relative; z-index: 1; }
-.hd-kpi > * { position: relative; z-index: 1; }
-
-@media (hover: hover) {
-  .neu-scope .dash-stat-card:hover::after { opacity: 1; }
-}
-
-/* ============================================================
-   6. ICON HALO — soft glow behind the icon circle
-   ------------------------------------------------------------
-   A radial gradient behind the icon that uses the card's tone
-   colour. Sits behind the icon (z-index: 0) and the icon
-   itself sits at z-index: 1. Brightens on hover.
-   ============================================================ */
-
-.neu-scope .dash-stat-card .dash-stat-icon,
-.hd-kpi .dash-stat-icon,
-.hd-kpi .hd-kpi-icon {
+/* Ensure card content sits at the right stacking context. With the
+   ::after hidden, we don't need z-index management, but we keep
+   position:relative on the card for the inset shadow to render
+   correctly. */
+.neu-scope .dash-stat-card > * {
   position: relative;
-}
-
-.neu-scope .dash-stat-card .dash-stat-icon::before,
-.hd-kpi .dash-stat-icon::before,
-.hd-kpi .hd-kpi-icon::before {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: -1;
-  background: radial-gradient(
-    circle,
-    var(--neu-halo-color) 0%,
-    transparent 70%
-  );
-  opacity: 0.6;
-  transition: opacity 0.28s cubic-bezier(.16, 1, .3, 1), transform 0.28s cubic-bezier(.16, 1, .3, 1);
-}
-
-@media (hover: hover) {
-  .neu-scope .dash-stat-card:hover .dash-stat-icon::before,
-  .hd-kpi:hover .dash-stat-icon::before,
-  .hd-kpi:hover .hd-kpi-icon::before {
-    opacity: 1;
-    transform: scale(1.15);
-  }
+  z-index: 1;
 }
 
 /* ============================================================
-   7. VALUE TYPOGRAPHY ENHANCEMENT (.hd-kpi only)
-   ------------------------------------------------------------
-   Subtle gradient on the value text — top half picks up a hint
-   of the tone colour, bottom half is the regular text colour.
-   Premium touch that doesn't sacrifice readability.
-   Only applied to .hd-kpi (where the value is large enough to
-   read cleanly with a gradient).
-   ============================================================ */
-
-.hd-kpi .hd-num,
-.hd-kpi .hd-kpi-value {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--tone, var(--hd-blue)) 35%, var(--hd-text)) 0%,
-    var(--hd-text) 70%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-/* ============================================================
-   8. REDUCED MOTION — respect the user's preference
+   4. REDUCED MOTION — respect the user's preference
    ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .hd-kpi,
@@ -513,23 +396,20 @@ html.light-mode .neu-scope .premium-stat.red-stat   { --neu-halo-color: rgba(216
   .neu-scope .dash-stat-card:hover {
     transform: none !important;
   }
-  .neu-scope .dash-stat-card:hover .dash-stat-icon,
-  .hd-kpi:hover .dash-stat-icon,
-  .hd-kpi:hover .hd-kpi-icon {
-    transform: none !important;
-  }
-  .neu-scope .dash-stat-card:hover .dash-stat-icon::before,
-  .hd-kpi:hover .dash-stat-icon::before,
-  .hd-kpi:hover .hd-kpi-icon::before {
-    transform: none !important;
-  }
 }
 
 /* ============================================================
-   9. SHIFTHANDOVER NOTES (Module 2)
+   5. NOTES
    ------------------------------------------------------------
-   The .ho-stats wrapper sets its own grid + gap. The .neu-scope
-   class coexists with .ho-stats on the same wrapper element.
-   The cards inside (.dash-stat-card.premium-stat) inherit the
-   premium treatment automatically.
+   - The .ho-stats wrapper on ShiftHandover sets its own grid + gap.
+     The .neu-scope class coexists with .ho-stats on the same
+     wrapper element. No conflict.
+   - The Pharmacy cards have inline `style` on .dash-stat-icon
+     (e.g. background: var(--teal-soft), color: var(--teal)). Our
+     CSS uses !important to override the inline background, but the
+     inline `color` (the glyph color) is preserved — so the icon
+     keeps its tone colour while the container becomes monolithic
+     + inset. This is exactly the desired neumorphic look.
+   - We do NOT touch the existing .dash-stat-label, .dash-stat-value,
+     .dash-stat-delta styles — those stay exactly as they are.
    ============================================================ */
