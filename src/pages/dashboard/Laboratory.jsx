@@ -595,7 +595,7 @@ export default function Laboratory(){
   // action once per test. "Enter Results" already opens every pending
   // test for the patient in one form (see openResultForm below), so it
   // does not need a bulk version of its own.
-  const STAGE_ORDER = ['ordered', 'sample_collected', 'processing']
+  const STAGE_ORDER = ['ordered', 'sample_collected', 'processing', 'awaiting_verification']
 
   // The stage that should drive the bundle's action button: the
   // earliest pipeline stage still present among its tests. e.g. if 2
@@ -605,7 +605,7 @@ export default function Laboratory(){
     for (const s of STAGE_ORDER) {
       if (groupTests.some(t => labStage(t.status) === s)) return s
     }
-    return 'processing'
+    return 'completed'
   }
 
   async function handleAdvanceGroup(groupTests, toStage) {
@@ -623,12 +623,37 @@ export default function Laboratory(){
     }
   }
 
+  // Phase 5: Bulk verify & release for groups in awaiting_verification
+  async function handleVerifyAndReleaseGroup(groupTests) {
+    if (isNurseReadOnly) { showToast('Nurses cannot verify results'); return }
+    const targets = groupTests.filter(t => labStage(t.status) === 'awaiting_verification')
+    if (targets.length === 0) return
+    if (!confirm(`Verify and release ${targets.length} result(s) for ${groupTests[0]?.patient_name || 'this patient'}?\n\nThis confirms the results are correct and releases them to the patient record.`)) return
+    try {
+      const nowIso = new Date().toISOString()
+      for (const t of targets) {
+        await updateLabRow(t, {
+          status: 'completed',
+          verified_by: profile?.full_name || null,
+          verified_at: nowIso,
+          updated_at: nowIso,
+        })
+        auditLab('lab.verified_released', t, `${t.test_name} for ${t.patient_name}: result verified and released by ${profile?.full_name || 'lab staff'}`, { verified_by: profile?.full_name, verified_at: nowIso })
+      }
+      showToast(`${targets.length} result(s) verified and released`)
+    } catch (err) {
+      showToast(err.message || 'Could not verify the results')
+    }
+  }
+
   function groupStageAction(groupRow) {
     const stage = groupPrimaryStage(groupRow.groupTests)
     const count = groupRow.groupTests.filter(t => labStage(t.status) === stage).length
     if (stage === 'ordered') return { label: `Collect Samples (${count})`, run: () => handleAdvanceGroup(groupRow.groupTests, 'sample_collected'), aria: `Mark samples collected for ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
     if (stage === 'sample_collected') return { label: `Start Processing (${count})`, run: () => handleAdvanceGroup(groupRow.groupTests, 'processing'), aria: `Start processing ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
-    return { label: 'Enter Results', run: () => openResultForm(groupRow.groupTests[0]), aria: `Enter results for ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
+    if (stage === 'processing') return { label: 'Enter Results', run: () => openResultForm(groupRow.groupTests[0]), aria: `Enter results for ${groupRow.patient_name}'s ${groupRow.groupTests.length} requested tests` }
+    if (stage === 'awaiting_verification') return { label: `Verify & Release (${count})`, run: () => handleVerifyAndReleaseGroup(groupRow.groupTests), aria: `Verify and release ${count} results for ${groupRow.patient_name}` }
+    return null
   }
 
   async function handleCancelGroup(groupRow) {
