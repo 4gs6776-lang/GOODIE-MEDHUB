@@ -5,7 +5,7 @@ import MedicationChart from './MedicationChart'
 import AppIcon from './icons'
 import PatientWallet from './PatientWallet'
 import { writeAudit } from '../lib/audit'
-import { formatDateTime } from '../lib/datetime'
+import { formatDateTime, getTimezone } from '../lib/datetime'
 import { computePatientStatement } from '../lib/billingService'
 
 const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescriptions', 'Drug Chart', 'Pharmacy', 'Billing', 'Statement', 'Edit Info']
@@ -14,6 +14,7 @@ const TABS = ['Overview', 'Vitals', 'Wallet', 'History', 'Items Given', 'Prescri
 // nothing new is stored here except through those existing hooks.
 export default function PatientProfile({ patientId, onClose }){
   const { profile, hospital } = useAuth()
+  const timezone = getTimezone(hospital)
   const { records: patients, addRecord: addPatient, updateRecord: updatePatient, loadError: patientsLoadError } = useOfflineTable('patients', hospital?.id)
   const { records: vitals, addRecord: addVitals } = useOfflineTable('patient_vitals', hospital?.id)
   const { records: prescriptions, addRecord: addPrescription, updateRecord: updatePrescription } = useOfflineTable('prescriptions', hospital?.id)
