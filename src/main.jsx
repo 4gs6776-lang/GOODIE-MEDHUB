@@ -17,6 +17,14 @@ import './theme/pagination.css'
 // unconditional .dash-modal{border-radius:14px} was overriding the phone
 // bottom-sheet radius from mobile.css.
 import './theme/mobile.css'
+// neumorph.css MUST be imported AFTER all the other theme files so its
+// layered box-shadow / background-image / ::after tone-glow rules can
+// sit on top of the existing .hd-kpi and .premium-stat definitions
+// without having to use higher specificity. Tailwind's @tailwind
+// directives are inside this same file and are emitted at the top of
+// the compiled CSS, so the Tailwind utilities are always available
+// to anything imported after this line.
+import './theme/neumorph.css'
 
 // Apply the saved theme immediately, before any page renders. Dark is
 // the app-wide default — light mode only turns on if the person has

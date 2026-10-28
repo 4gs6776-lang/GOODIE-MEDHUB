@@ -551,7 +551,12 @@ export default function ShiftHandover() {
       {/* ================= DASHBOARD ================= */}
       {subTab === 'dashboard' && (
         <>
-          <section className="dash-stats ho-stats">
+          {/* The `neu-scope` class opts this KPI grid into the Phase-1
+              neumorphic card enhancement (src/theme/neumorph.css). It
+              does not change layout — it's a scoping hook so only this
+              grid's .premium-stat cards pick up the neumorphic shadow +
+              tone glow. Remove the class to revert to the original styling. */}
+          <section className="dash-stats ho-stats neu-scope">
             <div className="dash-stat-card premium-stat red-stat">
               <div className="dash-stat-top"><div className="dash-stat-icon"><AppIcon name="bell" size={20} /></div></div>
               <div className="dash-stat-label">Unacknowledged</div>

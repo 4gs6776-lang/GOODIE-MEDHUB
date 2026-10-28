@@ -425,8 +425,13 @@ export default function Pharmacy() {
 
   return (
     <>
-      {/* Stats — shared .dash-stats grid */}
-      <div className="dash-stats" style={{ marginBottom: 20 }}>
+      {/* Stats — shared .dash-stats grid.
+          The `neu-scope` class opts this KPI grid into the Phase-1
+          neumorphic card enhancement (src/theme/neumorph.css). It
+          does not change layout — it's a scoping hook so only this
+          grid's .dash-stat-card cards pick up the neumorphic shadow +
+          tone glow. Remove the class to revert to the original styling. */}
+      <div className="dash-stats neu-scope" style={{ marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="pill" size={20} /></div>
           <div>
