@@ -41,7 +41,6 @@ export function labStage(status) {
     case 'processing':
       return 'processing'
     case 'awaiting_verification':
-    case 'awaiting_verification':
       return 'awaiting_verification'
     case 'completed':
     case 'verified':
