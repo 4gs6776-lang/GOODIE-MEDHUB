@@ -271,7 +271,7 @@ export default function RecurringExpenseManager() {
                   </div>
                   <div className="field">
                     <label>Amount (₦) *</label>
-                    <input type="number" min="0.01" step="0.01" value={form.amount} onChange={e => setField('amount', e.target.value)} placeholder="e.g. 500000" required style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }} />
+                    <input type="number" min="0" step="any" value={form.amount} onChange={e => setField('amount', e.target.value)} placeholder="e.g. 500000" required style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }} />
                   </div>
                 </div>
                 <div className="field">
@@ -334,7 +334,7 @@ export default function RecurringExpenseManager() {
                       <input type="checkbox" checked={form.requires_approval} onChange={e => setField('requires_approval', e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--gold)' }} />
                       Require approval if amount > threshold
                     </label>
-                    <input type="number" min="0" step="100" value={form.approval_threshold} onChange={e => setField('approval_threshold', e.target.value)} placeholder="e.g. 100000" disabled={!form.requires_approval} style={{ marginTop: 4, opacity: form.requires_approval ? 1 : 0.5, fontFamily: 'var(--font-mono, monospace)' }} />
+                    <input type="number" min="0" step="any" value={form.approval_threshold} onChange={e => setField('approval_threshold', e.target.value)} placeholder="e.g. 100000" disabled={!form.requires_approval} style={{ marginTop: 4, opacity: form.requires_approval ? 1 : 0.5, fontFamily: 'var(--font-mono, monospace)' }} />
                   </div>
                 </div>
                 <div className="field">

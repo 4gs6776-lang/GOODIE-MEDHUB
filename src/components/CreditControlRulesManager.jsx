@@ -235,7 +235,7 @@ export default function CreditControlRulesManager() {
                 <div className="dash-field-grid">
                   <div className="field">
                     <label>Outstanding Balance Threshold (₦) *</label>
-                    <input type="number" min="1" step="100" value={form.outstanding_balance_threshold} onChange={e => setField('outstanding_balance_threshold', e.target.value)} required style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }} />
+                    <input type="number" min="0" step="any" value={form.outstanding_balance_threshold} onChange={e => setField('outstanding_balance_threshold', e.target.value)} required style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }} />
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Block when balance ≥ this amount</div>
                   </div>
                   <div className="field">
