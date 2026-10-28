@@ -4,20 +4,25 @@
 // The lab workflow is built AROUND the existing lab_orders / lab_tests
 // rows (no duplicate results store). Statuses follow the global rule:
 //
-//   Ordered → Sample Collected → Processing → Completed/Verified
+//   Ordered → Sample Collected → Processing → Awaiting Verification → Completed
 //   (or Cancelled from any active stage)
 //
 // Legacy statuses already in the database keep working:
 //   'pending' (lab-created) and 'requested' (doctor orders) both display
 //   as Ordered; 'completed' stays Completed/Verified.
+//
+// Phase 5 extension: 'awaiting_verification' — result entered but not
+// yet verified by an authorized lab user. Replaces the old behavior
+// where verified_by was set to whoever typed the result.
 // =====================================================================
 
-export const LAB_STAGES = ['ordered', 'sample_collected', 'processing', 'completed', 'cancelled']
+export const LAB_STAGES = ['ordered', 'sample_collected', 'processing', 'awaiting_verification', 'completed', 'cancelled']
 
 export const LAB_STAGE_LABEL = {
   ordered: 'Ordered',
   sample_collected: 'Sample Collected',
   processing: 'Processing',
+  awaiting_verification: 'Awaiting Verification',
   completed: 'Completed',
   cancelled: 'Cancelled',
 }
@@ -35,6 +40,9 @@ export function labStage(status) {
       return 'sample_collected'
     case 'processing':
       return 'processing'
+    case 'awaiting_verification':
+    case 'awaiting_verification':
+      return 'awaiting_verification'
     case 'completed':
     case 'verified':
       return 'completed'
@@ -52,21 +60,20 @@ export function labStage(status) {
 // are only introduced when the user advances the pipeline.
 export function stageStatus(stage, origin) {
   if (stage === 'ordered') return origin === 'doctor' ? 'requested' : 'pending'
-  return stage // sample_collected | processing | completed | cancelled
+  return stage // sample_collected | processing | awaiting_verification | completed | cancelled
 }
 
 export const ABNORMAL_FLAGS = ['normal', 'high', 'low', 'critical']
 
-// Columns introduced by migration 008 (kept in one place so the code
-// and the migration never drift apart). Writes go through useOfflineTable,
-// whose schema-gap tolerance already retries without columns the live
-// database does not have yet — so this list is documentation, plus a
-// ready-made allow-list if any code path ever needs to filter fields.
+// Columns introduced by migration 008 + migration 057
 export const EXTENDED_LAB_FIELDS = [
   'collected_at', 'collected_by',
-  'resulted_at', 'verified_by',
+  'resulted_at', 'verified_by', 'verified_at', 'resulted_by',
   'result_notes', 'result_unit', 'reference_range', 'abnormal_flag',
-  'cancelled_at', 'cancel_reason',
+  'cancelled_at', 'cancel_reason', 'cancel_type',
+  'request_number', 'request_origin', 'payment_status',
+  'sample_type', 'requires_clinician_order',
+  'previous_result', 'correction_reason', 'corrected_by',
 ]
 
 // One lab row (lab_tests or lab_orders) → normalized shape shared by the
@@ -83,7 +90,7 @@ export function normalizeLabRow(row, origin) {
     status: row.status || null,
     stage,
     priority: row.priority || 'routine',
-    notes: row.notes || row.result_notes || null, // doctor's clinical note vs lab comment
+    notes: row.notes || row.result_notes || null,
     result: row.result || null,
     resultUnit: row.result_unit || null,
     referenceRange: row.reference_range || null,
@@ -93,9 +100,21 @@ export function normalizeLabRow(row, origin) {
     requestedAt: row.requested_at || row.created_at || null,
     collectedAt: row.collected_at || null,
     resultedAt: row.resulted_at || row.updated_at || null,
+    resultedBy: row.resulted_by || null,
     verifiedBy: row.verified_by || null,
+    verifiedAt: row.verified_at || null,
     requestGroup: row.request_group || null,
     patientVitalsId: row.patient_vitals_id || null,
+    // Phase 5 walk-in fields
+    requestNumber: row.request_number || null,
+    requestOrigin: row.request_origin || (origin === 'doctor' ? 'doctor' : 'walk_in'),
+    paymentStatus: row.payment_status || 'not_required',
+    sampleType: row.sample_type || null,
+    requiresClinicalOrder: !!row.requires_clinician_order,
+    previousResult: row.previous_result || null,
+    correctionReason: row.correction_reason || null,
+    correctedBy: row.corrected_by || null,
+    cancelType: row.cancel_type || null,
     raw: row,
   }
 }
