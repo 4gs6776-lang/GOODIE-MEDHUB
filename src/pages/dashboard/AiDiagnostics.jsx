@@ -471,6 +471,60 @@ export default function AiDiagnostics({
                 }}
               />
 
+              {/* ---- Per-suggestion feedback (Phase 5) ----
+                  Lets the doctor mark each differential diagnosis suggestion
+                  as helpful / not relevant / incorrect / incomplete.
+                  Stored in the hospital's ai_assessments table only — never
+                  sent back to the API vendor. */}
+              {assessment.structured_output?.differential_diagnoses?.length > 0 && canReview && (
+                <div style={{
+                  padding: 14, borderRadius: 10, marginBottom: 12,
+                  background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                    Suggestion Feedback (per item) — stored in your hospital only
+                  </div>
+                  {assessment.structured_output.differential_diagnoses.map((dx, i) => (
+                    <SuggestionFeedback
+                      key={i}
+                      index={i}
+                      diagnosis={dx.diagnosis}
+                      assessmentId={assessment.id}
+                      hospitalId={hospital.id}
+                      profile={profile}
+                      onFeedback={(label) => {
+                        writeAudit({
+                          hospitalId: hospital.id, actor: profile,
+                          action: 'ai.suggestion_feedback',
+                          entityType: 'ai_assessment', entityId: assessment.id,
+                          patientId: selectedPatientId,
+                          summary: `Suggestion feedback: "${dx.diagnosis}" marked as ${label}`,
+                          metadata: { assessment_id: assessment.id, suggestion_index: i, diagnosis: dx.diagnosis, feedback: label },
+                        })
+                        showToast(`Feedback recorded: ${label}`)
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* ---- SUGGESTION labels (Phase 5) ----
+                  Every differential diagnosis is labeled as a SUGGESTION,
+                  not a diagnosis. Facts from the chart are visually
+                  different from AI-generated comments. */}
+              {assessment.structured_output?.differential_diagnoses?.length > 0 && (
+                <div style={{
+                  padding: 10, borderRadius: 8, marginBottom: 12,
+                  background: 'rgba(232,184,46,0.06)', border: '1px solid rgba(232,184,46,0.20)',
+                  fontSize: 11.5, color: 'var(--gold)', lineHeight: 1.5,
+                }}>
+                  <strong>⚠ ADVISORY:</strong> The items below are <strong>suggestions</strong> from the AI, not diagnoses.
+                  Each must be evaluated by the treating clinician before any action is taken.
+                  Facts from the patient chart are shown in <span style={{ color: 'var(--blue)' }}>blue</span>;
+                  AI-generated comments are shown in <span style={{ color: 'var(--ivory)' }}>white</span>.
+                </div>
+              )}
+
               {/* Editable documentation draft */}
               {assessment.structured_output?.documentation_draft && (
                 <DocumentationDraft
@@ -616,4 +670,51 @@ const panelStyle = {
   display: 'flex', flexDirection: 'column',
   height: '100vh', maxHeight: '100vh',
   boxShadow: '0 0 60px rgba(0,0,0,0.4)',
+}
+
+// =====================================================================
+// SuggestionFeedback — per-suggestion feedback buttons.
+// Lets the doctor mark each differential diagnosis suggestion as:
+//   - Helpful
+//   - Not relevant
+//   - Incorrect
+//   - Incomplete
+// Stored via audit_events in the hospital's data only. Never sent to API.
+// =====================================================================
+function SuggestionFeedback({ index, diagnosis, assessmentId, hospitalId, profile, onFeedback }) {
+  const [selected, setSelected] = useState(null)
+  const options = [
+    { value: 'helpful', label: '👍 Helpful', color: 'var(--teal)' },
+    { value: 'not_relevant', label: '👎 Not relevant', color: 'var(--muted)' },
+    { value: 'incorrect', label: '✗ Incorrect', color: 'var(--danger)' },
+    { value: 'incomplete', label: '⚠ Incomplete', color: 'var(--gold)' },
+  ]
+  return (
+    <div style={{ padding: '8px 0', borderBottom: '1px solid var(--line-soft)' }}>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+        {index + 1}. {diagnosis}
+      </div>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {options.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => {
+              setSelected(opt.value)
+              onFeedback(opt.label.replace(/[^\w\s]/g, '').trim())
+            }}
+            style={{
+              padding: '4px 8px', fontSize: 10.5, borderRadius: 6,
+              border: `1px solid ${selected === opt.value ? opt.color : 'var(--line)'}`,
+              background: selected === opt.value ? `${opt.color}15` : 'transparent',
+              color: selected === opt.value ? opt.color : 'var(--muted)',
+              cursor: 'pointer', fontWeight: 600,
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
