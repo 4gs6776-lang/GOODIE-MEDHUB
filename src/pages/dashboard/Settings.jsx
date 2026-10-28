@@ -593,7 +593,7 @@ export default function Settings(){
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
             {(bankAccounts || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(a => (
               <div
                 key={a.id}
@@ -669,7 +669,7 @@ export default function Settings(){
           <form onSubmit={handleSaveFees}>
             {feeError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{feeError}</div>}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
               {FOLDER_CATEGORY_ORDER.map(category => {
                 const row = feeRecords.find(f => f.category === category)
                 const savedAmount = row ? Number(row.amount) : Number(DEFAULT_REGISTRATION_FEES[category] || 0)

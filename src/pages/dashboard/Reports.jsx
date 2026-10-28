@@ -147,7 +147,7 @@ export default function Reports(){
                 </div>
                 <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} onClick={() => window.print()}><AppIcon name="print" size={12} /> Print</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <StatCard label="Total Collected" value={formatMoney(dailyCollection.totalAmount)} color="var(--teal)" />
                 <StatCard label="Transactions" value={String(dailyCollection.totalCount)} color="var(--ivory)" />
                 <StatCard label="Cashiers Active" value={String(dailyCollection.byCashier.length)} color="var(--violet)" />
@@ -185,13 +185,13 @@ export default function Reports(){
                 </div>
                 <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} onClick={() => window.print()}><AppIcon name="print" size={12} /> Print</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <StatCard label="Total Outstanding" value={formatMoney(aging.totalOutstanding)} color="var(--danger)" />
                 <StatCard label="Outstanding Invoices" value={String(aging.totalInvoices)} color="var(--ivory)" />
                 <StatCard label="90+ Days (Bad Debt Risk)" value={formatMoney(aging.buckets['90+'].total)} color="var(--danger)" />
                 <StatCard label="90+ Days Count" value={String(aging.buckets['90+'].count)} color="var(--gold)" />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 {Object.entries(aging.buckets).map(([key, b]) => (
                   <div key={key} style={{ padding: 12, borderRadius: 8, background: key === '90+' ? 'rgba(225,104,94,0.08)' : 'var(--bg-elevated)', border: `1px solid ${key === '90+' ? 'var(--danger)' : 'var(--line-soft)'}` }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>{b.label}</div>
@@ -239,7 +239,7 @@ export default function Reports(){
                 </div>
                 <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} onClick={() => window.print()}><AppIcon name="print" size={12} /> Print</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <StatCard label="Total Revenue" value={formatMoney(revenueByDept.totalRevenue)} color="var(--teal)" />
                 <StatCard label="Total Charges" value={String(revenueByDept.totalCount)} color="var(--ivory)" />
                 <StatCard label="Departments" value={String(revenueByDept.byDepartment.length)} color="var(--violet)" />
@@ -274,7 +274,7 @@ export default function Reports(){
                 </div>
                 <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} onClick={() => window.print()}><AppIcon name="print" size={12} /> Print</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <StatCard label="Total Claimed" value={formatMoney(claimsStatus.totalClaimed)} color="var(--ivory)" />
                 <StatCard label="Total Approved" value={formatMoney(claimsStatus.totalApproved)} color="var(--teal)" />
                 <StatCard label="Total Paid" value={formatMoney(claimsStatus.totalPaid)} color="var(--mint)" />
@@ -350,7 +350,7 @@ export default function Reports(){
                 </div>
                 <button className="btn btn-ghost" style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }} onClick={() => window.print()}><AppIcon name="print" size={12} /> Print</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 <StatCard label="Revenue (collected)" value={formatMoney(pnl.revenue)} color="var(--teal)" />
                 <StatCard label="Invoiced" value={formatMoney(pnl.invoiced)} color="var(--ivory)" />
                 <StatCard label="Outstanding" value={formatMoney(pnl.outstanding)} color="var(--gold)" />
