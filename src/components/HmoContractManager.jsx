@@ -234,6 +234,8 @@ export default function HmoContractManager() {
             <div className="dash-modal-body">
               <form id="contract-form" onSubmit={handleSave}>
                 {error && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
+
+                {/* Section: Payer Identity */}
                 <div className="dash-field-grid">
                   <div className="field">
                     <label>Payer Name *</label>
@@ -246,6 +248,7 @@ export default function HmoContractManager() {
                     </select>
                   </div>
                 </div>
+
                 <div className="dash-field-grid">
                   <div className="field">
                     <label>Contract Code *</label>
@@ -256,6 +259,8 @@ export default function HmoContractManager() {
                     <input value={form.policy_prefix} onChange={e => setField('policy_prefix', e.target.value)} placeholder="e.g. REL-" />
                   </div>
                 </div>
+
+                {/* Section: Contact Details — all paired for balance */}
                 <div className="dash-field-grid">
                   <div className="field">
                     <label>Contact Name</label>
@@ -266,14 +271,19 @@ export default function HmoContractManager() {
                     <input value={form.contact_phone} onChange={e => setField('contact_phone', e.target.value)} />
                   </div>
                 </div>
-                <div className="field">
-                  <label>Contact Email</label>
-                  <input value={form.contact_email} onChange={e => setField('contact_email', e.target.value)} />
+
+                <div className="dash-field-grid">
+                  <div className="field">
+                    <label>Contact Email</label>
+                    <input value={form.contact_email} onChange={e => setField('contact_email', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Address</label>
+                    <input value={form.address} onChange={e => setField('address', e.target.value)} />
+                  </div>
                 </div>
-                <div className="field">
-                  <label>Address</label>
-                  <input value={form.address} onChange={e => setField('address', e.target.value)} />
-                </div>
+
+                {/* Section: Billing Configuration */}
                 <div className="dash-field-grid">
                   <div className="field">
                     <label>Default Coverage %</label>
@@ -287,12 +297,17 @@ export default function HmoContractManager() {
                     </select>
                   </div>
                 </div>
-                <div className="field">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="checkbox" checked={form.requires_pre_auth} onChange={e => setField('requires_pre_auth', e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--gold)' }} />
-                    Requires Pre-Authorization (capture auth code before billing)
-                  </label>
+
+                {/* Pre-auth checkbox — wrapped in dash-field-grid for consistent spacing */}
+                <div className="dash-field-grid" style={{ gridTemplateColumns: '1fr' }}>
+                  <div className="field">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={form.requires_pre_auth} onChange={e => setField('requires_pre_auth', e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--gold)' }} />
+                      Requires Pre-Authorization (capture auth code before billing)
+                    </label>
+                  </div>
                 </div>
+
                 {form.requires_pre_auth && (
                   <div className="dash-field-grid">
                     <div className="field">
@@ -305,6 +320,8 @@ export default function HmoContractManager() {
                     </div>
                   </div>
                 )}
+
+                {/* Section: Agreement Period */}
                 <div className="dash-field-grid">
                   <div className="field">
                     <label>Effective From</label>
@@ -315,9 +332,13 @@ export default function HmoContractManager() {
                     <input type="date" value={form.effective_to} onChange={e => setField('effective_to', e.target.value)} />
                   </div>
                 </div>
-                <div className="field">
-                  <label>Notes</label>
-                  <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 12.5, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', resize: 'vertical' }} />
+
+                {/* Notes — full width, wrapped for consistent spacing */}
+                <div className="dash-field-grid" style={{ gridTemplateColumns: '1fr' }}>
+                  <div className="field">
+                    <label>Notes</label>
+                    <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 12.5, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', resize: 'vertical' }} />
+                  </div>
                 </div>
               </form>
             </div>
