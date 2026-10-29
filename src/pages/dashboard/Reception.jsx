@@ -261,7 +261,7 @@ export default function Reception() {
   // ---- Wallet hooks (patient wallet feature) ------------------------
   // Used by the inline "+ Deposit" button on the queue. Lets reception
   // record a deposit without leaving the Reception page.
-  const { records: walletRecords, addRecord: addWalletRow } = useOfflineTable('patient_wallets', hospital?.id)
+  const { records: walletRecords, addRecord: addWalletRow, updateRecord: updateWalletRow, syncFromServer: syncWallets } = useOfflineTable('patient_wallets', hospital?.id)
   const { addRecord: addWalletTxn } = useOfflineTable('patient_wallet_transactions', hospital?.id)
 
   // ---- Registration fee hooks ---------------------------------------
