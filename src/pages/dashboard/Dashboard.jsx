@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabaseClient'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
 import TrashIcon from '../../components/icons/TrashIcon'
+import ThemePicker from '../../components/ThemePicker'
 import { writeAudit } from '../../lib/audit'
 import {
   getTimezone,
@@ -1246,13 +1247,16 @@ export default function Dashboard(){
             <LiveClock hospital={hospital} />
 
             {/* 1. Theme Toggle */}
-            <button 
-              className="dash-icon-btn" 
+            <button
+              className="dash-icon-btn"
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               onClick={toggleTheme}
             >
               <AppIcon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
             </button>
+
+            {/* 1b. Accent Color Picker (Telegram-style multi-theme) */}
+            <ThemePicker />
 
             {/* 2. Notifications Bell Popover */}
             <div style={{ position: 'relative' }}>
