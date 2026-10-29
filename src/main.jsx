@@ -17,20 +17,6 @@ import './theme/pagination.css'
 // unconditional .dash-modal{border-radius:14px} was overriding the phone
 // bottom-sheet radius from mobile.css.
 import './theme/mobile.css'
-// neumorph.css MUST be imported AFTER all the other theme files so its
-// layered box-shadow / background-image / ::after tone-glow rules can
-// sit on top of the existing .hd-kpi and .premium-stat definitions
-// without having to use higher specificity. Tailwind's @tailwind
-// directives are inside this same file and are emitted at the top of
-// the compiled CSS, so the Tailwind utilities are always available
-// to anything imported after this line.
-import './theme/neumorph.css'
-// themes.css MUST be imported LAST — it sets --teal per data-accent
-// attribute on <html>, overriding the default --teal from globals.css.
-// The active theme is read from localStorage('gmedhub-accent') and
-// applied below (before React mounts) so there's no flash of the
-// default teal on first paint.
-import './theme/themes.css'
 
 // Apply the saved theme immediately, before any page renders. Dark is
 // the app-wide default — light mode only turns on if the person has
@@ -41,16 +27,6 @@ import './theme/themes.css'
 try {
   const savedTheme = localStorage.getItem('gmedhub-theme')
   document.documentElement.classList.toggle('light-mode', savedTheme === 'light')
-} catch {}
-
-// Apply the saved accent theme (Telegram-style multi-theme). Defaults to
-// 'teal' if no preference is stored. Setting data-accent on <html>
-// triggers the matching rule in themes.css which re-binds --teal to the
-// chosen accent color. Every existing usage of var(--teal) follows
-// automatically — no JSX changes needed anywhere in the app.
-try {
-  const savedAccent = localStorage.getItem('gmedhub-accent') || 'teal'
-  document.documentElement.setAttribute('data-accent', savedAccent)
 } catch {}
 
 registerSW({ immediate: true })
