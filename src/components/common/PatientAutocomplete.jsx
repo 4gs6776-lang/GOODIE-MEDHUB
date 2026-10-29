@@ -30,7 +30,20 @@ export default function PatientAutocomplete({
   emptyText = 'No matching patient — check the spelling or register them first',
   ariaLabel = 'Patient',
 }) {
-  const options = useMemo(() => patients.map(p => {
+  const options = useMemo(() => patients
+    // Section 7: alphabetical A-Z is the system-wide default for patient lists.
+    // Secondary sort by patient_id (stable for identical names). Applied here
+    // so every patient selector across the app (Reception, Doctor Workbench,
+    // Billing → Create Invoice, Appointments, etc.) shows the same order.
+    .slice()
+    .sort((a, b) => {
+      const nameA = (a.full_name || '').trim().toLowerCase()
+      const nameB = (b.full_name || '').trim().toLowerCase()
+      if (nameA < nameB) return -1
+      if (nameA > nameB) return 1
+      return (a.id || '').localeCompare(b.id || '')
+    })
+    .map(p => {
     const mrn = p.patient_id || p.hospital_number || ''
     const phone = p.phone || ''
     const sublabel = [mrn && `MRN ${mrn}`, phone].filter(Boolean).join(' · ')
