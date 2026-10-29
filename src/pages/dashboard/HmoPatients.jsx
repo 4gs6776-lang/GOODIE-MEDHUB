@@ -34,9 +34,19 @@ export default function HmoPatients() {
   const [search, setSearch] = useState('')
   const [profilePatientId, setProfilePatientId] = useState(null)
 
-  // ---- Filter to HMO patients only ------------------------------------
+  // ---- Filter to HMO patients only + alphabetical sort by name ----------
+  // Section 7: alphabetical A-Z is the system-wide default for patient lists.
+  // Secondary sort by patient_id (stable for identical names).
   const hmoPatients = useMemo(() => {
-    return patients.filter(p => p.category === 'hmo')
+    return patients
+      .filter(p => p.category === 'hmo')
+      .sort((a, b) => {
+        const nameA = (a.full_name || '').trim().toLowerCase()
+        const nameB = (b.full_name || '').trim().toLowerCase()
+        if (nameA < nameB) return -1
+        if (nameA > nameB) return 1
+        return (a.id || '').localeCompare(b.id || '')
+      })
   }, [patients])
 
   // ---- Summary card stats --------------------------------------------

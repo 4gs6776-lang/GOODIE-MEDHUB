@@ -1824,20 +1824,43 @@ export default function Reception() {
                     <div className="field">
 
                       <label>
-                        Last Menstrual Period (LMP)
+                        Last Menstrual Period (LMP) <span style={{ color: 'var(--danger)' }}>*</span>
                       </label>
 
                       <input
                         type="date"
-                        value={
-                          form.ancLmp
-                        }
+                        value={form.ancLmp}
                         onChange={event =>
-                          handleLmpChange(
-                            event.target.value
+                          handleLmpChange(event.target.value)
+                        }
+                        max={new Date().toISOString().slice(0, 10)}
+                        required={form.category === 'anc'}
+                        style={!form.ancLmp && form.category === 'anc' ? { borderColor: 'var(--danger)' } : {}}
+                      />
+
+                      {/* Future LMP validation — Section 4 spec: "Do not silently accept a future LMP without warning and confirmation." */}
+                      {form.ancLmp && (() => {
+                        const lmpDate = new Date(form.ancLmp + 'T12:00:00')
+                        const today = new Date()
+                        today.setHours(0, 0, 0, 0)
+                        if (lmpDate > today) {
+                          return (
+                            <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 4, padding: '4px 8px', background: 'var(--danger-soft)', borderRadius: 6 }}>
+                              ⚠ LMP is in the future. Please verify the date.
+                            </div>
                           )
                         }
-                      />
+                        // Pregnancy > 42 weeks = implausible
+                        const weeksPregnant = Math.floor((today - lmpDate) / (7 * 24 * 60 * 60 * 1000))
+                        if (weeksPregnant > 42) {
+                          return (
+                            <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 4, padding: '4px 8px', background: 'var(--warning-soft)', borderRadius: 6 }}>
+                              ⚠ LMP suggests {weeksPregnant} weeks pregnant — beyond typical 42-week gestation. Please verify.
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
 
                     </div>
 

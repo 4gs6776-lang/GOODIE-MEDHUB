@@ -33,9 +33,19 @@ export default function AncPatients() {
   const [search, setSearch] = useState('')
   const [profilePatientId, setProfilePatientId] = useState(null)
 
-  // ---- Filter to ANC patients only ------------------------------------
+  // ---- Filter to ANC patients only + alphabetical sort by name ----------
+  // Section 7: alphabetical A-Z is the system-wide default for patient lists.
+  // Secondary sort by patient_id (stable for identical names).
   const ancPatients = useMemo(() => {
-    return patients.filter(p => p.category === 'anc')
+    return patients
+      .filter(p => p.category === 'anc')
+      .sort((a, b) => {
+        const nameA = (a.full_name || '').trim().toLowerCase()
+        const nameB = (b.full_name || '').trim().toLowerCase()
+        if (nameA < nameB) return -1
+        if (nameA > nameB) return 1
+        return (a.id || '').localeCompare(b.id || '')
+      })
   }, [patients])
 
   // ---- Compute gestational age + trimester for each ANC patient -------

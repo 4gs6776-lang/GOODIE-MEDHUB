@@ -13,6 +13,8 @@ import { escapeHtml } from '../../lib/escapeHtml'
 import { labStage, normalizeLabRow, LAB_STAGE_LABEL } from '../../lib/lab'
 import { SYMPTOM_OPTIONS, DIAGNOSIS_OPTIONS, FREQUENCY_OPTIONS, ROUTE_OPTIONS, DEFAULT_TEMPLATES } from '../../lib/clinicalData'
 import AdmissionRequestModal from '../../components/AdmissionRequestModal'
+import LabTestPicker from '../../components/LabTestPicker'
+import { useBillingCatalog, formatMoney } from '../../lib/billingService'
 import AiDiagnostics from './AiDiagnostics'
 
 // NEW: Global Medication Reference List (allows searching even if hospital has 0 stock)
@@ -83,6 +85,13 @@ export default function DoctorWorkbench() {
   const [labPriority, setLabPriority] = useState('routine')
   const [labNotes, setLabNotes] = useState('')
   const [savingLabOrder, setSavingLabOrder] = useState(false)
+  // ---- LabTestPicker modal state (Section 2 upgrade) ----
+  // Replaces the hardcoded LAB_TEST_CATEGORIES checkbox grid with a
+  // catalog-driven multi-select modal. Resolves prices + HMO split per
+  // test using the same useBillingCatalog hook as the cashier.
+  const [showLabPicker, setShowLabPicker] = useState(false)
+  const [pendingLabSelection, setPendingLabSelection] = useState([])
+  const { catalog, priceLists, priceListItems, contracts } = useBillingCatalog()
 
   const [medications, setMedications] = useState([])
   const [medBuilder, setMedBuilder] = useState(EMPTY_MED)
@@ -246,6 +255,31 @@ export default function DoctorWorkbench() {
     return parts.join(' · ')
   }
 
+  // ---- ANC info for the active patient (Section 4 enhancement) ----
+  // If the patient is an ANC registrant, compute gestational age +
+  // trimester + days-to-EDD from their stored anc_lmp / anc_edd so the
+  // doctor sees the obstetric context at the top of the workbench.
+  // Returns null for non-ANC patients.
+  function ancInfo(p) {
+    if (!p || p.category !== 'anc' || !p.anc_lmp) return null
+    const lmp = new Date(p.anc_lmp + 'T12:00:00')
+    if (isNaN(lmp.getTime())) return null
+    const now = new Date()
+    const daysPregnant = Math.floor((now - lmp) / (24 * 60 * 60 * 1000))
+    const weeksPregnant = Math.floor(daysPregnant / 7)
+    const trimester = weeksPregnant < 13 ? 1 : weeksPregnant < 28 ? 2 : 3
+    const edd = p.anc_edd ? new Date(p.anc_edd + 'T12:00:00') : null
+    const daysToEdd = edd ? Math.floor((edd - now) / (24 * 60 * 60 * 1000)) : null
+    return {
+      lmp: p.anc_lmp,
+      edd: p.anc_edd,
+      weeksPregnant,
+      trimester,
+      daysToEdd,
+      isOverdue: daysToEdd !== null && daysToEdd < 0,
+    }
+  }
+
   // Laboratory results for the selected patient — across ALL encounters,
   // from both doctor orders (lab_orders) and lab-raised requests
   // (lab_tests). Completed results surface on top; in-progress orders
@@ -316,8 +350,17 @@ export default function DoctorWorkbench() {
 
   async function handleSendLabOrders(e) {
     e.preventDefault()
+    // ---- Build the test list from either source ----
+    // 1. pendingLabSelection: rich test objects from the new LabTestPicker
+    //    modal (each has { id, name, code, price, patientAmount, hmoAmount,
+    //    sample_type, requires_pre_auth, contractId, ... })
+    // 2. selectedLabTests: legacy bare test-name strings (kept for
+    //    backward compat — the old checkbox grid is gone but the state
+    //    is still wired in case any external code sets it)
+    // 3. otherLabTests: comma-separated free-text extras
     const extras = otherLabTests.split(',').map(s => s.trim()).filter(Boolean)
-    const allTests = [...selectedLabTests, ...extras]
+    const catalogTests = pendingLabSelection.map(t => t.name)
+    const allTests = [...catalogTests, ...extras]
     if (!activeVitals || allTests.length === 0) return
     if (!hospital || !profile) return showToast('Still loading your account...')
     setSavingLabOrder(true)
@@ -326,10 +369,42 @@ export default function DoctorWorkbench() {
       // Laboratory can treat them as a single request even though each
       // test is still its own row (needed for individual result entry).
       const requestGroup = crypto.randomUUID()
-      for (const testName of allTests) {
+
+      // Insert each lab order row. Catalog-picked tests carry the
+      // resolved price + HMO split + sample type + pre-auth requirement
+      // so the lab and cashier can see the expected cost without
+      // re-resolving. Free-text extras (otherLabTests) only carry the
+      // test name — the lab can price them at result-entry time.
+      for (let i = 0; i < catalogTests.length; i++) {
+        const testName = catalogTests[i]
+        const t = pendingLabSelection[i]
         await addLabOrder({
           patient_vitals_id: activeVitals.id,
-          patient_id: activeVitals.patient_id,
+          patient_id: activePatient?.id || activeVitals.patient_id,
+          patient_name: activePatient?.full_name || 'Unknown',
+          test_name: testName,
+          test_code: t?.code || null,
+          sample_type: t?.sample_type || null,
+          notes: labNotes || null,
+          priority: labPriority,
+          request_group: requestGroup,
+          status: 'requested',
+          requested_at: new Date().toISOString(),
+          created_by: profile.id,
+          // NEW: capture the resolved price + HMO split so the lab and
+          // cashier can see the expected cost without re-resolving.
+          estimated_price: t?.price || null,
+          hmo_amount: t?.hmoAmount || 0,
+          patient_amount: t?.patientAmount || t?.price || 0,
+          hmo_contract_id: t?.contractId || null,
+          requires_pre_auth: t?.requiresPreAuth || false,
+        })
+      }
+      // Free-text extras — no catalog entry, no price resolution
+      for (const testName of extras) {
+        await addLabOrder({
+          patient_vitals_id: activeVitals.id,
+          patient_id: activePatient?.id || activeVitals.patient_id,
           patient_name: activePatient?.full_name || 'Unknown',
           test_name: testName,
           notes: labNotes || null,
@@ -342,13 +417,33 @@ export default function DoctorWorkbench() {
       }
       writeAudit({
         hospitalId: hospital.id, actor: profile, action: 'lab_order.sent',
-        entityType: 'lab_order', entityId: requestGroup, patientId: activeVitals.patient_id,
+        entityType: 'lab_order', entityId: requestGroup, patientId: activePatient?.id || activeVitals.patient_id,
         summary: `${allTests.length} lab test(s) ordered for ${activePatient?.full_name || 'patient'} (${labPriority})`,
         metadata: { tests: allTests, priority: labPriority, request_group: requestGroup },
       })
-      setSelectedLabTests([]); setOtherLabTests(''); setLabPriority('routine'); setLabNotes('')
+      // Clear state — picker selection + free-text extras + notes
+      setPendingLabSelection([])
+      setSelectedLabTests([])
+      setOtherLabTests('')
+      setLabPriority('routine')
+      setLabNotes('')
+      setShowLabPicker(false)
       showToast(`${allTests.length} lab test${allTests.length === 1 ? '' : 's'} sent to laboratory`)
     } catch (err) { showToast(err.message) } finally { setSavingLabOrder(false) }
+  }
+
+  // Called by LabTestPicker when the doctor clicks "Confirm"
+  function handleConfirmLabTests({ tests, priority, clinicalNotes }) {
+    setPendingLabSelection(tests)
+    setLabPriority(priority)
+    setLabNotes(clinicalNotes)
+    setShowLabPicker(false)
+    // Auto-scroll the lab panel into view so the doctor sees the selection
+    // and can click "Send Lab Order" to commit.
+    setTimeout(() => {
+      const labPanel = document.querySelector('[data-lab-panel]')
+      if (labPanel) labPanel.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
   }
 
   function handleAddOrUpdateMedToDraft() {
@@ -465,13 +560,36 @@ export default function DoctorWorkbench() {
         allergy_history: allergyHistory || null, family_social_history: familySocialHistory || null, examination_findings: examinationFindings || null,
         observations: examinationFindings || null, clinical_notes: clinicalNotes || null, treatment_plan: treatmentPlan || null,
         follow_up_notes: followUpNotes || null, symptoms, diagnoses, diagnosis: diagnosisSummary || null,
-        completed_at: new Date().toISOString(), completed_by: profile?.id || null
+        completed_at: new Date().toISOString(), completed_by: profile?.id || null,
+        // completed_by_name — surfaced on the patient's History tab so the
+        // attending doctor is visible without a separate profiles lookup.
+        completed_by_name: profile?.full_name || null,
       })
       if (activePatient) {
         const hasLabOrders = activePatientLabOrders.length > 0
         const hasPrescriptions = medications.length > 0
         await updatePatient(activePatient.id, { queue_status: (hasLabOrders || hasPrescriptions) ? 'in_lab' : 'discharged', queue_updated_at: new Date().toISOString() })
       }
+      // Audit trail — previously absent, so the consultation-complete action
+      // was invisible in the audit log. Now logs every consultation with
+      // the diagnosis summary + encounter ID so it can be traced.
+      writeAudit({
+        hospitalId: hospital?.id, actor: profile,
+        action: 'consultation.completed',
+        entityType: 'patient_vitals', entityId: activeVitals.id,
+        patientId: activePatient?.id || null,
+        summary: `Completed consultation for ${activePatient?.full_name || 'patient'}${diagnosisSummary ? ` — ${diagnosisSummary}` : ''}`,
+        metadata: {
+          patient_id: activePatient?.id,
+          patient_vitals_id: activeVitals.id,
+          chief_complaint: chiefComplaints || null,
+          diagnosis: diagnosisSummary || null,
+          has_prescriptions: medications.length > 0,
+          has_lab_orders: activePatientLabOrders.length > 0,
+          prescription_count: medications.length,
+          lab_order_count: activePatientLabOrders.length,
+        },
+      })
       showToast('Consultation completed'); clearWorkbench()
     } catch (err) { showToast(err.message) } finally { setCompleting(false) }
   }
@@ -499,6 +617,38 @@ export default function DoctorWorkbench() {
 
       {activeVitals && (
         <>
+          {/* ---- ANC banner (Section 4 enhancement) ----
+              When the active patient is an ANC registrant, surface their
+              obstetric context (LMP, EDD, gestational age, trimester,
+              days-to-EDD) above the consultation form so the doctor has
+              the pregnancy context immediately visible. */}
+          {activePatient && ancInfo(activePatient) && (
+            <div style={{
+              marginTop: 16, padding: '12px 16px', borderRadius: 10,
+              background: 'rgba(232,184,46,0.06)', border: '1px solid rgba(232,184,46,0.25)',
+              display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', fontSize: 12.5,
+            }}>
+              <div style={{ fontWeight: 700, color: 'var(--gold)', letterSpacing: '.02em' }}>
+                🤰 ANC Patient
+              </div>
+              <div><span style={{ color: 'var(--muted)' }}>LMP:</span> <strong style={{ color: 'var(--ivory)' }}>{ancInfo(activePatient).lmp}</strong></div>
+              <div><span style={{ color: 'var(--muted)' }}>EDD:</span> <strong style={{ color: 'var(--ivory)' }}>{ancInfo(activePatient).edd || '—'}</strong></div>
+              <div><span style={{ color: 'var(--muted)' }}>Gest age:</span> <strong style={{ color: 'var(--ivory)' }}>{ancInfo(activePatient).weeksPregnant}w</strong></div>
+              <div><span style={{ color: 'var(--muted)' }}>Trimester:</span> <strong style={{ color: 'var(--ivory)' }}>{ancInfo(activePatient).trimester}</strong></div>
+              {ancInfo(activePatient).daysToEdd !== null && (
+                <div style={{
+                  padding: '3px 10px', borderRadius: 8, fontWeight: 700,
+                  background: ancInfo(activePatient).isOverdue ? 'var(--danger-soft)' : ancInfo(activePatient).daysToEdd <= 14 ? 'var(--warning-soft)' : 'rgba(0,199,199,0.10)',
+                  color: ancInfo(activePatient).isOverdue ? 'var(--danger)' : ancInfo(activePatient).daysToEdd <= 14 ? 'var(--warning)' : 'var(--teal)',
+                }}>
+                  {ancInfo(activePatient).isOverdue
+                    ? `${Math.abs(ancInfo(activePatient).daysToEdd)} day${Math.abs(ancInfo(activePatient).daysToEdd) === 1 ? '' : 's'} overdue`
+                    : `${ancInfo(activePatient).daysToEdd} day${ancInfo(activePatient).daysToEdd === 1 ? '' : 's'} to EDD`}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="dash-panel" style={{ marginTop: 20 }}>
             <div className="dash-panel-head"><div><div className="dash-panel-title">History & Clinical Notes</div><div className="dash-panel-sub">Consultation record</div></div></div>
             <div className="field"><label>Chief Complaint</label><textarea rows={2} value={chiefComplaints} onChange={e => setChiefComplaints(e.target.value)} placeholder="e.g. Fever and headache for 3 days" /></div>
@@ -519,28 +669,70 @@ export default function DoctorWorkbench() {
           </div>
 
           <div className="dash-row dash-row-2" style={{ marginTop: 20 }}>
-            <div className="dash-panel">
-              <div className="dash-panel-head"><div><div className="dash-panel-title">Lab Orders</div><div className="dash-panel-sub">Select all tests needed — sent as one request</div></div></div>
-              <form onSubmit={handleSendLabOrders}>
-                <div className="field">
-                  <label>Test(s) Requested</label>
-                  <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 10, background: 'var(--bg-elevated)' }}>
-                    {LAB_TEST_CATEGORIES.map(cat => (
-                      <div key={cat.category} style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>{cat.category}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px' }}>
-                          {cat.tests.map(testItem => (
-                            <label key={testItem} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: 'var(--ivory)' }}>
-                              <input type="checkbox" checked={selectedLabTests.includes(testItem)} onChange={() => toggleLabTest(testItem)} />
-                              {testItem}
-                            </label>
-                          ))}
+            <div className="dash-panel" data-lab-panel>
+              <div className="dash-panel-head">
+                <div>
+                  <div className="dash-panel-title">Lab Orders</div>
+                  <div className="dash-panel-sub">Select tests from the catalog — sent as one request</div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: 'auto', padding: '7px 14px', fontSize: 12 }}
+                  onClick={() => setShowLabPicker(true)}
+                  disabled={!activeVitals}
+                  title="Open the lab test catalog picker"
+                >
+                  <AppIcon name="plus" size={14} /> Select Laboratory Tests
+                </button>
+              </div>
+
+              {/* ---- Pending selection review (from LabTestPicker) ---- */}
+              {pendingLabSelection.length > 0 ? (
+                <div style={{ padding: 12, borderRadius: 10, background: 'rgba(0,199,199,0.06)', border: '1px solid var(--teal-border)', marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                    {pendingLabSelection.length} test{pendingLabSelection.length === 1 ? '' : 's'} selected
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {pendingLabSelection.map(t => (
+                      <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '4px 0' }}>
+                        <div>
+                          <span style={{ fontWeight: 600, color: 'var(--ivory)' }}>{t.name}</span>
+                          {t.code && <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--muted)' }}>{t.code}</span>}
+                          {t.sample_type && <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--gold)' }}>· {t.sample_type}</span>}
+                          {t.requiresPreAuth && <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--violet)', fontWeight: 600 }}>· pre-auth</span>}
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal)', fontWeight: 700 }}>
+                          {formatMoney(t.patientAmount)}
+                          {t.hmoAmount > 0 && <span style={{ color: 'var(--muted)', fontWeight: 500, marginLeft: 6 }}>+ HMO {formatMoney(t.hmoAmount)}</span>}
                         </div>
                       </div>
                     ))}
                   </div>
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--line-soft)', display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700 }}>
+                    <span style={{ color: 'var(--muted)' }}>Patient total</span>
+                    <span style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+                      {formatMoney(pendingLabSelection.reduce((s, t) => s + Number(t.patientAmount || 0), 0))}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ width: 'auto', padding: '5px 10px', fontSize: 11, marginTop: 8 }}
+                    onClick={() => setShowLabPicker(true)}
+                  >
+                    Edit selection
+                  </button>
                 </div>
-                <div className="field"><label>Other Tests</label><input value={otherLabTests} onChange={e => setOtherLabTests(e.target.value)} placeholder="Comma-separated, e.g. Special Stain" /></div>
+              ) : (
+                <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px dashed var(--line)', fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+                  No tests selected yet. Click <strong style={{ color: 'var(--teal)' }}>Select Laboratory Tests</strong> above to open the catalog picker.
+                </div>
+              )}
+
+              <form onSubmit={handleSendLabOrders}>
+                {/* Free-text extras (kept for non-catalog tests) */}
+                <div className="field"><label>Other Tests (not in catalog)</label><input value={otherLabTests} onChange={e => setOtherLabTests(e.target.value)} placeholder="Comma-separated, e.g. Special Stain" /></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div className="field">
                     <label>Priority</label>
@@ -554,10 +746,10 @@ export default function DoctorWorkbench() {
                 </div>
                 {(() => {
                   const extraCount = otherLabTests.split(',').map(s => s.trim()).filter(Boolean).length
-                  const total = selectedLabTests.length + extraCount
-                  return total > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>{total} test{total === 1 ? '' : 's'} selected</div>
+                  const total = pendingLabSelection.length + extraCount
+                  return total > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>{total} test{total === 1 ? '' : 's'} ready to send</div>
                 })()}
-                <button type="submit" className="btn btn-primary" disabled={savingLabOrder || (selectedLabTests.length === 0 && !otherLabTests.trim())}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
+                <button type="submit" className="btn btn-primary" disabled={savingLabOrder || (pendingLabSelection.length === 0 && !otherLabTests.trim())}>{savingLabOrder ? 'Sending…' : 'Send Lab Order'}</button>
               </form>
               {activePatientLabOrders.length > 0 && <ul className="dash-legend" style={{ marginTop: 16 }}>{activePatientLabOrders.map(o => { const stage = labStage(o.status); return <li key={o.id}><span className="dash-legend-name"><span className="dash-legend-dot" style={{ background: o.priority === 'stat' ? 'var(--danger)' : o.priority === 'urgent' ? 'var(--gold)' : 'var(--teal)' }} />{o.test_name}</span><span className="dash-legend-val" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span className={`lab-stage is-${stage}`}>{LAB_STAGE_LABEL[stage]}</span>{stage === 'completed' && <button type="button" className="btn btn-ghost" style={{ width: 'auto', padding: '3px 9px', fontSize: 11 }} onClick={() => openLabViewer(normalizeLabRow(o, 'doctor'))} aria-label={`View completed result for ${o.test_name}`}>View Result</button>}</span></li> })}</ul>}
             </div>
@@ -754,6 +946,22 @@ export default function DoctorWorkbench() {
         />
       )}
       {showAdmissionModal && activePatient && <AdmissionRequestModal patient={activePatient} consultationId={activeVitals?.id} prefillDiagnosis={diagnoses.map(d => d.label).join(', ')} onSubmit={handleSubmitAdmissionRequest} onClose={() => setShowAdmissionModal(false)} />}
+
+      {/* ---- LabTestPicker modal (Section 2 upgrade) ----
+          Catalog-driven multi-select for lab tests. Replaces the old
+          hardcoded LAB_TEST_CATEGORIES checkbox grid. */}
+      {showLabPicker && (
+        <LabTestPicker
+          catalog={catalog}
+          priceLists={priceLists}
+          priceListItems={priceListItems}
+          contracts={contracts}
+          patient={activePatient}
+          initialSelected={pendingLabSelection.map(t => t.id)}
+          onConfirm={handleConfirmLabTests}
+          onClose={() => setShowLabPicker(false)}
+        />
+      )}
 
       {showAiDiagnostics && (
         <AiDiagnostics

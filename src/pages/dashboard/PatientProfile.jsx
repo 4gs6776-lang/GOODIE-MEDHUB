@@ -346,17 +346,58 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
 
 function HistoryTab({ history }){
   if (history.length === 0) return <div style={{ color: 'var(--muted)', fontSize: 13 }}>No past consultations recorded.</div>
+
+  // Reuse the same field renderer pattern as the PatientProfile component's
+  // ConsultationDetails so both surfaces show the same fields.
+  const field = (label, value, opts = {}) => {
+    if (!value || (Array.isArray(value) && value.length === 0)) return null
+    return (
+      <div style={{ fontSize: 13, marginBottom: 4, ...opts.style }}>
+        <strong style={{ color: 'var(--teal)' }}>{label}:</strong>{' '}
+        <span style={{ whiteSpace: 'pre-wrap' }}>{value}</span>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {history.map(v => (
-        <div key={v.id} style={{ padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>{new Date(v.completed_at || v.created_at).toLocaleString()}</div>
-          {v.chief_complaints && <div style={{ fontSize: 13, marginBottom: 4 }}><strong>Chief Complaint:</strong> {v.chief_complaints}</div>}
-          {v.diagnoses?.length > 0 && <div style={{ fontSize: 13, marginBottom: 4 }}><strong>Diagnosis:</strong> {v.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')}</div>}
-          {v.treatment_plan && <div style={{ fontSize: 13, marginBottom: 4 }}><strong>Treatment Plan:</strong> {v.treatment_plan}</div>}
-          {v.follow_up_notes && <div style={{ fontSize: 13 }}><strong>Follow-up:</strong> {v.follow_up_notes}</div>}
-        </div>
-      ))}
+      {history.map(v => {
+        const diagnosesText = v.diagnoses?.length > 0
+          ? v.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')
+          : (v.diagnosis ? v.diagnosis : null)
+        const symptomsText = v.symptoms?.length > 0
+          ? v.symptoms.map(s => s.code ? `${s.label} (${s.code})` : s.label).join(', ')
+          : null
+        return (
+          <div key={v.id} style={{ padding: 14, borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)' }}>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span>{new Date(v.completed_at || v.created_at).toLocaleString()}</span>
+              {v.completed_by_name && <span style={{ fontSize: 10.5 }}>by {v.completed_by_name}</span>}
+            </div>
+            {field('Chief Complaint', v.chief_complaints)}
+            {field('History of Presenting Illness', v.history_presenting_complaint)}
+            {field('Past Medical History', v.past_medical_history)}
+            {field('Past Surgical History', v.past_surgical_history)}
+            {field('Drug History', v.drug_history)}
+            {field('Allergy History', v.allergy_history, { style: { color: 'var(--danger)' } })}
+            {field('Family / Social History', v.family_social_history)}
+            {field('Examination Findings', v.examination_findings)}
+            {field('Clinical Notes', v.clinical_notes)}
+            {field('Diagnosis', diagnosesText)}
+            {field('Symptoms', symptomsText)}
+            {field('Treatment Plan', v.treatment_plan)}
+            {field('Follow-up', v.follow_up_notes)}
+            {v.blood_pressure && (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
+                <strong style={{ color: 'var(--teal)' }}>Vitals:</strong>{' '}
+                BP {v.blood_pressure} · Pulse {v.pulse_rate || '—'} · Temp {v.temperature || '—'}°C
+                {v.spo2 ? ` · SpO₂ ${v.spo2}%` : ''}
+                {v.weight ? ` · Wt ${v.weight}kg` : ''}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
