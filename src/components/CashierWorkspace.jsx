@@ -5,7 +5,7 @@ import InvoiceViewer from './InvoiceViewer'
 import CatalogPicker from './CatalogPicker'
 import AppIcon from './icons'
 import { writeAudit } from '../lib/audit'
-import { useBillingCatalog, formatMoney, nextDocumentNumber } from '../lib/billingService'
+import { useBillingCatalog, formatMoney, nextDocumentNumber, findContractForPatient } from '../lib/billingService'
 
 const METHODS = ['Cash', 'POS', 'Bank Transfer', 'Card', 'HMO', 'Insurance', 'Other']
 
@@ -13,8 +13,14 @@ export default function CashierWorkspace({ patientId, patientName, hospital, pro
   const { records: charges, addRecord: addCharge, updateRecord: updateCharge } = useOfflineTable('billable_charges', hospital?.id)
   const { addRecord: addInvoice } = useOfflineTable('invoices', hospital?.id)
   const { addRecord: addInvoiceItem } = useOfflineTable('invoice_items', hospital?.id)
-const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
+  const { records: patients, updateRecord: updatePatient } = useOfflineTable('patients', hospital?.id)
   const { addRecord: addInsuranceClaim } = useOfflineTable('insurance_claims', hospital?.id)
+  // ---- Payments register hook (FIX for the "payment saved but list empty" bug) ----
+  // Previously handleGenerateInvoice only updated invoices.amount_paid and never
+  // inserted a row into the payments table. As a result the Payments tab
+  // (which reads from `payments`) showed 0 records even though the invoice
+  // showed as paid. This hook is now used in the save handler below.
+  const { addRecord: addPayment } = useOfflineTable('payments', hospital?.id)
   const { records: wallets, addRecord: addWallet, updateRecord: updateWallet, syncFromServer: syncWallets } = useOfflineTable('patient_wallets', hospital?.id)
   const { addRecord: addWalletTxn, syncFromServer: syncWalletTxns } = useOfflineTable('patient_wallet_transactions', hospital?.id)
 
@@ -228,6 +234,30 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
         await updateCharge(charge.id, { status: 'invoiced' })
       }
 
+      // ---- FIX: insert a `payments` row for the cashier-collected portion ----
+      // Without this, the Payments tab shows 0 records even though the invoice
+      // shows as paid (because the KPI on top reads invoices.amount_paid, but
+      // the Payments tab reads the `payments` table).
+      //
+      // Only the cashier-collected portion (pAmt) goes into `payments`.
+      // The wallet-deducted portion is recorded separately in
+      // patient_wallet_transactions (the existing code below) — that's the
+      // correct split: wallet transactions belong to the wallet ledger, cash
+      // / POS / transfer belong to the payments register. Mixing them would
+      // double-count in the wallet ledger.
+      if (pAmt > 0) {
+        await addPayment({
+          hospital_id: hospital.id,
+          invoice_id: newInv.id,
+          patient_id: patientId,
+          patient_name: patientName,
+          amount: pAmt,
+          method: paymentMethod,
+          received_by: profile?.id || null,
+          reference_number: receiptNumber || `REF-${Date.now().toString().slice(-6)}`,
+        })
+      }
+
       if (walletDeduction > 0 && liveWallet) {
         const newWalletBalance = Math.max(0, liveBalance - walletDeduction)
         await addWalletTxn({
@@ -266,6 +296,11 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
 
       if (hasHmo && hmoAmount > 0) {
         const claimNumber = await nextDocumentNumber(hospital.id, 'claim', new Date().getFullYear())
+        // Section 3 enhancement: resolve the proper hmo_contract_id (was null
+        // before — the system only matched by payer_name loose text). Now
+        // we use findContractForPatient() to find the active contract for
+        // the patient's hmo_provider text, then store the FK on the claim.
+        const matchedContract = findContractForPatient(contracts, patientRecord)
         await addInsuranceClaim({
           hospital_id: hospital.id,
           patient_id: patientId,
@@ -281,6 +316,10 @@ const { records: patients, updateRecord: updatePatient } = useOfflineTable('pati
           authorization_code: patientRecord?.hmo_authorization_code || null,
           authorization_date: patientRecord?.hmo_authorization_date || null,
           attending_physician: null,
+          // NEW: link the claim to the proper hmo_contracts row so the
+          // Insurance module can group claims by contract + show recovery
+          // rate per provider accurately.
+          hmo_contract_id: matchedContract?.id || patientRecord?.hmo_contract_id || null,
         })
         writeAudit({
           hospitalId: hospital?.id, actor: profile,

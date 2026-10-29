@@ -1032,16 +1032,79 @@ function HistoryTab({ history, prescriptions = [], labOrders = [], patientId, pa
 }
 
 function ConsultationDetails({ encounter, prescriptions, labOrders }) {
+  // Field renderer — only shows fields that were actually recorded.
+  // "Not recorded" is shown only for required fields like chief complaint
+  // when the encounter somehow has no value (rare; happens for legacy
+  // rows that predate the consultation form).
+  const field = (label, value, opts = {}) => {
+    if (!value || (Array.isArray(value) && value.length === 0)) return null
+    return (
+      <div style={{ marginBottom: 6, ...opts.style }}>
+        <strong style={{ color: 'var(--teal)', fontSize: 11.5, letterSpacing: '.02em' }}>{label}:</strong>{' '}
+        <span style={{ fontSize: 13, color: 'var(--ivory)', whiteSpace: 'pre-wrap' }}>{value}</span>
+      </div>
+    )
+  }
+
+  // Diagnoses array (each item is { label, code } from ClinicalAutocomplete)
+  const diagnosesText = encounter.diagnoses?.length > 0
+    ? encounter.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')
+    : (encounter.diagnosis ? encounter.diagnosis : null)
+
+  // Symptoms array (each item is { label, code })
+  const symptomsText = encounter.symptoms?.length > 0
+    ? encounter.symptoms.map(s => s.code ? `${s.label} (${s.code})` : s.label).join(', ')
+    : null
+
   return (
-    <div>
-      {encounter.chief_complaints && <div><strong>Chief Complaint:</strong> {encounter.chief_complaints}</div>}
-      {encounter.diagnoses?.length > 0 && <div><strong>Diagnoses:</strong> {encounter.diagnoses.map(d => d.code ? `${d.label} (${d.code})` : d.label).join(', ')}</div>}
-      {encounter.treatment_plan && <div><strong>Treatment Plan:</strong> {encounter.treatment_plan}</div>}
-      {encounter.follow_up_notes && <div><strong>Follow-up:</strong> {encounter.follow_up_notes}</div>}
-      {encounter.clinical_notes && <div><strong>Notes:</strong> {encounter.clinical_notes}</div>}
-      {encounter.blood_pressure && <div><strong>Vitals:</strong> BP {encounter.blood_pressure} · Pulse {encounter.pulse_rate || '—'} · Temp {encounter.temperature || '—'}°C</div>}
-      {prescriptions.length > 0 && <div style={{ marginTop: 4 }}><strong>Prescriptions:</strong> {prescriptions.map(rx => `${rx.drug_name} (${rx.dosage})`).join('; ')}</div>}
-      {labOrders.length > 0 && <div><strong>Lab Orders:</strong> {labOrders.map(lo => lo.test_name || lo.test_type).join(', ')}</div>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {field('Chief Complaint', encounter.chief_complaints)}
+      {field('History of Presenting Illness', encounter.history_presenting_complaint)}
+      {field('Past Medical History', encounter.past_medical_history)}
+      {field('Past Surgical History', encounter.past_surgical_history)}
+      {field('Drug History', encounter.drug_history)}
+      {field('Allergy History', encounter.allergy_history, { style: { color: 'var(--danger)' } })}
+      {field('Family / Social History', encounter.family_social_history)}
+      {field('Examination Findings', encounter.examination_findings)}
+      {field('Clinical Notes', encounter.clinical_notes)}
+      {field('Diagnosis', diagnosesText)}
+      {field('Symptoms', symptomsText)}
+      {field('Treatment Plan', encounter.treatment_plan)}
+      {field('Follow-up', encounter.follow_up_notes)}
+      {encounter.blood_pressure && (
+        <div style={{ marginBottom: 6 }}>
+          <strong style={{ color: 'var(--teal)', fontSize: 11.5, letterSpacing: '.02em' }}>Vitals:</strong>{' '}
+          <span style={{ fontSize: 13, color: 'var(--ivory)' }}>
+            BP {encounter.blood_pressure} · Pulse {encounter.pulse_rate || '—'} · Temp {encounter.temperature || '—'}°C
+            {encounter.spo2 ? ` · SpO₂ ${encounter.spo2}%` : ''}
+            {encounter.respiratory_rate ? ` · RR ${encounter.respiratory_rate}` : ''}
+            {encounter.weight ? ` · Wt ${encounter.weight}kg` : ''}
+            {encounter.height ? ` · Ht ${encounter.height}cm` : ''}
+          </span>
+        </div>
+      )}
+      {prescriptions.length > 0 && (
+        <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, background: 'rgba(0,199,199,0.06)', border: '1px solid var(--line-soft)' }}>
+          <strong style={{ color: 'var(--teal)', fontSize: 11.5, letterSpacing: '.02em' }}>Prescriptions:</strong>
+          <div style={{ fontSize: 12.5, color: 'var(--ivory)', marginTop: 4 }}>
+            {prescriptions.map((rx, i) => (
+              <div key={i} style={{ marginBottom: 2 }}>
+                • {rx.drug_name} — {rx.dosage}{rx.frequency ? ` · ${rx.frequency}` : ''}{rx.duration ? ` · ${rx.duration}` : ''}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {labOrders.length > 0 && (
+        <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, background: 'rgba(232,184,46,0.06)', border: '1px solid var(--line-soft)' }}>
+          <strong style={{ color: 'var(--gold)', fontSize: 11.5, letterSpacing: '.02em' }}>Lab Orders:</strong>
+          <div style={{ fontSize: 12.5, color: 'var(--ivory)', marginTop: 4 }}>
+            {labOrders.map((lo, i) => (
+              <div key={i}>• {lo.test_name || lo.test_type}{lo.priority ? ` (${lo.priority})` : ''}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
