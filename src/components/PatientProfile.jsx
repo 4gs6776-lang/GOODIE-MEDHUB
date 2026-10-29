@@ -650,7 +650,7 @@ function OverviewTab({ patient, latestConsultation, activePrescriptions, outstan
         {detailRow('Queue Status', patient.queue_status ? patient.queue_status.replace('_', ' ') : 'Not in queue')}
         {detailRow('Patient Status', patient.status === 'stable' ? 'Stable' : 'In Review')}
       </div>
-      <div className="dash-stats neu-scope" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
+      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div>
             <div className="dash-stat-label">Active Prescriptions</div>
