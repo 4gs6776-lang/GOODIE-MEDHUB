@@ -360,7 +360,7 @@ export default function Appointments({ initialSearch = '' }){
 
   return (
     <>
-      <div className="dash-stats appointments-summary neu-scope" style={{ marginBottom: 20 }}>
+      <div className="dash-stats appointments-summary" style={{ marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(139,124,246,0.14)', color: 'var(--violet)' }}>
             <AppIcon name="calendar" size={20} />

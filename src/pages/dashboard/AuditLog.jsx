@@ -76,7 +76,7 @@ export default function AuditLog(){
 
   return (
     <>
-      <div className="dash-stats neu-scope">
+      <div className="dash-stats">
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

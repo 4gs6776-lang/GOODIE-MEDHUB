@@ -108,7 +108,7 @@ export default function HmoPatients() {
   return (
     <>
       {/* ---- Summary cards ---- */}
-      <div className="dash-stats neu-scope" style={{ marginBottom: 20 }}>
+      <div className="dash-stats" style={{ marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 20, height: 20 }}>

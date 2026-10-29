@@ -176,7 +176,7 @@ export default function Radiology(){
 
   return (
     <>
-      <div className="dash-stats neu-scope" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>

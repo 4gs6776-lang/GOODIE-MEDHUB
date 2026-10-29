@@ -5,7 +5,6 @@ import { supabase } from '../../lib/supabaseClient'
 import AppIcon from '../../components/icons'
 import ConnectionState from '../../components/common/ConnectionState'
 import TrashIcon from '../../components/icons/TrashIcon'
-import ThemePicker from '../../components/ThemePicker'
 import { writeAudit } from '../../lib/audit'
 import {
   getTimezone,
@@ -1254,9 +1253,6 @@ export default function Dashboard(){
             >
               <AppIcon name={theme === 'light' ? 'sun' : 'moon'} size={18}/>
             </button>
-
-            {/* 1b. Accent Color Picker (Telegram-style multi-theme) */}
-            <ThemePicker />
 
             {/* 2. Notifications Bell Popover */}
             <div style={{ position: 'relative' }}>

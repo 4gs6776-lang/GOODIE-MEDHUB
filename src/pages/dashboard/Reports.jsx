@@ -245,31 +245,31 @@ export default function Reports(){
                   <>
                     {/* Stat cards */}
                     <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="arrowUp" size={18} /></div>
                         <div><div className="dash-stat-label">Gross Received</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(grossReceived)}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}><AppIcon name="arrowDown" size={18} /></div>
                         <div><div className="dash-stat-label">Refunds / Reversals</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(refundsPaid)}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(0,199,199,0.10)', color: 'var(--teal)' }}><AppIcon name="billing" size={18} /></div>
                         <div><div className="dash-stat-label">Net Cash Received</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(netReceived)}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}><AppIcon name="billing" size={18} /></div>
                         <div><div className="dash-stat-label">Total Expenses</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(totalExpenses)}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(232,184,46,0.14)', color: 'var(--gold)' }}><AppIcon name="billing" size={18} /></div>
                         <div><div className="dash-stat-label">Net Cash Movement</div><div className="dash-stat-value" style={{ fontSize: 16, color: netCashMovement >= 0 ? 'var(--teal)' : 'var(--danger)' }}>{formatMoney(netCashMovement)}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(118,87,232,0.14)', color: 'var(--violet)' }}><AppIcon name="clock" size={18} /></div>
                         <div><div className="dash-stat-label">Opening Balance</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(openingBalance)}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(118,87,232,0.14)', color: 'var(--violet)' }}><AppIcon name="billing" size={18} /></div>
                         <div><div className="dash-stat-label">Closing Balance</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{formatMoney(closingBalance)}</div></div>
                       </div>
@@ -347,31 +347,31 @@ export default function Reports(){
                 return (
                   <>
                     <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}><AppIcon name="reports" size={18} /></div>
                         <div><div className="dash-stat-label">Total Tests (individual)</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{totalTests}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(0,199,199,0.10)', color: 'var(--teal)' }}><AppIcon name="billing" size={18} /></div>
                         <div><div className="dash-stat-label">Total Orders</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{totalOrders}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(0,217,155,0.14)', color: 'var(--success)' }}><AppIcon name="check" size={18} /></div>
                         <div><div className="dash-stat-label">Completed / Verified</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{completed}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}><AppIcon name="clock" size={18} /></div>
                         <div><div className="dash-stat-label">Awaiting Verification</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{awaitingVerification}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'rgba(232,184,46,0.14)', color: 'var(--gold)' }}><AppIcon name="clock" size={18} /></div>
                         <div><div className="dash-stat-label">In Progress / Pending</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{processing}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}><AppIcon name="alert" size={18} /></div>
                         <div><div className="dash-stat-label">Cancelled</div><div className="dash-stat-value" style={{ fontSize: 16 }}>{cancelled}</div></div>
                       </div>
-                      <div className="dash-stat-card neu-scope">
+                      <div className="dash-stat-card">
                         <div className="dash-stat-icon" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>₦</div>
                         <div><div className="dash-stat-label">Gross Lab Charges</div><div className="dash-stat-value" style={{ fontSize: 14, fontFamily: 'var(--font-mono)' }}>{formatMoney(grossLabCharges)}</div></div>
                       </div>

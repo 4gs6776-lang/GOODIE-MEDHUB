@@ -165,7 +165,7 @@ export default function Notifications(){
         }
       `}</style>
 
-      <div className="dash-stats neu-scope" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
+      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20, gap: 12 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(225,104,94,0.14)', color: 'var(--danger)' }}>
             <AppIcon name="alert" size={20} />
