@@ -364,9 +364,17 @@ export default function Reception() {
   useRealtimeAlert('patients', hospital?.id, () => {
     syncPatients()
   })
-  useRealtimeAlert('patients', hospital?.id, () => {
+    useRealtimeAlert('patients', hospital?.id, () => {
     syncPatients()
   }, { event: 'UPDATE' })
+
+  // Wallet balance updates (trigger on server + other devices/tabs)
+  useRealtimeAlert('patient_wallets', hospital?.id, () => {
+    syncWallets()
+  }, { event: 'UPDATE' })
+  useRealtimeAlert('patient_wallets', hospital?.id, () => {
+    syncWallets()
+  })
 
   // ---- Polling safety net (every 30s) ----
   // If realtime fails (network, cold start), the poll catches up.
