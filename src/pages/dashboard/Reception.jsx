@@ -313,7 +313,7 @@ export default function Reception() {
         })
       }
       const balanceAfter = Number(wallet.balance || 0) + amount
-      await addWalletTxn({
+            await addWalletTxn({
         hospital_id: hospital.id,
         patient_id: depositTargetPatient.id,
         wallet_id: wallet.id,
@@ -326,6 +326,13 @@ export default function Reception() {
         performed_by_name: profile?.full_name || null,
         notes: depositNotes.trim() || null,
       })
+      // Keep local IndexedDB balance in sync so Billing / CashierWorkspace
+      // see the deposit immediately without a full page refresh.
+      try {
+        await updateWalletRow(wallet.id, { balance: balanceAfter })
+      } catch (e) {
+        console.warn('Local wallet balance update failed:', e)
+      }
       writeAudit({
         hospitalId: hospital.id, actor: profile,
         action: 'wallet.deposit',
