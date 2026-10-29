@@ -458,7 +458,7 @@ export default function Admissions(){
       {loading ? (
         <div className="dash-panel" style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>
       ) : (
-        <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20 }}>
+        <div className="dash-stats neu-scope" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 20 }}>
           {stats.map(s => (
             <div className="dash-stat-card" key={s.label}>
               <div>

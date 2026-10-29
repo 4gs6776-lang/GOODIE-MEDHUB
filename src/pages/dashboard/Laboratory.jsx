@@ -740,7 +740,7 @@ export default function Laboratory(){
 
   return (
     <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: 20, gap: 12 }}>
+      <div className="dash-stats neu-scope" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: 20, gap: 12 }}>
         <div className="dash-stat-card">
           <div className="dash-stat-icon" style={{ background: 'rgba(201,169,97,0.14)', color: 'var(--gold)' }}>
             <AppIcon name="clock" size={20} />

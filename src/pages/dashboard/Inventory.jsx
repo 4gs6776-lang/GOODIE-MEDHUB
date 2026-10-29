@@ -187,7 +187,7 @@ export default function Inventory() {
 
   return (
     <>
-      <div className="dash-stats" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginBottom: 20 }}>
+      <div className="dash-stats neu-scope" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginBottom: 20 }}>
         <div className="dash-stat-card" style={{ minHeight: 120, padding: 18, display: 'flex', alignItems: 'center', gap: 16 }}>
           <div className="dash-stat-icon" style={{ width: 58, height: 58, minWidth: 58, borderRadius: 14, background: 'var(--teal-soft)', color: 'var(--teal)' }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 30, height: 30 }}><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></div>
           <div><div className="dash-stat-label" style={{ fontSize: 12, marginBottom: 4 }}>Total Items</div><div className="dash-stat-value" style={{ fontSize: 28, lineHeight: 1.1, marginBottom: 4 }}>{items.length}</div></div>
