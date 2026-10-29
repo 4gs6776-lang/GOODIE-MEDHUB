@@ -70,11 +70,19 @@ html.light-mode {
 
 html { scroll-behavior: smooth; }
 body {
+  /* Body gradient uses var(--teal) so the radial glow follows the active
+     accent theme (Telegram-style multi-theme support). */
   background:
-    radial-gradient(900px 520px at 100% -10%, rgba(0,199,199,.045), transparent 58%),
+    radial-gradient(900px 520px at 100% -10%, color-mix(in srgb, var(--teal) 5%, transparent), transparent 58%),
     linear-gradient(160deg, #0D1F2C 0%, #070F14 45%, #030608 100%);
   background-attachment: fixed;
   letter-spacing: -0.005em;
+}
+html.light-mode body {
+  background:
+    radial-gradient(900px 520px at 100% -10%, color-mix(in srgb, var(--teal) 6%, transparent), transparent 58%),
+    linear-gradient(160deg, #F3F6F8 0%, #FFFFFF 50%, #F3F6F8 100%);
+  background-attachment: fixed;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -84,7 +92,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   outline-offset: 2px;
 }
 
-/* Shared surfaces */
+/* Shared surfaces
+   ------------------------------------------------------------
+   FIX: cards now use the SAME color stops as the body gradient
+   (with a subtle teal-tinted overlay) so they blend visually
+   with the page background instead of looking "stuck on".
+
+   The previous --card-grad-a/b values (#101D2A / #0A131A) were
+   a different color family from the body (#0D1F2C / #070F14),
+   which is why cards looked like a separate surface. */
 .card,
 .dash-panel,
 .dash-stat-card,
@@ -93,16 +109,36 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .owner-stat-card,
 .auth-card,
 .dash-modal {
-  background: linear-gradient(165deg, var(--card-grad-a) 0%, var(--card-grad-b) 100%);
+  /* Match the body's gradient stops + add a tiny teal tint for cohesion.
+     color-mix() composes the teal-tinted layer ON TOP of the matching
+     gradient, so cards pick up the accent theme too. */
+  background:
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--teal) 2%, #0D1F2C) 0%,
+      color-mix(in srgb, var(--teal) 1%, #070F14) 100%);
   border-color: var(--line);
   box-shadow: var(--card-shadow);
+}
+
+html.light-mode .card,
+html.light-mode .dash-panel,
+html.light-mode .dash-stat-card,
+html.light-mode .premium-stat,
+html.light-mode .owner-panel,
+html.light-mode .owner-stat-card,
+html.light-mode .auth-card,
+html.light-mode .dash-modal {
+  background:
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--teal) 3%, #FFFFFF) 0%,
+      color-mix(in srgb, var(--teal) 1%, #FBFCFE) 100%);
 }
 
 .card:hover,
 .dash-panel:hover,
 .dash-stat-card:hover,
 .owner-stat-card:hover {
-  border-color: rgba(0,199,199,.17);
+  border-color: color-mix(in srgb, var(--teal) 17%, var(--line));
   box-shadow: var(--card-shadow-hover);
 }
 
@@ -119,9 +155,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .btn-primary {
   background: var(--teal);
   color: #03201D;
-  box-shadow: 0 7px 18px -12px rgba(0,199,199,.9);
+  box-shadow: 0 7px 18px -12px color-mix(in srgb, var(--teal) 90%, transparent);
 }
-.btn-primary:hover:not(:disabled) { background: var(--teal-bright); box-shadow: 0 9px 22px -12px rgba(0,199,199,.95); }
+.btn-primary:hover:not(:disabled) { background: var(--teal-bright); box-shadow: 0 9px 22px -12px color-mix(in srgb, var(--teal) 95%, transparent); }
 .btn-ghost { background: rgba(255,255,255,.015); border-color: var(--line); color: var(--muted); }
 .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.035); border-color: var(--teal-border); color: var(--ivory); }
 

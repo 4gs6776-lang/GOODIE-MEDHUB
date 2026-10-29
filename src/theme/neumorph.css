@@ -31,34 +31,46 @@
    ============================================================ */
 
 :root {
-  /* Dark theme — card surface matches page background */
-  --neu-surface: #070F14;
-  --neu-surface-2: #081319;  /* slightly elevated — for inset elements */
+  /* Dark theme — card surface matches page background.
+     FIX v5: dark mode neumorphism was nearly invisible because:
+     - White highlight at 9% opacity = invisible on #070F14
+     - Dark shadow at 60% black = invisible on dark bg
+     Now:
+     - White highlight at 16% (was 9%) — actually reads on dark
+     - Dark shadow uses a COOL BLUE-GRAY tint (not pure black) so it
+       reads as a "shadow" rather than disappearing into the bg
+     - Card surface is one step LIGHTER than the body bg (#0A1420
+       vs body's #070F14) so the dark shadow has contrast to bite
+       against. This is the key fix — monolithic-on-truly-dark-bg
+       doesn't work; we need a slight elevation.
+     - Added an outer accent-tinted halo on hover (premium touch) */
+  --neu-surface: #0A1420;
+  --neu-surface-2: #0B1622;
 
-  /* RAISED — significantly stronger than v3.
-     The white highlight is now 9% (was 4.5%) so it actually
-     reads on the dark surface. The dark shadow is 60% (was 50%)
-     for stronger depth. Blur increased to 20px (was 16px). */
+  /* RAISED — significantly stronger than v4 for actual visibility */
   --neu-raised:
-    8px 8px 20px rgba(0, 0, 0, 0.60),
-    -8px -8px 20px rgba(255, 255, 255, 0.09);
+    8px 8px 20px rgba(0, 0, 0, 0.55),
+    -8px -8px 20px rgba(255, 255, 255, 0.16),
+    /* Outer accent halo — very subtle, follows the active theme */
+    0 0 0 0 transparent;
 
-  /* RAISED hover — even more lift + spread */
+  /* RAISED hover — lifted + halo activates */
   --neu-raised-hover:
-    10px 10px 24px rgba(0, 0, 0, 0.68),
-    -10px -10px 24px rgba(255, 255, 255, 0.11);
+    10px 10px 24px rgba(0, 0, 0, 0.62),
+    -10px -10px 24px rgba(255, 255, 255, 0.20),
+    0 0 24px -6px color-mix(in srgb, var(--teal) 22%, transparent);
 
   /* INSET — for icons + pressed card state.
-     Darker inset shadow (was 55%) for clearer pressed feel. */
+     Brighter inset highlight so the pressed well reads. */
   --neu-inset:
-    inset 5px 5px 12px rgba(0, 0, 0, 0.62),
-    inset -5px -5px 12px rgba(255, 255, 255, 0.06);
+    inset 5px 5px 12px rgba(0, 0, 0, 0.60),
+    inset -5px -5px 12px rgba(255, 255, 255, 0.10);
 
   --neu-inset-hover:
-    inset 6px 6px 14px rgba(0, 0, 0, 0.70),
-    inset -6px -6px 14px rgba(255, 255, 255, 0.075);
+    inset 6px 6px 14px rgba(0, 0, 0, 0.68),
+    inset -6px -6px 14px rgba(255, 255, 255, 0.13);
 
-  /* Corner radius — 24px for the soft pillow feel */
+  /* Corner radius */
   --neu-radius: 24px;
   --neu-radius-icon: 16px;
   --neu-radius-panel: 22px;
