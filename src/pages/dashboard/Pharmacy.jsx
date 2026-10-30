@@ -46,9 +46,12 @@ export default function Pharmacy() {
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [activeRx, setActiveRx] = useState(null) // Tracks if dispensing from a doctor's order
   const [activeReq, setActiveReq] = useState(null) // Tracks if dispensing a staff request
-  const [pharmTab, setPharmTab] = useState('queue') // 'queue' | 'inventory' | 'sales'
+  const [pharmTab, setPharmTab] = useState('queue') // 'requests' | 'queue' | 'inventory' | 'sales'
   const [showWalkInModal, setShowWalkInModal] = useState(false)
   const [salesRefreshKey, setSalesRefreshKey] = useState(0)
+  // ---- Pharmacy request dispense modal state ----
+  const [showRequestDispenseModal, setShowRequestDispenseModal] = useState(false)
+  const [dispensingRequest, setDispensingRequest] = useState(null)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -466,6 +469,7 @@ export default function Pharmacy() {
             + History button (always visible, right-aligned) ---- */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
+          { key: 'requests', label: 'Requests', badge: pharmRequests.filter(r => r.status === 'pending').length },
           { key: 'queue', label: 'Prescription Queue' },
           { key: 'walkin', label: 'Walk-in Sale' },
           { key: 'inventory', label: 'Pharmacy Inventory' },
@@ -475,16 +479,38 @@ export default function Pharmacy() {
             key={t.key}
             type="button"
             className={`btn ${pharmTab === t.key ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5 }}
+            style={{ width: 'auto', padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => { setPharmTab(t.key); if (t.key === 'walkin') setShowWalkInModal(true) }}
           >
             {t.label}
+            {t.badge > 0 && (
+              <span style={{
+                background: pharmTab === t.key ? 'rgba(255,255,255,0.2)' : 'var(--danger)',
+                color: '#fff', fontSize: 10.5, fontWeight: 700,
+                padding: '1px 7px', borderRadius: 10, minWidth: 18, textAlign: 'center',
+              }}>
+                {t.badge}
+              </span>
+            )}
           </button>
         ))}
         <div style={{ marginLeft: 'auto' }}>
           <ModuleHistoryButton moduleKey="pharmacy" />
         </div>
       </div>
+
+      {/* ---- REQUESTS TAB — free-text med requests from staff ---- */}
+      {pharmTab === 'requests' && (
+        <PharmacyRequestsTab
+          pharmRequests={pharmRequests}
+          updatePharmRequest={updatePharmRequest}
+          hospital={hospital}
+          profile={profile}
+          timezone={timezone}
+          showToast={showToast}
+          onDispense={(req) => { setDispensingRequest(req); setShowRequestDispenseModal(true) }}
+        />
+      )}
 
       {/* DOCTOR'S PRESCRIPTION QUEUE */}
       {pharmTab === 'queue' && (
@@ -704,6 +730,60 @@ export default function Pharmacy() {
           </div>
         </div>
       )}
+
+      {/* ---- Pharmacy Request Dispense modal ---- */}
+      {showRequestDispenseModal && dispensingRequest && (
+        <PharmacyRequestDispenseModal
+          request={dispensingRequest}
+          hospital={hospital}
+          profile={profile}
+          timezone={timezone}
+          onDispense={async ({ dispensedItems, dispensedNotes, chargeAmount }) => {
+            try {
+              // Create billable charge if the pharmacist entered a charge amount
+              if (chargeAmount > 0) {
+                await addBillableCharge({
+                  hospital_id: hospital.id,
+                  patient_id: dispensingRequest.patient_id,
+                  patient_name: dispensingRequest.patient_name,
+                  source_module: 'Pharmacy',
+                  source_transaction_id: `PHARMREQ-${dispensingRequest.id.slice(0, 8)}`,
+                  item_name: `Pharmacy: ${dispensedNotes || dispensingRequest.request_text.slice(0, 50)}`,
+                  category: 'Drug',
+                  quantity: 1,
+                  unit_price: chargeAmount,
+                  total: chargeAmount,
+                  status: 'pending',
+                  created_by: profile?.id,
+                })
+              }
+              await updatePharmRequest(dispensingRequest.id, {
+                status: 'dispensed',
+                dispensed_at: new Date().toISOString(),
+                dispensed_by: profile?.id || null,
+                dispensed_by_name: profile?.full_name || null,
+                dispensed_items: dispensedItems,
+                dispensed_notes: dispensedNotes || null,
+              })
+              writeAudit({
+                hospitalId: hospital.id, actor: profile,
+                action: 'pharmacy_request.dispensed',
+                entityType: 'pharmacy_request', entityId: dispensingRequest.id,
+                patientId: dispensingRequest.patient_id,
+                summary: `Dispensed pharmacy request for ${dispensingRequest.patient_name || 'patient'}${chargeAmount > 0 ? ` — charged ${formatMoney(chargeAmount)}` : ''}`,
+                metadata: { request_id: dispensingRequest.id, dispensed_items: dispensedItems, dispensed_notes: dispensedNotes, charge_amount: chargeAmount },
+              })
+              showToast(`Request dispensed for ${dispensingRequest.patient_name || 'patient'}`)
+              setShowRequestDispenseModal(false)
+              setDispensingRequest(null)
+            } catch (err) {
+              showToast(err.message || 'Could not save dispense record')
+            }
+          }}
+          onClose={() => { setShowRequestDispenseModal(false); setDispensingRequest(null) }}
+        />
+      )}
+
       {toast && <div className="dash-toast dash-toast-success">{toast}</div>}
     </>
   )
@@ -813,5 +893,271 @@ function SalesHistory({ hospital, timezone, refreshKey }) {
         )}
       </div>
     </>
+  )
+}
+
+// =====================================================================
+// PharmacyRequestsTab — shows all pharmacy_requests (pending + dispensed)
+// Staff send free-text med requests from PatientProfile → they appear here
+// as plain text with patient name, staff name, time, date, priority.
+// Pharmacist can dispense (catalog + notes) or clear after dispensing.
+// =====================================================================
+function PharmacyRequestsTab({ pharmRequests, updatePharmRequest, hospital, profile, timezone, showToast, onDispense }) {
+  const [filter, setFilter] = useState('pending')
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    let arr = (pharmRequests || []).filter(r => {
+      if (filter === 'pending') return r.status === 'pending'
+      if (filter === 'dispensed') return r.status === 'dispensed'
+      return true
+    })
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      arr = arr.filter(r =>
+        (r.request_text || '').toLowerCase().includes(q) ||
+        (r.patient_name || '').toLowerCase().includes(q) ||
+        (r.requested_by_name || '').toLowerCase().includes(q)
+      )
+    }
+    return arr.sort((a, b) => {
+      // STAT first, then urgent, then routine; within same priority, newest first
+      const pOrder = { stat: 0, urgent: 1, routine: 2 }
+      const pa = pOrder[a.priority] ?? 2
+      const pb = pOrder[b.priority] ?? 2
+      if (pa !== pb) return pa - pb
+      return new Date(b.created_at) - new Date(a.created_at)
+    })
+  }, [pharmRequests, filter, search])
+
+  const pendingCount = (pharmRequests || []).filter(r => r.status === 'pending').length
+  const dispensedCount = (pharmRequests || []).filter(r => r.status === 'dispensed').length
+
+  async function handleClear(req) {
+    if (!confirm(`Clear this request?\n\n"${req.request_text}"\n\nThis marks it as dispensed without recording dispensed items.`)) return
+    try {
+      await updatePharmRequest(req.id, {
+        status: 'dispensed',
+        dispensed_at: new Date().toISOString(),
+        dispensed_by: profile?.id || null,
+        dispensed_by_name: profile?.full_name || null,
+        dispensed_notes: 'Cleared without documentation',
+      })
+      showToast('Request cleared')
+    } catch (err) {
+      showToast(err.message || 'Could not clear request')
+    }
+  }
+
+  async function handleCancel(req) {
+    if (!confirm(`Cancel this request?\n\n"${req.request_text}"`)) return
+    try {
+      await updatePharmRequest(req.id, { status: 'cancelled' })
+      showToast('Request cancelled')
+    } catch (err) {
+      showToast(err.message || 'Could not cancel request')
+    }
+  }
+
+  const priorityColor = { routine: 'var(--teal)', urgent: 'var(--gold)', stat: 'var(--danger)' }
+  const priorityBg = { routine: 'rgba(0,199,199,0.14)', urgent: 'rgba(232,184,46,0.14)', stat: 'rgba(240,79,95,0.14)' }
+
+  return (
+    <div className="dash-panel">
+      <div className="dash-panel-head" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div className="dash-panel-title">Pharmacy Requests</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+            Free-text medication requests from staff. Each shows patient, requester, time, and priority.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: '7px 10px', fontSize: 12, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)' }}>
+            <option value="pending">Pending ({pendingCount})</option>
+            <option value="dispensed">Dispensed ({dispensedCount})</option>
+            <option value="all">All</option>
+          </select>
+          <div className="dash-search" style={{ maxWidth: 220 }}>
+            <input placeholder="Search request, patient, staff…" value={search} onChange={e => setSearch(e.target.value)} style={{ fontSize: 12 }} />
+          </div>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontSize: 13 }}>
+          {filter === 'pending' ? 'No pending pharmacy requests. When staff send a request from a patient profile, it will appear here.' : 'No requests match these filters.'}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 0' }}>
+          {filtered.map(r => (
+            <div key={r.id} style={{
+              padding: '14px 16px', borderRadius: 12,
+              background: 'var(--bg-elevated)', border: '1px solid var(--line-soft)',
+              opacity: r.status === 'dispensed' ? 0.7 : 1,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  {/* The request text — shown prominently as plain text */}
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ivory)', lineHeight: 1.5, marginBottom: 8 }}>
+                    "{r.request_text}"
+                  </div>
+                  {/* Patient + requester + time */}
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--muted)' }}>
+                    <span>👤 <strong style={{ color: 'var(--teal)' }}>{r.patient_name || '—'}</strong></span>
+                    <span>✏️ {r.requested_by_name || 'Unknown staff'}</span>
+                    <span>🕒 {formatDateTime(r.created_at, timezone)}</span>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 10, fontWeight: 700,
+                      background: priorityBg[r.priority] || priorityBg.routine,
+                      color: priorityColor[r.priority] || priorityColor.routine,
+                      textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10,
+                    }}>
+                      {r.priority || 'routine'}
+                    </span>
+                  </div>
+                  {/* Dispense documentation (if dispensed) */}
+                  {r.status === 'dispensed' && r.dispensed_notes && (
+                    <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: 'rgba(24,217,155,0.06)', border: '1px solid rgba(24,217,155,0.15)', fontSize: 12.5, color: 'var(--success)' }}>
+                      <strong>Dispensed:</strong> {r.dispensed_notes}
+                      {r.dispensed_by_name && <span style={{ color: 'var(--muted)', marginLeft: 8 }}>by {r.dispensed_by_name} · {formatDateTime(r.dispensed_at, timezone)}</span>}
+                    </div>
+                  )}
+                </div>
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  {r.status === 'pending' && (
+                    <>
+                      <button
+                        className="btn btn-primary"
+                        style={{ width: 'auto', padding: '6px 14px', fontSize: 11.5 }}
+                        onClick={() => onDispense(r)}
+                      >
+                        Dispense
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ width: 'auto', padding: '6px 10px', fontSize: 11.5, color: 'var(--success)', borderColor: 'var(--success)' }}
+                        onClick={() => handleClear(r)}
+                        title="Mark as dispensed without recording items"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ width: 'auto', padding: '6px 10px', fontSize: 11.5, color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                        onClick={() => handleCancel(r)}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                  {r.status === 'dispensed' && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 10, background: 'rgba(24,217,155,0.14)', color: 'var(--success)', textTransform: 'uppercase' }}>
+                      ✓ Dispensed
+                    </span>
+                  )}
+                  {r.status === 'cancelled' && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 10, background: 'rgba(154,170,183,0.14)', color: 'var(--muted)', textTransform: 'uppercase' }}>
+                      Cancelled
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// =====================================================================
+// PharmacyRequestDispenseModal — pharmacist documents what they dispensed
+// Shows the original request, lets pharmacist enter:
+//   - Free-text dispense notes (what was actually given)
+//   - Optional charge amount (creates a billable_charge for the patient)
+// On submit: updates the request status to 'dispensed' + saves documentation
+// =====================================================================
+function PharmacyRequestDispenseModal({ request, hospital, profile, timezone, onDispense, onClose }) {
+  const [dispensedNotes, setDispensedNotes] = useState('')
+  const [chargeAmount, setChargeAmount] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!dispensedNotes.trim()) return
+    setSaving(true)
+    try {
+      await onDispense({
+        dispensedItems: [],
+        dispensedNotes: dispensedNotes.trim(),
+        chargeAmount: Number(chargeAmount) || 0,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="dash-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="card dash-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14 }}>
+          <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Dispense & Document</div>
+          <button className="dash-icon-btn" onClick={onClose} aria-label="Close"><AppIcon name="close" size={18} /></button>
+        </div>
+        <div className="dash-modal-body">
+          {/* Original request — shown for reference */}
+          <div style={{ padding: 12, borderRadius: 10, background: 'rgba(0,199,199,0.06)', border: '1px solid var(--teal-border)', marginBottom: 16 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Original Request</div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ivory)', lineHeight: 1.5 }}>"{request.request_text}"</div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+              <span>👤 {request.patient_name || '—'}</span>
+              <span>✏️ {request.requested_by_name || '—'}</span>
+              <span>🕒 {formatDateTime(request.created_at, timezone)}</span>
+              <span style={{ color: request.priority === 'stat' ? 'var(--danger)' : request.priority === 'urgent' ? 'var(--gold)' : 'var(--teal)', fontWeight: 700 }}>
+                {request.priority?.toUpperCase()}
+              </span>
+            </div>
+          </div>
+
+          <form id="dispense-form" onSubmit={handleSubmit}>
+            <div className="field">
+              <label>What was dispensed *</label>
+              <textarea
+                rows={3}
+                value={dispensedNotes}
+                onChange={e => setDispensedNotes(e.target.value)}
+                placeholder="e.g. Gave 14 tabs metronidazole 200mg + 6 tabs paracetamol 500mg"
+                autoFocus
+                required
+                style={{ width: '100%', padding: '10px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', resize: 'vertical' }}
+              />
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                Document exactly what was given to the patient. This is the dispense record.
+              </div>
+            </div>
+            <div className="field">
+              <label>Charge amount (₦) — optional</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={chargeAmount}
+                onChange={e => setChargeAmount(e.target.value)}
+                placeholder="e.g. 2500 — leave blank if no charge"
+                style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}
+              />
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                If entered, a billable charge is created for {request.patient_name || 'the patient'} and appears in the Billing queue.
+              </div>
+            </div>
+          </form>
+        </div>
+        <div className="dash-modal-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="dispense-form" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Mark as Dispensed'}</button>
+        </div>
+      </div>
+    </div>
   )
 }
