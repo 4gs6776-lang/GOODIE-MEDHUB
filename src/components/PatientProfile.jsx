@@ -22,6 +22,9 @@ export default function PatientProfile({ patientId, onClose }){
   const { records: invoices, addRecord: addInvoice, updateRecord: updateInvoice } = useOfflineTable('invoices', hospital?.id)
   const { records: admissionRequests } = useOfflineTable('admission_requests', hospital?.id)
   const { records: drugChartEntries, addRecord: addDrugChartEntry, updateRecord: updateDrugChartEntry, deleteRecord: deleteDrugChartEntry } = useOfflineTable('patient_drug_charts', hospital?.id)
+
+  // ---- Pharmacy requests (free-text med requests to pharmacy) ----
+  const { addRecord: addPharmacyRequest } = useOfflineTable('pharmacy_requests', hospital?.id)
   
   // NEW: Fetch the stock records (Items Given)
   const { records: stockRecords } = useOfflineTable('patient_stock_records', hospital?.id)
@@ -46,11 +49,10 @@ export default function PatientProfile({ patientId, onClose }){
 
   const [tab, setTab] = useState('Overview')
   const [toast, setToast] = useState(null)
-  // Send to Pharmacy modal state
+  // Send to Pharmacy modal state — free-text request + priority
   const [showPharmModal, setShowPharmModal] = useState(false)
-  const [pharmDrug, setPharmDrug] = useState('')
-  const [pharmQty, setPharmQty] = useState('')
-  const [pharmNotes, setPharmNotes] = useState('')
+  const [pharmRequestText, setPharmRequestText] = useState('')
+  const [pharmPriority, setPharmPriority] = useState('routine')
   const [pharmSaving, setPharmSaving] = useState(false)
   const [pharmError, setPharmError] = useState('')
 
@@ -487,49 +489,46 @@ export default function PatientProfile({ patientId, onClose }){
           </div>
         )}
 
-        {/* ---- Send to Pharmacy modal ---- */}
+        {/* ---- Send to Pharmacy modal — free-text request + priority ---- */}
         {showPharmModal && patient && (
           <div className="dash-modal-backdrop" style={{ zIndex: 80 }} onClick={e => { if (e.target === e.currentTarget) setShowPharmModal(false) }}>
-            <div className="card dash-modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
-              <div className="dash-modal-title">Send to Pharmacy</div>
-              <div className="dash-modal-body">
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
-                  For <strong style={{ color: 'var(--teal)' }}>{patient.full_name}</strong>
+            <div className="card dash-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14 }}>
+                <div>
+                  <div className="dash-modal-title" style={{ paddingBottom: 0 }}>Send to Pharmacy</div>
+                  <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 700, marginTop: 2 }}>For {patient.full_name}</div>
                 </div>
+                <button className="dash-icon-btn" onClick={() => setShowPharmModal(false)} aria-label="Close"><AppIcon name="close" size={18} /></button>
+              </div>
+              <div className="dash-modal-body">
                 {pharmError && <div className="error-box" role="alert" style={{ marginBottom: 12 }}>{pharmError}</div>}
                 <form id="pharm-form" onSubmit={async (e) => {
                   e.preventDefault()
                   setPharmError('')
-                  if (!pharmDrug.trim()) { setPharmError('Drug name is required.'); return }
-                  if (!pharmQty.trim()) { setPharmError('Quantity is required.'); return }
+                  if (!pharmRequestText.trim()) { setPharmError('Please type your medication request.'); return }
                   setPharmSaving(true)
                   try {
-                    await addPrescription({
+                    await addPharmacyRequest({
+                      hospital_id: hospital.id,
                       patient_id: patient.id,
                       patient_name: patient.full_name,
-                      drug_name: pharmDrug.trim(),
-                      dosage: null,
-                      route: null,
-                      frequency: null,
-                      duration: null,
-                      quantity: pharmQty.trim(),
-                      instructions: pharmNotes.trim() || null,
-                      status: 'active',
-                      prescribed_at: new Date().toISOString(),
-                      doctor_id: profile?.id || null,
-                      created_by: profile?.id || null,
+                      request_text: pharmRequestText.trim(),
+                      priority: pharmPriority,
+                      status: 'pending',
+                      requested_by: profile?.id || null,
+                      requested_by_name: profile?.full_name || null,
                     })
                     writeAudit({
                       hospitalId: hospital?.id, actor: profile,
-                      action: 'prescription.nurse_sent_to_pharmacy',
-                      entityType: 'prescription', entityId: null,
+                      action: 'pharmacy_request.sent',
+                      entityType: 'pharmacy_request', entityId: null,
                       patientId: patient.id,
-                      summary: `Nurse sent ${pharmDrug.trim()} (qty ${pharmQty.trim()}) to pharmacy for ${patient.full_name}`,
-                      metadata: { drug_name: pharmDrug.trim(), quantity: pharmQty.trim(), notes: pharmNotes.trim() || null },
+                      summary: `Sent pharmacy request "${pharmRequestText.trim().slice(0, 60)}${pharmRequestText.trim().length > 60 ? '…' : ''}" for ${patient.full_name} (${pharmPriority})`,
+                      metadata: { patient_id: patient.id, patient_name: patient.full_name, request_text: pharmRequestText.trim(), priority: pharmPriority },
                     })
-                    showToast(`"${pharmDrug}" sent to Pharmacy for ${patient.full_name}`)
+                    showToast(`Pharmacy request sent for ${patient.full_name}`)
                     setShowPharmModal(false)
-                    setPharmDrug(''); setPharmQty(''); setPharmNotes('')
+                    setPharmRequestText(''); setPharmPriority('routine')
                   } catch (err) {
                     setPharmError(err.message || 'Could not send to pharmacy.')
                   } finally {
@@ -537,16 +536,44 @@ export default function PatientProfile({ patientId, onClose }){
                   }
                 }}>
                   <div className="field">
-                    <label>Drug Name *</label>
-                    <input value={pharmDrug} onChange={e => setPharmDrug(e.target.value)} placeholder="e.g. Paracetamol 500mg" autoFocus required />
+                    <label>Medication Request *</label>
+                    <textarea
+                      rows={3}
+                      value={pharmRequestText}
+                      onChange={e => setPharmRequestText(e.target.value)}
+                      placeholder="e.g. I need 1 tab metronidazole 200mg for Amari"
+                      autoFocus
+                      required
+                      style={{ width: '100%', padding: '10px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elevated)', color: 'var(--ivory)', resize: 'vertical' }}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      Patient <strong style={{ color: 'var(--teal)' }}>{patient.full_name}</strong> is auto-attached. The pharmacist will see this as plain text with your name, time, and date.
+                    </div>
                   </div>
                   <div className="field">
-                    <label>Quantity *</label>
-                    <input value={pharmQty} onChange={e => setPharmQty(e.target.value)} placeholder="e.g. 20 tablets" required />
-                  </div>
-                  <div className="field">
-                    <label>Notes (optional)</label>
-                    <input value={pharmNotes} onChange={e => setPharmNotes(e.target.value)} placeholder="e.g. For headache, give TDS" />
+                    <label>Priority</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {[
+                        { value: 'routine', label: 'Routine', color: 'var(--teal)' },
+                        { value: 'urgent', label: 'Urgent', color: 'var(--gold)' },
+                        { value: 'stat', label: 'STAT', color: 'var(--danger)' },
+                      ].map(p => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          className={`btn ${pharmPriority === p.value ? 'btn-primary' : 'btn-ghost'}`}
+                          style={{
+                            width: 'auto', flex: 1, padding: '8px 12px', fontSize: 12,
+                            background: pharmPriority === p.value ? p.color : 'rgba(255,255,255,0.015)',
+                            color: pharmPriority === p.value ? '#fff' : 'var(--muted)',
+                            borderColor: pharmPriority === p.value ? p.color : 'var(--line)',
+                          }}
+                          onClick={() => setPharmPriority(p.value)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </form>
               </div>
